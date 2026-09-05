@@ -1,15 +1,30 @@
-# Architecture
-
-> This document describes the planned system architecture.
-> It will be finalized during Phase 0 after the problem statement is received.
-
----
+# Architecture — DealFlow360
 
 ## Overview
 
 This project uses a **layered monolith** architecture with strict separation of concerns.
 
 A clean modular monolith is preferred for a hackathon over microservices — simpler to develop, deploy, and explain during presentation. Microservices will only be considered if the problem genuinely requires them.
+
+---
+
+## Architectural Approaches Considered
+
+### Approach A — Layered monolith (chosen)
+
+Route → Controller → Service → Repository → Postgres, single deployable.
+
+- ✅ Fastest to build in 24h, fits scaffold as-is, easiest for a 4-person team to reason about.
+- ❌ Deal-health background job and billing-cycle job run in-process — acceptable at hackathon scale, would need extraction at real scale.
+
+### Approach B — Monolith + separate worker process for scheduled jobs
+
+Same as A, but deal-health scans and subscription billing cycles run in a second Node process reading the same DB.
+
+- ✅ Cleaner separation, demonstrates system-design maturity to judges.
+- ❌ Extra process to run/demo, more moving parts to debug live — real risk given the time budget.
+
+**Decision: Approach A.** The "scheduled job" is simulated with a `node-cron` task inside the same Express process. Approach B was considered and rejected purely for time-budget reasons at hackathon scale — see `technology-decisions.md`.
 
 ---
 
@@ -104,7 +119,13 @@ backend/src/modules/<module-name>/
   └── <module>.test.ts
 ```
 
-**Modules will be created after Phase 0 identifies the actual domain.**
+**Modules (per the DealFlow360 domain, built in this order — see `development-workflow.md` for the hour-by-hour plan):**
+
+```
+auth, admin (products/price-lists/customers/ceilings/warehouses/plans),
+quotations, discount-engine, approvals, fulfillment, billing,
+portal, upsell, deal-health, reporting
+```
 
 ---
 
@@ -198,16 +219,14 @@ Frontend → http://localhost:5173
 
 ---
 
-## Assumptions (to be validated during Phase 0)
+## Confirmed Assumptions
 
-- [ ] Single-database architecture is sufficient
-- [ ] Monolith backend is appropriate
-- [ ] REST API is the right paradigm (not GraphQL/WebSocket)
-- [ ] React is the right frontend framework
-- [ ] Authentication is required at all
-
-These assumptions will be confirmed or revised during Phase 0.
+- [x] Single-database architecture is sufficient (PostgreSQL, relational domain)
+- [x] Monolith backend is appropriate (Approach A above)
+- [x] REST API is the right paradigm (not GraphQL/WebSocket)
+- [x] React is the right frontend framework
+- [x] Authentication is required — two fully separate schemes (internal JWT, portal magic-link)
 
 ---
 
-*Last updated: scaffold initialization — awaiting problem statement*
+*Last updated: Phase 0 complete — DealFlow360*

@@ -67,69 +67,55 @@ For every major technology decision, complete this template:
 
 ---
 
-## Decisions
+## Decisions — DealFlow360
 
-> To be documented after Phase 0 analysis.
+| Decision | Choice | Reasoning |
+|---|---|---|
+| Backend runtime | Node.js + Express (already scaffolded) | Fast iteration on a rule-heavy service layer within a 24h window; team already has a TS scaffold in place |
+| Database | PostgreSQL (already scaffolded, docker-compose) | FK integrity across approval steps, billing splits, and the audit trail — relational by nature, not document-shaped |
+| ORM / query layer | Raw parameterized `pg` queries or Kysely (lightweight, type-safe, no new migration tooling) | The scaffold's `database.ts` already documents a parameterized-only pattern; avoid introducing Prisma's separate migration system mid-build |
+| Frontend | React + Vite (already scaffolded) | Two isolated route trees (internal vs. portal) with fast dev-server iteration |
+| Scheduled jobs | `node-cron` in-process | Deal-health and billing-cycle checks need to run periodically; a second process is unjustified overhead at hackathon scale (see `architecture.md` §Approach B) |
+| Discount risk scoring | Rule-based weighted formula (v1); optional logistic-regression layer (v2, if time allows) | FR3 needs a working answer immediately; an ML layer is additive polish, not core path |
 
 ### Backend
 
-*(Pending problem statement)*
-
----
+Node.js + Express + TypeScript, layered monolith (Route → Controller → Service → Repository).
 
 ### Frontend
 
-*(Pending problem statement)*
-
----
+React + Vite + TypeScript, two isolated route trees: `/app/*` (internal) and `/portal/*` (customer).
 
 ### Database
 
-*(Pending problem statement)*
-
-**Key questions to answer:**
-- Is the data relational or document-oriented?
-- Do we need ACID transactions?
-- What are the query patterns?
-- What scale is expected?
-- Does the team know how to design the schema for this database?
-
----
+PostgreSQL, relational — FK-heavy domain (approvals, billing, audit trail) requires ACID
+transactions and referential integrity that a document store would not enforce for free.
 
 ### Authentication Strategy
 
-*(Pending problem statement)*
-
-**Key questions:**
-- Does the problem require user authentication at all?
-- Are there roles / permissions?
-- Should we build auth or integrate an auth provider?
-- If JWT: what is the token lifetime strategy?
-
----
+Two fully separate schemes, per NFR2:
+- **Internal (rep/manager/admin):** JWT, short-lived access token.
+- **Portal (customer):** magic-link token, no shared session/table with internal auth.
 
 ### Testing Tooling
 
-*(Pending problem statement)*
-
----
+Vitest (already scaffolded for backend). 70% coverage floor on discount engine and
+warehouse-split functions specifically (NFR5); 80% floor on the service layer generally.
 
 ### Infrastructure / Deployment
 
-*(Pending problem statement)*
-
----
+Docker Compose for local Postgres; backend and frontend run as local dev servers
+(`http://localhost:4000`, `http://localhost:5173`) for the hackathon demo.
 
 ### External Services
 
-*(List any external APIs, AI services, cloud storage, etc. decided during Phase 0)*
-
-For each external service:
+None required — all business logic is built and owned by the team per the hard constraint
+that Firebase/Supabase are forbidden as primary backend/database architecture.
 
 | Service | Purpose | Why Required | Fallback | Data Sent | Privacy |
 |---------|---------|-------------|---------|---------|---------|
-| | | | | | |
+| — | — | — | — | — | — |
 
 ---
 
-*Last updated: scaffold initialization — awaiting problem statement and Phase 0*
+*Last updated: Phase 0 complete — DealFlow360*
