@@ -1,31 +1,15 @@
 import { AppError, Errors } from '../../errors/AppError';
 import { mapDbError } from '../../shared/crud/dbErrors';
 import { withTransaction } from '../../shared/db/withTransaction';
-import { findApprovalLevelsAscending, ApprovalLevelRef } from '../../shared/approvalLevels';
+import { findApprovalLevelsAscending, approvalChainForRisk } from '../../shared/approvalLevels';
 import { dealHealthService } from '../deal-health/deal-health.service';
 import { insertAuditLog } from '../../shared/auditLog';
 import { runPostCommit } from '../../shared/postCommit';
-import { evaluateQuotationDiscounts, RiskLevel } from './discountEngine';
+import { evaluateQuotationDiscounts } from './discountEngine';
 import { discountEngineRepository } from './discount-engine.repository';
 import { CheckDiscountsResult } from './discount-engine.model';
 
 const CHECKABLE_STATUSES = new Set(['DRAFT', 'SUBMITTED', 'NEGOTIATION']);
-
-/**
- * Maps a blended risk level to the approval_levels row that should review
- * it: MEDIUM routes to the lowest configured level (e.g. Sales Manager),
- * HIGH routes to the highest configured level (e.g. Finance). There is no
- * separate risk->level mapping table in the shipped schema, so this is
- * derived dynamically from whatever levels admins have configured via
- * /admin/approval-levels, rather than hardcoding level numbers.
- */
-function pickApprovalLevel(
-  riskLevel: RiskLevel,
-  levelsAscending: ApprovalLevelRef[],
-): ApprovalLevelRef | null {
-  if (riskLevel === 'LOW' || levelsAscending.length === 0) return null;
-  return riskLevel === 'HIGH' ? levelsAscending[levelsAscending.length - 1]! : levelsAscending[0]!;
-}
 
 export const discountEngineService = {
   /**
@@ -61,7 +45,11 @@ export const discountEngineService = {
     // Step 2 — pure evaluation (no I/O, already unit-tested in isolation).
     const evaluation = evaluateQuotationDiscounts(items, rules, quotation.customer_tier_id);
 
-    const targetLevel = pickApprovalLevel(evaluation.riskLevel, approvalLevels);
+    // The full ordered chain this risk level must clear (e.g. HIGH ->
+    // Sales Manager then Finance). The request is always opened at the FIRST
+    // step; approvals.service advances to the next step on each approval.
+    const chain = approvalChainForRisk(evaluation.riskLevel, approvalLevels);
+    const targetLevel = chain[0] ?? null;
     if (evaluation.riskLevel !== 'LOW' && !targetLevel) {
       throw Errors.businessRuleViolation(
         'Quotation requires approval but no approval levels are configured',

@@ -15,7 +15,12 @@ import { ApprovalRequest } from './approvals.model';
  * any test.
  */
 vi.mock('./approvals.repository');
-vi.mock('../../shared/approvalLevels');
+// Only the DB-hitting lookup is mocked; approvalChainForRisk is pure and
+// stays real so the sequential-chain logic is exercised, not stubbed.
+vi.mock('../../shared/approvalLevels', async (importActual) => ({
+  ...(await importActual<typeof import('../../shared/approvalLevels')>()),
+  findApprovalLevelsAscending: vi.fn(),
+}));
 
 const FAKE_CLIENT = {} as never;
 
@@ -35,6 +40,8 @@ function makeRequest(overrides: Partial<ApprovalRequest> = {}): ApprovalRequest 
     assigned_to: null,
     approval_level_id: 'level-1',
     approval_level: 'Sales Manager Review',
+    approval_level_num: 1,
+    approval_level_required_role: 'SALES_MANAGER',
     status: 'PENDING',
     reason: null,
     requested_at: '2026-01-01T00:00:00.000Z',
@@ -42,6 +49,11 @@ function makeRequest(overrides: Partial<ApprovalRequest> = {}): ApprovalRequest 
     ...overrides,
   };
 }
+
+const LEVELS = [
+  { id: 'level-1', level: 1, required_role: 'SALES_MANAGER' },
+  { id: 'level-2', level: 2, required_role: 'FINANCE' },
+];
 
 describe('approvalsService.act', () => {
   beforeEach(() => {
@@ -54,6 +66,11 @@ describe('approvalsService.act', () => {
       comment: null,
       created_at: '2026-01-01T00:00:00.000Z',
     });
+    // Sequential-chain lookups used by the APPROVED path — default to a
+    // single-step (MEDIUM) chain so existing finalization tests are unaffected.
+    vi.mocked(approvalsRepository.findLatestRiskLevelForQuotation).mockResolvedValue('MEDIUM');
+    vi.mocked(findApprovalLevelsAscending).mockResolvedValue(LEVELS);
+    vi.mocked(approvalsRepository.createNextChainRequest).mockResolvedValue('req-next');
   });
 
   it('rejects an unknown approval request', async () => {
@@ -210,8 +227,8 @@ describe('approvalsService.act', () => {
       makeRequest({ status: 'ESCALATED' }),
     );
     vi.mocked(findApprovalLevelsAscending).mockResolvedValue([
-      { id: 'level-1', level: 1 },
-      { id: 'level-2', level: 2 },
+      { id: 'level-1', level: 1, required_role: 'SALES_MANAGER' },
+      { id: 'level-2', level: 2, required_role: 'FINANCE' },
     ]);
     vi.mocked(approvalsRepository.createEscalatedRequest).mockResolvedValue('req-2');
 
@@ -236,8 +253,8 @@ describe('approvalsService.act', () => {
       makeRequest({ status: 'ESCALATED' }),
     );
     vi.mocked(findApprovalLevelsAscending).mockResolvedValue([
-      { id: 'level-1', level: 1 },
-      { id: 'level-2', level: 2 },
+      { id: 'level-1', level: 1, required_role: 'SALES_MANAGER' },
+      { id: 'level-2', level: 2, required_role: 'FINANCE' },
     ]);
 
     await expect(
@@ -249,5 +266,108 @@ describe('approvalsService.act', () => {
     ).rejects.toMatchObject({ statusCode: 422 });
 
     expect(approvalsRepository.createEscalatedRequest).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Regression for P0 #2 — sequential approval / role enforcement.
+   * Before: a Sales Manager could approve any level (incl. a Finance step),
+   * a real Finance user was refused at the route, and approving the first
+   * step finalized the quotation with no second step.
+   */
+  describe('sequential chain + per-level role', () => {
+    it('blocks a Sales Manager from acting on a Finance-level step (403)', async () => {
+      vi.mocked(approvalsRepository.findByIdForUpdate).mockResolvedValue(
+        makeRequest({
+          approval_level_id: 'level-2',
+          approval_level: 'Finance Review',
+          approval_level_required_role: 'FINANCE',
+        }),
+      );
+
+      await expect(
+        approvalsService.act('req-1', {
+          action: 'APPROVED',
+          userId: 'manager-1',
+          actorRole: 'SALES_MANAGER',
+        }),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(approvalsRepository.insertAction).not.toHaveBeenCalled();
+    });
+
+    it('lets a Finance user act on the Finance-level step', async () => {
+      vi.mocked(approvalsRepository.findByIdForUpdate).mockResolvedValue(
+        makeRequest({
+          approval_level_id: 'level-2',
+          approval_level_required_role: 'FINANCE',
+        }),
+      );
+      vi.mocked(approvalsRepository.updateStatus).mockResolvedValue(
+        makeRequest({ approval_level_id: 'level-2', status: 'APPROVED' }),
+      );
+      vi.mocked(approvalsRepository.findLatestRiskLevelForQuotation).mockResolvedValue('HIGH');
+
+      await approvalsService.act('req-1', {
+        action: 'APPROVED',
+        userId: 'finance-1',
+        actorRole: 'FINANCE',
+      });
+
+      // level-2 is the last step of the HIGH chain -> quotation finalized.
+      expect(approvalsRepository.updateQuotationStatus).toHaveBeenCalledWith(
+        FAKE_CLIENT,
+        'quote-1',
+        'APPROVED',
+      );
+    });
+
+    it('approving the Manager step on a HIGH-risk quote opens the Finance step, not APPROVED', async () => {
+      vi.mocked(approvalsRepository.findByIdForUpdate).mockResolvedValue(
+        makeRequest({ approval_level_id: 'level-1', approval_level_required_role: 'SALES_MANAGER' }),
+      );
+      vi.mocked(approvalsRepository.updateStatus).mockResolvedValue(
+        makeRequest({ status: 'APPROVED' }),
+      );
+      vi.mocked(approvalsRepository.findLatestRiskLevelForQuotation).mockResolvedValue('HIGH');
+
+      const result = await approvalsService.act('req-1', {
+        action: 'APPROVED',
+        userId: 'manager-1',
+        actorRole: 'SALES_MANAGER',
+      });
+
+      expect(result.nextRequestId).toBe('req-next');
+      expect(approvalsRepository.createNextChainRequest).toHaveBeenCalledWith(
+        FAKE_CLIENT,
+        expect.objectContaining({ approvalLevelId: 'level-2' }),
+      );
+      // The quotation must NOT be finalized — Finance still has to act.
+      expect(approvalsRepository.updateQuotationStatus).not.toHaveBeenCalledWith(
+        FAKE_CLIENT,
+        'quote-1',
+        'APPROVED',
+      );
+    });
+
+    it('approving the single MEDIUM-risk step finalizes the quotation', async () => {
+      vi.mocked(approvalsRepository.findByIdForUpdate).mockResolvedValue(makeRequest());
+      vi.mocked(approvalsRepository.updateStatus).mockResolvedValue(
+        makeRequest({ status: 'APPROVED' }),
+      );
+      vi.mocked(approvalsRepository.findLatestRiskLevelForQuotation).mockResolvedValue('MEDIUM');
+
+      const result = await approvalsService.act('req-1', {
+        action: 'APPROVED',
+        userId: 'manager-1',
+        actorRole: 'SALES_MANAGER',
+      });
+
+      expect(result.nextRequestId).toBeNull();
+      expect(approvalsRepository.createNextChainRequest).not.toHaveBeenCalled();
+      expect(approvalsRepository.updateQuotationStatus).toHaveBeenCalledWith(
+        FAKE_CLIENT,
+        'quote-1',
+        'APPROVED',
+      );
+    });
   });
 });

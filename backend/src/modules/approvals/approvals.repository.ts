@@ -75,7 +75,8 @@ export const approvalsRepository = {
    */
   async findByIdForUpdate(client: PoolClient, id: string): Promise<ApprovalRequest | null> {
     const { rows } = await client.query(
-      `SELECT ar.*, al.name AS approval_level
+      `SELECT ar.*, al.name AS approval_level, al.level AS approval_level_num,
+              al.required_role AS approval_level_required_role
        FROM approval_requests ar
        JOIN approval_levels al ON al.id = ar.approval_level_id
        WHERE ar.id = $1
@@ -83,6 +84,40 @@ export const approvalsRepository = {
       [id],
     );
     return (rows[0] as ApprovalRequest | undefined) ?? null;
+  },
+
+  /**
+   * The highest per-item risk level from the quotation's most recent
+   * discount evaluation — used by `act` to know how many approval steps the
+   * chain has (MEDIUM = 1, HIGH = 2). Returns null if never evaluated.
+   */
+  async findLatestRiskLevelForQuotation(
+    client: PoolClient,
+    quotationId: string,
+  ): Promise<'LOW' | 'MEDIUM' | 'HIGH' | null> {
+    const { rows } = await client.query(
+      `SELECT risk_level
+       FROM discount_evaluations
+       WHERE quotation_id = $1
+       ORDER BY CASE risk_level WHEN 'HIGH' THEN 3 WHEN 'MEDIUM' THEN 2 ELSE 1 END DESC,
+                evaluated_at DESC
+       LIMIT 1`,
+      [quotationId],
+    );
+    return (rows[0] as { risk_level: 'LOW' | 'MEDIUM' | 'HIGH' } | undefined)?.risk_level ?? null;
+  },
+
+  async createNextChainRequest(
+    client: PoolClient,
+    input: { quotationId: string; requestedBy: string; approvalLevelId: string; reason: string },
+  ): Promise<string> {
+    const { rows } = await client.query(
+      `INSERT INTO approval_requests (quotation_id, requested_by, approval_level_id, reason)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id`,
+      [input.quotationId, input.requestedBy, input.approvalLevelId, input.reason],
+    );
+    return (rows[0] as { id: string }).id;
   },
 
   async listActions(approvalRequestId: string): Promise<ApprovalActionRow[]> {
