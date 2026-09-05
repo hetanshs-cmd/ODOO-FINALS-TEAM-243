@@ -1,6 +1,6 @@
-# Testing Strategy
+# Testing Strategy — DealFlow360
 
-> Testing approach and targets. Specific test cases will be added during Phase 0.
+> Phase 0 complete. Coverage targets confirmed per NFR5.
 
 ---
 
@@ -24,15 +24,29 @@ Test business logic in isolation.
 - Test utility functions
 - Test edge cases
 
-**Target:** Service layer ≥ 80% coverage
+**Targets (NFR5):**
+- Discount engine (`discountEngine.ts`, `discount-engine.service.ts`) ≥ 70% — highest-risk logic
+- Warehouse-split service ≥ 70%
+- All other service layers ≥ 80%
 
 ```typescript
-// Example: Service unit test
-describe('UserService.createUser', () => {
-  it('should throw DUPLICATE_ENTRY when email already exists', async () => {
-    mockUserRepository.findByEmail.mockResolvedValue({ id: 1 });
-    await expect(userService.createUser({ email: 'test@test.com', ... }))
-      .rejects.toThrow(AppError);
+// Real example from auth.test.ts
+describe('authService.login', () => {
+  it('gives the same error for unknown email and wrong password', async () => {
+    // Prevents email enumeration — same code + message in both cases
+    vi.mocked(authRepository.findUserByEmail).mockResolvedValue(null);
+    let unknownEmailError: AppError | undefined;
+    try { await authService.login('ghost@example.com', 'pw'); }
+    catch (e) { unknownEmailError = e as AppError; }
+
+    const user = await makeUser();
+    vi.mocked(authRepository.findUserByEmail).mockResolvedValue(user);
+    let wrongPasswordError: AppError | undefined;
+    try { await authService.login(user.email, 'wrong'); }
+    catch (e) { wrongPasswordError = e as AppError; }
+
+    expect(unknownEmailError?.code).toBe(wrongPasswordError?.code);
+    expect(unknownEmailError?.message).toBe(wrongPasswordError?.message);
   });
 });
 ```
@@ -51,16 +65,13 @@ Test API endpoints with a real test database.
 **Target:** All critical API endpoints covered
 
 ```typescript
-// Example: Integration test
-describe('POST /api/v1/users', () => {
-  it('should return 201 with created user data', async () => {
-    const response = await request(app)
-      .post('/api/v1/users')
-      .send({ name: 'Test', email: 'test@test.com', password: 'Password123!' });
-
-    expect(response.status).toBe(201);
+// Real example — health endpoint integration test
+describe('GET /api/v1/health', () => {
+  it('should return 200 with db latency', async () => {
+    const response = await request(app).get('/api/v1/health');
+    expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
-    expect(response.body.data).not.toHaveProperty('password');
+    expect(response.body.data.dbLatencyMs).toBeTypeOf('number');
   });
 });
 ```
@@ -123,8 +134,9 @@ cd backend && npm run test:watch
 # Coverage report
 cd backend && npm run test:coverage
 
-# Specific test file
-cd backend && npm test -- src/modules/users/users.test.ts
+# Specific module test
+cd backend && npm test -- src/modules/auth/auth.test.ts
+cd backend && npm test -- src/modules/discount-engine/
 ```
 
 ---
@@ -134,20 +146,22 @@ cd backend && npm test -- src/modules/users/users.test.ts
 ```
 backend/tests/
   ├── unit/
-  │   ├── services/
-  │   └── validators/
-  ├── integration/
-  │   └── api/
-  └── validation/
-      └── schemas/
+  │   └── pagination.test.ts
+  └── integration/
+      └── health.test.ts
+
+# Module-level tests live alongside the module:
+backend/src/modules/
+  ├── auth/
+  │   └── auth.test.ts          ← 14 unit tests (mocked repo)
+  ├── discount-engine/
+  │   └── discountEngine.test.ts ← tests pure engine function
+  └── <module>/
+      └── <module>.test.ts
 ```
 
-Tests for a module may also live alongside the module:
-
-```
-backend/src/modules/users/
-  └── users.test.ts
-```
+**Unit tests mock the repository layer** (no DB needed, fast). 
+**Integration tests** in `backend/tests/integration/` use the real test DB (port 5433).
 
 ---
 
@@ -167,13 +181,15 @@ Coverage report generated with:
 cd backend && npm run test:coverage
 ```
 
-Coverage thresholds (enforced in CI):
+Coverage thresholds (enforced in CI — NFR5):
 
-| Layer | Threshold |
-|-------|-----------|
-| Services | ≥ 80% |
-| Repositories | ≥ 70% |
-| Validators | ≥ 90% |
+| Target | Threshold | Why |
+|--------|-----------|-----|
+| `discount-engine` module | ≥ 70% | Highest-risk business logic |
+| Warehouse-split service | ≥ 70% | Complex allocation algorithm |
+| All other services | ≥ 80% | General service layer target |
+| Repositories | ≥ 70% | SQL correctness |
+| Validators | comprehensive | Every invalid input shape |
 
 **Coverage is a guide — not a substitute for meaningful tests.**
 
@@ -187,4 +203,21 @@ Coverage thresholds (enforced in CI):
 
 ---
 
-*Last updated: scaffold initialization*
+## Priority Test Cases (Viva-critical)
+
+| Module | Test case | Why it matters |
+|--------|-----------|----------------|
+| Auth | Same error for unknown email vs wrong password | Prevents email enumeration |
+| Auth | Magic-link is one-time use | Security |
+| Auth | Magic-link expires after 15 min | Security |
+| Auth | `password_hash` never in response | Data exposure prevention |
+| Discount engine | Strictest ceiling wins across scopes | Core FR2 rule |
+| Discount engine | No matching rule → ceiling is 0 | Safe-by-default |
+| Discount engine | Blended score weights three signals | FR3 |
+| Portal | Customer cannot access another customer's quotation | NFR2, row-level isolation |
+| Portal | Counter-discount re-enters approval if over threshold | FR9 |
+| Fulfillment | Shortfall produces backorder, not silent failure | FR6 |
+
+---
+
+*Last updated: Phase 0 complete — DealFlow360*

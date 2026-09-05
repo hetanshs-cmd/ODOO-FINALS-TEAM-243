@@ -21,11 +21,14 @@ This project follows these security principles:
 - **Passwords** are hashed with bcrypt (work factor ≥ 12). Never stored as plaintext.
 - **SQL queries** are always parameterized. String interpolation into SQL is forbidden.
 - **Secrets** (JWT secret, DB credentials, API keys) live only in environment variables. Never hardcoded.
-- **JWT tokens** use short-lived access tokens. The signing secret comes from environment variables only.
-- **Input validation** is performed on every API endpoint that accepts input.
+- **JWT tokens:** Two separate schemes — `scope: "internal"` for staff, `scope: "portal"` for customers. Cross-scope use is rejected at verification.
+- **Portal isolation:** Every portal query enforces `customer_id` from the JWT — never from client input. Customers cannot access other customers' data.
+- **Magic-link tokens** are one-time-use (deleted on first verify) with a 15-minute TTL.
+- **Input validation** is performed on every API endpoint that accepts input (Zod schemas).
 - **Error responses** never expose stack traces, database errors, or internal details.
-- **CORS** is configured explicitly. Never uses `origin: '*'` in production.
-- **HTTP headers** are secured via Helmet.js.
+- **CORS** is configured explicitly to `FRONTEND_URL` only. Never uses `origin: '*'` in production.
+- **HTTP headers** are secured via Helmet.js (14 headers including CSP, X-Frame-Options, HSTS).
+- **Rate limiting** is applied globally: 100 requests per 15 minutes per IP.
 
 ## Known Security Checklist
 
@@ -34,11 +37,13 @@ Before any commit:
 ```
 [ ] No hardcoded passwords, secrets, or tokens
 [ ] No .env files committed (checked via .gitignore)
-[ ] All SQL queries parameterized
-[ ] All user input validated before processing
-[ ] Error responses contain no internal details
+[ ] All SQL queries parameterized ($1, $2 — never string concatenation)
+[ ] All user input validated before processing (Zod schema)
+[ ] Error responses contain no internal details, stack traces, or SQL
 [ ] Authentication applied to all protected routes
-[ ] Authorization checked at the service layer
+[ ] Authorization checked at the service layer (not route only)
+[ ] Portal endpoints enforce customer_id row-level check on every query
+[ ] JWT_SECRET is at least 32 characters (enforced by Zod at startup)
 ```
 
 ## Dependency Vulnerabilities
