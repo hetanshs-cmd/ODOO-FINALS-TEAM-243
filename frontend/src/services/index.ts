@@ -39,6 +39,9 @@ import {
   ApiRecommendation,
   ApiSalesSummary,
   ApiDiscountExceptions,
+  ApiCustomer,
+  ApiUser,
+  ApiTimelineEvent,
   ListQuery,
 } from './apiTypes';
 import { SalesOrder } from '../types';
@@ -86,6 +89,14 @@ export const quotationService = {
   },
   async checkDiscounts(quotationId: string): Promise<unknown> {
     return httpClient.post(`/quotations/${quotationId}/check-discounts`);
+  },
+  /**
+   * Real submit-for-approval transition (auto-runs discount governance
+   * check server-side). Use this instead of any client-side "submit"
+   * simulation — id comes from the URL, no body.
+   */
+  async submit(quotationId: string): Promise<ApiQuotation> {
+    return httpClient.post<ApiQuotation>(`/quotations/${quotationId}/submit`);
   },
   /** Converts a quotation into a real SalesOrder. id comes from the URL, no body. */
   async convert(quotationId: string): Promise<SalesOrder> {
@@ -267,6 +278,31 @@ export const productService = {
   },
   async getRecommendations(productId: string, query?: { type?: 'UPSELL' | 'CROSS_SELL'; min_margin_percent?: number }): Promise<ApiRecommendation[]> {
     return httpClient.get<ApiRecommendation[]>(`/products/${productId}/recommendations`, { query });
+  },
+};
+
+// 11a. CUSTOMER DIRECTORY (read-only; GET /customers)
+// Distinct from adminService.customers (ADMIN-only /admin/customers CRUD) —
+// this is the SALES_REP/SALES_MANAGER/ADMIN-visible directory used for
+// display/lookup (name, tier) on Quotations/Approvals/Invoices list pages.
+export const customerService = {
+  async getAll(query?: ListQuery): Promise<ApiCustomer[]> {
+    return httpClient.get<ApiCustomer[]>('/customers', { query });
+  },
+};
+
+// 11b. USER DIRECTORY (read-only; GET /users)
+// id/name/role lookup for approver/assignee/sales-rep display names.
+export const userService = {
+  async getAll(query?: ListQuery): Promise<ApiUser[]> {
+    return httpClient.get<ApiUser[]>('/users', { query });
+  },
+};
+
+// 11c. QUOTATION TIMELINE (audit-log-backed activity feed)
+export const quotationTimelineService = {
+  async getForQuotation(quotationId: string): Promise<ApiTimelineEvent[]> {
+    return httpClient.get<ApiTimelineEvent[]>(`/quotations/${quotationId}/timeline`);
   },
 };
 
