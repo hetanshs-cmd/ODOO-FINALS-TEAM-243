@@ -35,6 +35,7 @@ import { reconcileDeliveryAndBilling, calculateInvoiceTotals } from '../domain/b
 import { canUserPerformAction } from '../domain/permissions';
 import { useInvoices, useInvoice } from '../hooks/useInvoices';
 import { useQuotations } from '../hooks/useQuotations';
+import { useCustomers } from '../hooks/useCustomers';
 import { billingService, quotationService } from '../services';
 import {
   ApiInvoice,
@@ -57,9 +58,12 @@ type InvoiceStatusFilter = 'ALL' | 'ISSUED' | 'PARTIALLY_PAID' | 'PAID' | 'OVERD
 export const InvoicesListPage: React.FC = () => {
   const { invoices, loading, error } = useInvoices();
   const { quotations } = useQuotations();
+  const { customers } = useCustomers();
   const navigate = useNavigate();
 
   const quotationsById = useMemo(() => new Map(quotations.map((q) => [q.id, q])), [quotations]);
+  const customersById = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
+  const getCustomerName = (id: string | null | undefined) => (id && customersById.get(id)?.name) || 'Unknown Customer';
 
   // Filter and search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -127,7 +131,8 @@ export const InvoicesListPage: React.FC = () => {
       const q = searchQuery.toLowerCase().trim();
       if (q) {
         const matchesCode = inv.invoice_number?.toLowerCase().includes(q);
-        const matchesCustomer = inv.customer_id?.toLowerCase().includes(q);
+        const matchesCustomer =
+          inv.customer_id?.toLowerCase().includes(q) || getCustomerName(inv.customer_id).toLowerCase().includes(q);
         const matchesQuote =
           inv.quotation_id?.toLowerCase().includes(q) ||
           quotation?.quotation_number.toLowerCase().includes(q);
@@ -380,9 +385,9 @@ export const InvoicesListPage: React.FC = () => {
                         {inv.issued_at ? inv.issued_at.split('T')[0] : inv.created_at.split('T')[0]}
                       </td>
 
-                      {/* Customer — shown by id; no customer-directory lookup in this list page's scope. */}
-                      <td className="py-2.5 px-3 font-mono text-[11px] text-slate-900 whitespace-nowrap">
-                        {inv.customer_id}
+                      {/* Customer */}
+                      <td className="py-2.5 px-3 text-[11px] font-medium text-slate-900 whitespace-nowrap">
+                        {getCustomerName(inv.customer_id)}
                       </td>
 
                       {/* Originating Quotation */}
@@ -491,6 +496,9 @@ export const InvoiceDetailPage: React.FC = () => {
   const navigate = useNavigate();
 
   const { invoice, loading, error, refetch } = useInvoice(id);
+  const { customers } = useCustomers();
+  const customerName =
+    (invoice && customers.find((c) => c.id === invoice.customer_id)?.name) || invoice?.customer_id || '—';
 
   const [activeTab, setActiveTab] = useState<'LINES' | 'PAYMENTS' | 'AUDIT'>('LINES');
 
@@ -628,7 +636,7 @@ export const InvoiceDetailPage: React.FC = () => {
       {/* Top Header & Breadcrumbs */}
       <PageHeader
         title={`Invoice ${invoice.invoice_number}`}
-        description={`Commercial invoice for customer ${invoice.customer_id}${invoice.issued_at ? ` issued on ${new Date(invoice.issued_at).toLocaleDateString()}` : ''}. TODO: resolve customer display name once a customers directory hook lands.`}
+        description={`Commercial invoice for customer ${customerName}${invoice.issued_at ? ` issued on ${new Date(invoice.issued_at).toLocaleDateString()}` : ''}.`}
         breadcrumbs={[
           { label: 'Workspace' },
           { label: 'Invoices', href: '/invoices' },
@@ -711,8 +719,7 @@ export const InvoiceDetailPage: React.FC = () => {
           <div className="space-y-2.5">
             <div>
               <span className="text-slate-400 font-medium text-[11px] block">Customer</span>
-              {/* TODO: enrich with customer name once useCustomers()/directoryService is reconciled in. */}
-              <span className="font-mono font-semibold text-slate-900 text-sm">{invoice.customer_id}</span>
+              <span className="font-semibold text-slate-900 text-sm">{customerName}</span>
             </div>
             <div>
               <span className="text-slate-400 font-medium text-[11px] block">Originating Quotation</span>
