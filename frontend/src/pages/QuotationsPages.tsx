@@ -309,6 +309,13 @@ export const QuotationsListPage: React.FC = () => {
           const dateA = a.updated_at ? new Date(a.updated_at).getTime() : 0;
           const dateB = b.updated_at ? new Date(b.updated_at).getTime() : 0;
           comparison = dateA - dateB;
+          // Tiebreaker: newest-created first, so a freshly added quotation
+          // lands on top even when timestamps collide at second precision.
+          if (comparison === 0) {
+            const createdA = a.created_at ? new Date(a.created_at).getTime() : 0;
+            const createdB = b.created_at ? new Date(b.created_at).getTime() : 0;
+            comparison = createdA - createdB;
+          }
           break;
         }
       }
