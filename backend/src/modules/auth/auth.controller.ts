@@ -5,7 +5,7 @@
  * No business logic and no SQL here — see auth.service.ts / auth.repository.ts.
  */
 import { Request, Response, NextFunction } from 'express';
-import { sendSuccess } from '../../utils/response';
+import { sendCreated, sendSuccess } from '../../utils/response';
 import * as authService from './auth.service';
 
 export async function login(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -13,6 +13,16 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
     const { email, password } = req.body;
     const result = await authService.login(email, password);
     sendSuccess({ res, data: result, message: 'Login successful' });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function signup(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { name, email, password, role } = req.body;
+    const result = await authService.signup({ name, email, password, role });
+    sendCreated({ res, data: result, message: 'Account created successfully' });
   } catch (error) {
     next(error);
   }

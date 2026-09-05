@@ -6,11 +6,17 @@
  */
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
-import { AppError } from '../../errors/AppError';
+import { AppError, Errors } from '../../errors/AppError';
+import { mapDbError } from '../../shared/crud/dbErrors';
 import { config } from '../../config/env';
 import { signInternalToken, signPortalToken } from '../../utils/jwt';
 import * as authRepository from './auth.repository';
 import { LoginResult, RequestMagicLinkResult, VerifyMagicLinkResult } from './auth.types';
+
+// Least-privileged internal role — applied when a signup request doesn't
+// specify one. Staff signup is the only flow this endpoint serves for now;
+// CUSTOMER accounts are provisioned via customer_users/admin, not self-signup.
+const DEFAULT_SIGNUP_ROLE = 'SALES_REP';
 
 /**
  * POST /auth/login
@@ -38,6 +44,60 @@ export async function login(email: string, password: string): Promise<LoginResul
   }
 
   await authRepository.updateLastLogin(user.id);
+
+  const accessToken = signInternalToken(user.id, user.role_name);
+
+  return {
+    accessToken,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role_name,
+    },
+  };
+}
+
+/**
+ * POST /auth/signup
+ *
+ * Creates a new internal (staff) user and logs them in immediately,
+ * returning the exact same { accessToken, user } shape as login() — so a
+ * client can treat signup and login responses identically.
+ */
+export async function signup(input: {
+  name: string;
+  email: string;
+  password: string;
+  role?: string;
+}): Promise<LoginResult> {
+  const existing = await authRepository.findUserByEmail(input.email);
+  if (existing) {
+    throw Errors.conflict('An account with this email already exists');
+  }
+
+  const roleName = input.role ?? DEFAULT_SIGNUP_ROLE;
+  const role = await authRepository.findRoleByName(roleName);
+  if (!role) {
+    throw new AppError('INVALID_ROLE', 400, `Role "${roleName}" does not exist`);
+  }
+
+  const passwordHash = await bcrypt.hash(input.password, config.BCRYPT_ROUNDS);
+
+  let user;
+  try {
+    user = await authRepository.createUser({
+      name: input.name,
+      email: input.email,
+      passwordHash,
+      roleId: role.id,
+    });
+  } catch (err) {
+    // Catches the race where two signups for the same email land between
+    // the pre-check above and this insert — the UNIQUE constraint on
+    // users.email is the real guard, this just gives it a clean 409.
+    throw mapDbError(err, 'User');
+  }
 
   const accessToken = signInternalToken(user.id, user.role_name);
 

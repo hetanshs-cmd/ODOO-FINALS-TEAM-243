@@ -2,6 +2,7 @@ import { Errors } from '../../errors/AppError';
 import { withTransaction } from '../../shared/db/withTransaction';
 import { roundMoney } from '../../shared/money';
 import { generateDocumentNumber } from '../../shared/documentNumber';
+import { insertAuditLog } from '../../shared/auditLog';
 import { getPaginationParams, buildPaginatedResult, PaginatedResult } from '../../utils/pagination';
 import { computeNextBillingDate } from './billingDates';
 import { billingRepository } from './billing.repository';
@@ -30,7 +31,11 @@ export const billingService = {
    * `planId` whenever the order contains recurring items — this is a
    * documented assumption, not a guess baked silently into the code.
    */
-  async generateBillingForOrder(salesOrderId: string, planId?: string): Promise<GenerateBillingResult> {
+  async generateBillingForOrder(
+    salesOrderId: string,
+    planId?: string,
+    actorId: string | null = null,
+  ): Promise<GenerateBillingResult> {
     const order = await billingRepository.findSalesOrderForBilling(salesOrderId);
     if (!order) throw Errors.notFound('Sales order');
 
@@ -121,6 +126,14 @@ export const billingService = {
           amount: currentPrice,
         });
       }
+
+      await insertAuditLog(client, {
+        entityType: 'sales_order',
+        entityId: salesOrderId,
+        action: 'BILLING_GENERATED',
+        actorId,
+        newValue: { invoiceId: invoice?.id ?? null, subscriptionId: subscription?.id ?? null },
+      });
 
       return { invoice, subscription };
     });

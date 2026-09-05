@@ -43,6 +43,8 @@ export interface QuotationItem {
   billing_type: 'ONE_TIME' | 'RECURRING';
   created_at: string;
   updated_at: string;
+  /** Computed from the product's cost_price, not stored — null when the product has none on record. */
+  margin_percent?: number | null;
 }
 
 export interface QuotationWithItems extends Quotation {
