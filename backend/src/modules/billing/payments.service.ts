@@ -1,6 +1,7 @@
 import { Errors } from '../../errors/AppError';
 import { withTransaction } from '../../shared/db/withTransaction';
 import { roundMoney } from '../../shared/money';
+import { insertAuditLog } from '../../shared/auditLog';
 import { billingRepository } from './billing.repository';
 import { paymentsRepository } from './payments.repository';
 import { Payment } from './payments.model';
@@ -18,7 +19,11 @@ interface RecordPaymentDto {
  * a real gateway webhook/status flow before this ever handles real money.
  */
 export const paymentsService = {
-  async recordPayment(invoiceId: string, dto: RecordPaymentDto): Promise<{ payment: Payment; invoice: Invoice }> {
+  async recordPayment(
+    invoiceId: string,
+    dto: RecordPaymentDto,
+    actorId: string | null = null,
+  ): Promise<{ payment: Payment; invoice: Invoice }> {
     const invoice = await billingRepository.findInvoiceById(invoiceId);
     if (!invoice) throw Errors.notFound('Invoice');
     if (invoice.status === 'PAID' || invoice.status === 'VOID') {
@@ -47,6 +52,15 @@ export const paymentsService = {
         status,
         status === 'PAID'
       );
+
+      await insertAuditLog(client, {
+        entityType: 'invoice',
+        entityId: invoiceId,
+        action: 'PAYMENT_RECORDED',
+        actorId,
+        oldValue: { status: locked.status },
+        newValue: { status, amount: dto.amount },
+      });
 
       return { payment, invoice: updatedInvoice };
     });

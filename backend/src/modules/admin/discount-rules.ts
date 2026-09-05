@@ -6,6 +6,10 @@ import {
   createCrudService,
 } from '../../shared/crud';
 
+// priority, sales_role, min_discount, approval_required, and approval_level
+// are writable here but reserved/unused by the evaluation engine
+// (discountEngine.ts only reads maxDiscount + scope) — a deliberate decision
+// to keep the column set future-proof, not an oversight.
 export interface DiscountRule {
   id: string;
   name: string;
