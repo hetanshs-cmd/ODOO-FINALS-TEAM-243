@@ -5,7 +5,7 @@ import { Button } from '../ui/Button';
 
 export interface DealHealthFlagCardProps {
   flag: ApiDealAlert;
-  /** Resolved by the caller when it already has the customer directory loaded. */
+  /** Overrides flag.customer_name; only needed if a caller has a fresher name than the alert's join. */
   customerName?: string;
   onOpenDeal?: (quotationId: string) => void;
   onNudgeRep?: (alertId: string) => void;
@@ -40,6 +40,7 @@ export const DealHealthFlagCard: React.FC<DealHealthFlagCardProps> = ({
   onEscalate,
   className = '',
 }) => {
+  const resolvedCustomerName = customerName ?? flag.customer_name;
   return (
     <div className={`p-4 bg-white rounded border border-slate-200 shadow-xs flex flex-col justify-between gap-3 ${className}`}>
       <div>
@@ -60,7 +61,7 @@ export const DealHealthFlagCard: React.FC<DealHealthFlagCardProps> = ({
         </div>
 
         <div className="text-xs text-slate-500 font-mono mb-1.5">
-          {customerName ? `${flag.quotation_number} • ${customerName}` : flag.quotation_number}
+          {resolvedCustomerName ? `${flag.quotation_number} • ${resolvedCustomerName}` : flag.quotation_number}
         </div>
 
         <p className="text-xs text-slate-700 leading-relaxed">{flag.message}</p>

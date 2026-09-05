@@ -1,8 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { PageHeader } from '../components/ui/PageHeader';
 import { useDealHealthAlerts } from '../hooks/useDealHealth';
-import { useQuotations } from '../hooks/useQuotations';
-import { useCustomers } from '../hooks/useCustomers';
 import { dealHealthService } from '../services';
 import { ApiError } from '../services/httpClient';
 import { DealHealthFlagCard } from '../components/domain/DealHealthFlagCard';
@@ -14,18 +12,6 @@ export const DealHealthPage: React.FC = () => {
   const { alerts, loading, error, refetch } = useDealHealthAlerts();
   const [actingOn, setActingOn] = useState<string | null>(null);
   const navigate = useNavigate();
-
-  // DealHealthFlagCard resolves the quotation code from the alert itself
-  // (joined server-side), but has no customer directory of its own — that's
-  // the caller's job per its `customerName` prop contract.
-  const { quotations } = useQuotations();
-  const { customers } = useCustomers();
-  const quotationsById = useMemo(() => new Map(quotations.map((q) => [q.id, q])), [quotations]);
-  const customersById = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
-  const getCustomerName = (quotationId: string) => {
-    const quotation = quotationsById.get(quotationId);
-    return (quotation && customersById.get(quotation.customer_id)?.name) || undefined;
-  };
 
   const handleOpenDeal = (quotationId: string) => {
     navigate(`/quotations/${quotationId}`);
@@ -95,7 +81,6 @@ export const DealHealthPage: React.FC = () => {
             <DealHealthFlagCard
               key={alert.id}
               flag={alert}
-              customerName={getCustomerName(alert.quotation_id)}
               onOpenDeal={handleOpenDeal}
               onNudgeRep={actingOn ? undefined : (id) => actOnAlert(id, 'NUDGED')}
               onEscalate={actingOn ? undefined : (id) => actOnAlert(id, 'ESCALATED')}

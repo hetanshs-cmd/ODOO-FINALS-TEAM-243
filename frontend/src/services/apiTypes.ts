@@ -305,6 +305,8 @@ export interface ApiDealAlert {
   quotation_id: string;
   /** Joined in by the list endpoint so callers don't need a second lookup. */
   quotation_number: string;
+  customer_id: string;
+  customer_name: string;
   alert_type: ApiDealAlertType;
   severity: ApiDealAlertSeverity;
   message: string;
