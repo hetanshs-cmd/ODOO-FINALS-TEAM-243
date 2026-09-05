@@ -4,8 +4,8 @@
  */
 
 import React from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { FileText, MessageSquare, User, ShieldCheck, LogOut } from 'lucide-react';
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { FileText, MessageSquare, User, ShieldCheck, LogOut, ArrowLeft } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { usePortalProfile, usePortalNegotiations } from '../hooks/usePortal';
 
@@ -14,6 +14,7 @@ export const PortalShell: React.FC = () => {
   const { profile } = usePortalProfile();
   const { negotiations } = usePortalNegotiations();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleSignOut = () => {
     logout();
@@ -105,6 +106,16 @@ export const PortalShell: React.FC = () => {
 
       {/* Customer Portal Content Surface */}
       <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6">
+        {location.pathname !== '/portal/quotation' && (
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="inline-flex items-center gap-1.5 mb-3 text-xs font-semibold text-[#4B5563] hover:text-[#714B67] border border-[#E5E7EB] px-2.5 py-1.5 rounded-md transition-colors cursor-pointer shadow-2xs bg-white"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Back</span>
+          </button>
+        )}
         <Outlet />
       </main>
 

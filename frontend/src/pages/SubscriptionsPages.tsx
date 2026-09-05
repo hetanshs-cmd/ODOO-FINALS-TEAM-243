@@ -100,7 +100,7 @@ export const SubscriptionsListPage: React.FC = () => {
       align: 'right',
       render: (s) => (
         <span className="font-mono font-bold text-slate-900 text-xs">
-          ${Number(s.current_price).toLocaleString()}/mo
+          ₹{Number(s.current_price).toLocaleString()}/mo
         </span>
       ),
     },
@@ -159,7 +159,7 @@ export const SubscriptionsListPage: React.FC = () => {
       key: 'amount',
       header: 'Credit Amount',
       align: 'right',
-      render: (c) => <span className="font-mono font-bold text-rose-700 text-xs">${Number(c.amount).toFixed(2)}</span>,
+      render: (c) => <span className="font-mono font-bold text-rose-700 text-xs">₹{Number(c.amount).toFixed(2)}</span>,
     },
     {
       key: 'status',
@@ -238,7 +238,7 @@ export const SubscriptionsListPage: React.FC = () => {
             <TrendingUp className="w-3.5 h-3.5 text-emerald-700" />
             Monthly Recurring Revenue (MRR)
           </div>
-          <div className="text-2xl font-bold font-mono text-emerald-900">${Math.round(totalMRR).toLocaleString()}</div>
+          <div className="text-2xl font-bold font-mono text-emerald-900">₹{Math.round(totalMRR).toLocaleString()}</div>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-2xs">
@@ -246,7 +246,7 @@ export const SubscriptionsListPage: React.FC = () => {
             <DollarSign className="w-3.5 h-3.5 text-blue-800" />
             Annual Recurring Run-Rate (ARR)
           </div>
-          <div className="text-2xl font-bold font-mono text-blue-950">${Math.round(totalARR).toLocaleString()}</div>
+          <div className="text-2xl font-bold font-mono text-blue-950">₹{Math.round(totalARR).toLocaleString()}</div>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-2xs">
@@ -254,7 +254,7 @@ export const SubscriptionsListPage: React.FC = () => {
             <FileText className="w-3.5 h-3.5 text-rose-700" />
             Credit Notes Issued
           </div>
-          <div className="text-2xl font-bold font-mono text-rose-900">${totalCreditIssued.toFixed(2)}</div>
+          <div className="text-2xl font-bold font-mono text-rose-900">₹{totalCreditIssued.toFixed(2)}</div>
           <div className="text-[11px] text-slate-500 mt-1">{creditNotes.length} credit notes recorded</div>
         </div>
       </div>
@@ -506,7 +506,7 @@ export const SubscriptionDetailPage: React.FC = () => {
           <div>
             <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">Active Plan & Rate</span>
             <div className="font-mono font-bold text-slate-900 text-sm">{sub.plan_id}</div>
-            <div className="text-blue-900 font-mono font-bold text-xs mt-0.5">${Number(sub.current_price).toLocaleString()}/mo</div>
+            <div className="text-blue-900 font-mono font-bold text-xs mt-0.5">₹{Number(sub.current_price).toLocaleString()}/mo</div>
           </div>
 
           <div>
@@ -578,7 +578,7 @@ export const SubscriptionDetailPage: React.FC = () => {
                       <Link to={`/invoices/${inv.id}`} className="hover:underline">{inv.invoice_number}</Link>
                     </td>
                     <td className="py-3 px-4"><StatusBadge status={inv.status} size="sm" /></td>
-                    <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">${Number(inv.total).toLocaleString()}</td>
+                    <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">₹{Number(inv.total).toLocaleString()}</td>
                     <td className="py-3 px-4 font-mono text-slate-600">{inv.issued_at ? new Date(inv.issued_at).toLocaleDateString() : '—'}</td>
                   </tr>
                 ))}
@@ -620,7 +620,7 @@ export const SubscriptionDetailPage: React.FC = () => {
                     <tr key={cn.id} className="hover:bg-slate-50/50">
                       <td className="py-3 px-4 font-mono font-bold text-rose-900">{cn.id}</td>
                       <td className="py-3 px-4 font-mono text-slate-600">{new Date(cn.created_at).toLocaleDateString()}</td>
-                      <td className="py-3 px-4 text-right font-mono font-bold text-rose-700 text-sm">${Number(cn.amount).toFixed(2)}</td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-rose-700 text-sm">₹{Number(cn.amount).toFixed(2)}</td>
                       <td className="py-3 px-4 text-center">
                         <span
                           className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${

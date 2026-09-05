@@ -44,7 +44,7 @@ export const SubscriptionBillingLine: React.FC<SubscriptionBillingLineProps> = (
       <div className="flex items-center gap-3">
         <StatusBadge status={status} size="sm" />
         <div className="font-mono font-bold text-slate-900 text-sm">
-          ${(amount ?? 0).toLocaleString()}/{cycle === 'Monthly' ? 'mo' : 'yr'}
+          ₹{(amount ?? 0).toLocaleString()}/{cycle === 'Monthly' ? 'mo' : 'yr'}
         </div>
       </div>
     </div>
@@ -81,7 +81,7 @@ export const ProrationSummary: React.FC<ProrationSummaryProps> = ({
         <div className="flex justify-between">
           <span>Rate Change:</span>
           <span className="font-mono flex items-center gap-1">
-            ${previousAmount} <ArrowRight className="w-3 h-3 text-slate-400" /> ${newAmount}
+            ₹{previousAmount} <ArrowRight className="w-3 h-3 text-slate-400" /> ₹{newAmount}
           </span>
         </div>
         <div className="flex justify-between">
@@ -91,7 +91,7 @@ export const ProrationSummary: React.FC<ProrationSummaryProps> = ({
       </div>
       <div className="pt-2 border-t border-slate-200 flex justify-between font-bold text-slate-900">
         <span>Net Immediate Credit / Charge:</span>
-        <span className="font-mono text-blue-950">${proratedAdjustment.toFixed(2)}</span>
+        <span className="font-mono text-blue-950">₹{proratedAdjustment.toFixed(2)}</span>
       </div>
     </div>
   );

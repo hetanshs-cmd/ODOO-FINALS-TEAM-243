@@ -212,7 +212,7 @@ export const CancellationModal: React.FC<CancellationModalProps> = ({
             <div className="flex justify-between items-center py-2 border-y border-slate-200">
               <span className="text-slate-600">Calculated Refundable Amount:</span>
               <span className="font-mono font-bold text-base text-rose-700">
-                ${refund.creditAmount.toFixed(2)}
+                ₹{refund.creditAmount.toFixed(2)}
               </span>
             </div>
 

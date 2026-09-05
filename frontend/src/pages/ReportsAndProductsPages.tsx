@@ -26,7 +26,7 @@ export const ProductsPage: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span>Base Price:</span>
-                <span className="font-mono font-semibold text-slate-900">${(p.basePrice ?? 0).toLocaleString()}</span>
+                <span className="font-mono font-semibold text-slate-900">₹{(p.basePrice ?? 0).toLocaleString()}</span>
               </div>
               <div className="flex justify-between">
                 <span>Discount Ceiling:</span>
