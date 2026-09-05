@@ -322,7 +322,7 @@ export interface ApiUser {
 export interface ApiTimelineEvent {
   id: string;
   quotation_id: string;
-  actor_id?: string | null;
+  actor_user_id?: string | null;
   event_type: string;
   note?: string | null;
   metadata?: Record<string, unknown> | null;
@@ -399,5 +399,37 @@ export interface ApiApprovalLevel {
   priority?: number;
   active?: boolean;
   status?: string;
+  [key: string]: unknown;
+}
+
+// ── Backorders ───────────────────────────────────────────────────────────────
+export type ApiBackorderStatus = 'OPEN' | 'CONSOLIDATED' | 'FULFILLED' | 'CANCELLED';
+
+export interface ApiBackorder {
+  id: string;
+  sales_order_id: string;
+  fulfillment_id?: string | null;
+  warehouse_id?: string | null;
+  status: ApiBackorderStatus;
+  quantity: string;
+  expected_date?: string | null;
+  created_at: string;
+  updated_at: string;
+  [key: string]: unknown;
+}
+
+// ── Credit Notes ─────────────────────────────────────────────────────────────
+export type ApiCreditNoteStatus = 'PENDING' | 'ISSUED' | 'APPLIED' | 'VOID';
+
+export interface ApiCreditNote {
+  id: string;
+  customer_id: string;
+  subscription_id?: string | null;
+  invoice_id?: string | null;
+  amount: string;
+  reason?: string | null;
+  status: ApiCreditNoteStatus;
+  created_at: string;
+  updated_at: string;
   [key: string]: unknown;
 }
