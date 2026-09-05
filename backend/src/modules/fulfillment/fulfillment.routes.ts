@@ -3,7 +3,7 @@ import { authenticate } from '../../middleware/authenticate';
 import { requireRole } from '../../middleware/authorize';
 import { validate } from '../../middleware/validate';
 import { fulfillmentController } from './fulfillment.controller';
-import { idParamSchema } from './fulfillment.validator';
+import { idParamSchema, overrideSplitSchema } from './fulfillment.validator';
 
 const OPS_ROLES = ['OPERATIONS', 'SALES_MANAGER', 'ADMIN'];
 
@@ -29,6 +29,16 @@ fulfillmentsRouter.post(
   '/:id/ship',
   validate({ params: idParamSchema }),
   fulfillmentController.ship,
+);
+fulfillmentsRouter.post(
+  '/:id/accept-split',
+  validate({ params: idParamSchema }),
+  fulfillmentController.acceptSplit,
+);
+fulfillmentsRouter.post(
+  '/:id/override-split',
+  validate({ params: idParamSchema, body: overrideSplitSchema }),
+  fulfillmentController.overrideSplit,
 );
 
 export { salesOrderFulfillmentRouter, fulfillmentsRouter };

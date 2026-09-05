@@ -1,11 +1,16 @@
 import { Errors } from '../../errors/AppError';
+import { db } from '../../config/database';
 import { roundMoney } from '../../shared/money';
 import { generateDocumentNumber } from '../../shared/documentNumber';
 import { mapDbError } from '../../shared/crud/dbErrors';
+import { withTransaction } from '../../shared/db/withTransaction';
+import { insertAuditLog } from '../../shared/auditLog';
 import { getPaginationParams, buildPaginatedResult, PaginatedResult } from '../../utils/pagination';
 import { quotationsRepository } from './quotations.repository';
 import { Quotation, QuotationItem, QuotationWithItems } from './quotations.model';
 import { AuthenticatedUser } from '../auth/auth.types';
+import { discountEngineService } from '../discount-engine/discount-engine.service';
+import { dealHealthService } from '../deal-health/deal-health.service';
 
 interface CreateQuotationDto {
   customer_id: string;
@@ -36,7 +41,7 @@ interface AddQuotationItemDto {
 export const quotationsService = {
   async create(dto: CreateQuotationDto, salesRepId: string): Promise<Quotation> {
     try {
-      return await quotationsRepository.create({
+      const quotation = await quotationsRepository.create({
         quotation_number: generateDocumentNumber('Q'),
         customer_id: dto.customer_id,
         // Always the authenticated caller — never client-supplied — so a
@@ -46,6 +51,14 @@ export const quotationsService = {
         currency: dto.currency,
         valid_until: dto.valid_until ?? null,
       });
+      await insertAuditLog(db, {
+        entityType: 'quotation',
+        entityId: quotation.id,
+        action: 'QUOTATION_CREATED',
+        actorId: salesRepId,
+        newValue: { customer_id: dto.customer_id, currency: dto.currency },
+      });
+      return quotation;
     } catch (err) {
       throw mapDbError(err, 'Quotation');
     }
@@ -125,8 +138,18 @@ export const quotationsService = {
     const taxAmount = roundMoney(taxableAmount * (taxPercent / 100));
     const lineTotal = roundMoney(taxableAmount + taxAmount);
 
+    // margin_percent is computed from the product's cost_price when one is
+    // on record — null-safe, since cost_price is nullable on older/manual
+    // product rows (docs/architecture.md: never guess a missing cost).
+    const costPrice = await quotationsRepository.findProductCostPrice(dto.product_id);
+    const marginPercent =
+      costPrice !== null && dto.unit_price !== 0
+        ? roundMoney(((dto.unit_price - Number(costPrice)) / dto.unit_price) * 100)
+        : null;
+
+    let item: QuotationItem;
     try {
-      const item = await quotationsRepository.addItem({
+      item = await quotationsRepository.addItem({
         quotation_id: quotationId,
         product_id: dto.product_id,
         description: dto.description ?? null,
@@ -139,9 +162,68 @@ export const quotationsService = {
         billing_type: dto.billing_type,
       });
       await quotationsRepository.recalculateTotals(quotationId);
-      return item;
     } catch (err) {
       throw mapDbError(err, 'Quotation item');
     }
+    item.margin_percent = marginPercent;
+
+    // Deal-health score depends on the quotation's current discount/negotiation
+    // signals, so refresh it whenever a line item changes them — keeps the
+    // score from going stale between explicit submit/negotiation events.
+    await dealHealthService.recalculate(quotationId);
+
+    return item;
+  },
+
+  async getTimeline(id: string, requester: AuthenticatedUser) {
+    const quotation = await quotationsRepository.findById(id);
+    if (!quotation) throw Errors.notFound('Quotation');
+    assertCanAccessQuotation(quotation, requester);
+    return quotationsRepository.listTimeline(id);
+  },
+
+  /**
+   * DRAFT -> SUBMITTED is the only status transition owned directly by this
+   * service; every later transition (APPROVED/PENDING_APPROVAL/...) happens
+   * as a side effect of the discount engine or approvals flow. Submitting
+   * immediately (and synchronously) runs the discount-engine check so a
+   * ceiling breach is caught and routed to approval right away, instead of
+   * requiring a separate explicit call to POST /:id/check-discounts.
+   */
+  async submit(id: string, requester: AuthenticatedUser): Promise<QuotationWithItems> {
+    const quotation = await quotationsRepository.findById(id);
+    if (!quotation) throw Errors.notFound('Quotation');
+    assertCanAccessQuotation(quotation, requester);
+    if (quotation.status !== 'DRAFT') {
+      throw Errors.businessRuleViolation(
+        `Cannot submit a quotation in status ${quotation.status}; only DRAFT quotations can be submitted`,
+      );
+    }
+    const items = await quotationsRepository.listItems(id);
+    if (items.length === 0) {
+      throw Errors.businessRuleViolation('Cannot submit a quotation with no items');
+    }
+
+    await withTransaction(async (client) => {
+      await quotationsRepository.updateStatus(client, id, 'SUBMITTED');
+      await insertAuditLog(client, {
+        entityType: 'quotation',
+        entityId: id,
+        action: 'QUOTATION_SUBMITTED',
+        actorId: requester.id,
+        oldValue: { status: quotation.status },
+        newValue: { status: 'SUBMITTED' },
+      });
+    });
+
+    // Auto-invoke discount governance now that the quotation is submitted —
+    // this itself moves status on to APPROVED or PENDING_APPROVAL, may
+    // create an approval_requests row, and (per discountEngineService)
+    // refreshes the deal-health score as part of its own post-commit step.
+    await discountEngineService.checkDiscounts(id);
+
+    const updated = await quotationsRepository.findById(id);
+    const updatedItems = await quotationsRepository.listItems(id);
+    return { ...(updated as Quotation), items: updatedItems };
   },
 };

@@ -22,6 +22,7 @@ import {
   fulfillmentsRouter,
 } from './modules/fulfillment/fulfillment.routes';
 import { salesOrderBillingRouter, invoicesRouter } from './modules/billing/billing.routes';
+import { subscriptionsRouter } from './modules/subscriptions/subscriptions.routes';
 import {
   quotationNegotiationsRouter,
   negotiationsRouter,
@@ -33,6 +34,11 @@ import {
 import { notificationsRouter } from './modules/notifications/notifications.routes';
 import { upsellRouter } from './modules/upsell/upsell.routes';
 import { reportingRouter } from './modules/reporting/reporting.routes';
+import { customersRouter } from './modules/customers/customers.routes';
+import { usersRouter } from './modules/users/users.routes';
+import { creditNotesRouter } from './modules/credit-notes/credit-notes.routes';
+import { backordersRouter } from './modules/fulfillment/backorders.routes';
+import { portalResourcesRouter } from './modules/portal/portal.routes';
 
 const app = express();
 
@@ -92,6 +98,7 @@ app.use('/api/v1/sales-orders', salesOrderFulfillmentRouter);
 app.use('/api/v1/fulfillments', fulfillmentsRouter);
 app.use('/api/v1/sales-orders', salesOrderBillingRouter);
 app.use('/api/v1/invoices', invoicesRouter);
+app.use('/api/v1/subscriptions', subscriptionsRouter);
 // Opening a negotiation is a quotation-scoped action (POST
 // /quotations/:id/negotiations); everything else on an existing negotiation
 // (read, post a message) lives under /negotiations/:id/*.
@@ -102,6 +109,11 @@ app.use('/api/v1/deal-health', dealHealthAlertsRouter);
 app.use('/api/v1/notifications', notificationsRouter);
 app.use('/api/v1/products', upsellRouter);
 app.use('/api/v1/reports', reportingRouter);
+app.use('/api/v1/customers', customersRouter);
+app.use('/api/v1/users', usersRouter);
+app.use('/api/v1/credit-notes', creditNotesRouter);
+app.use('/api/v1/backorders', backordersRouter);
+app.use('/api/v1/portal', portalResourcesRouter);
 
 // ── Not Found Handler ─────────────────────────────────────────────────────────
 app.use(notFoundHandler);
