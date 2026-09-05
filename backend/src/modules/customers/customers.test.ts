@@ -9,16 +9,28 @@ describe('customersService.list', () => {
     vi.clearAllMocks();
   });
 
-  it('returns a paginated result built from the repository', async () => {
+  it('returns the flat array from the repository (frontend expects ApiCustomer[], not a paginated envelope)', async () => {
     vi.mocked(customersRepository.list).mockResolvedValue([
-      { id: 'c1', company_name: 'Acme', customer_tier_id: 'tier-1', status: 'ACTIVE' },
+      {
+        id: 'c1',
+        name: 'Acme',
+        company_name: 'Acme',
+        email: null,
+        phone: null,
+        customer_tier_id: 'tier-1',
+        tier: 'GOLD',
+        assigned_rep_id: null,
+        status: 'ACTIVE',
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      },
     ]);
-    vi.mocked(customersRepository.count).mockResolvedValue(1);
 
-    const result = await customersService.list({});
+    const result = await customersService.list();
 
-    expect(result.items).toHaveLength(1);
-    expect(result.total).toBe(1);
-    expect(customersRepository.list).toHaveBeenCalledWith(20, 0);
+    expect(Array.isArray(result)).toBe(true);
+    expect(result).toHaveLength(1);
+    expect(result[0]?.tier).toBe('GOLD');
+    expect(customersRepository.list).toHaveBeenCalledWith();
   });
 });
