@@ -61,9 +61,15 @@ app.use(
 );
 
 // ── Rate Limiting ────────────────────────────────────────────────────────────
+// A single SPA page load fans out into 5-6+ parallel GET requests (quotations,
+// approvals, customers, users, deal-health, notifications, ...), so 100/15min
+// was exhausted by ordinary navigation plus a refresh or two within minutes —
+// not abuse — and every page silently went blank as every fetch 429'd. Raised
+// well above realistic browsing volume for one client; write-heavy abuse is
+// still bounded by this window, and login has its own tighter budget below.
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100,
+  max: 2000,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
