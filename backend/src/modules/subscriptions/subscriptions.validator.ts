@@ -2,6 +2,13 @@ import { z } from 'zod';
 
 export const idParamSchema = z.object({ id: z.string().uuid('id must be a valid UUID') });
 
+export const listSubscriptionsQuerySchema = z.object({
+  status: z.string().optional(),
+  customer_id: z.string().uuid().optional(),
+  page: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().positive().optional(),
+});
+
 /**
  * PATCH /subscriptions/:id
  *

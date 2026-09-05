@@ -126,6 +126,25 @@ describe('subscriptionsService.modify', () => {
     expect(subscriptionsRepository.insertProrationSchedule).not.toHaveBeenCalled();
   });
 
+  it('creates a credit note for a downgrade instead of a billing_schedules row', async () => {
+    vi.mocked(subscriptionsRepository.findByIdForUpdate).mockResolvedValue(
+      makeSubscription({ current_price: '200.00', next_billing_date: '2026-10-31' }),
+    );
+    vi.mocked(subscriptionsRepository.findPlanById).mockResolvedValue(
+      makePlan({ id: 'plan-2', price: '100.00' }),
+    );
+    vi.mocked(subscriptionsRepository.applyModification).mockResolvedValue(
+      makeSubscription({ plan_id: 'plan-2', current_price: '100.00', status: 'MODIFIED' }),
+    );
+
+    await subscriptionsService.modify('sub-1', { plan_id: 'plan-2' });
+
+    expect(subscriptionsRepository.insertCreditNote).toHaveBeenCalledWith(
+      FAKE_CLIENT,
+      expect.objectContaining({ subscriptionId: 'sub-1', customerId: 'customer-1' }),
+    );
+  });
+
   it('applies quantity as a multiplier against the plan price', async () => {
     vi.mocked(subscriptionsRepository.findByIdForUpdate).mockResolvedValue(
       makeSubscription({ current_price: '100.00', next_billing_date: null }),
@@ -170,6 +189,7 @@ describe('subscriptionsService.cancel', () => {
 
   it('cancels an active subscription and clears next_billing_date', async () => {
     vi.mocked(subscriptionsRepository.findByIdForUpdate).mockResolvedValue(makeSubscription());
+    vi.mocked(subscriptionsRepository.findPlanById).mockResolvedValue(makePlan());
     vi.mocked(subscriptionsRepository.cancel).mockResolvedValue(
       makeSubscription({ status: 'CANCELLED', next_billing_date: null, end_date: '2026-09-05' }),
     );
@@ -182,6 +202,23 @@ describe('subscriptionsService.cancel', () => {
       FAKE_CLIENT,
       'sub-1',
       expect.objectContaining({ endDate: expect.any(String) }),
+    );
+  });
+
+  it('creates a credit note for the unused portion of an active cycle on cancel', async () => {
+    vi.mocked(subscriptionsRepository.findByIdForUpdate).mockResolvedValue(
+      makeSubscription({ current_price: '100.00', next_billing_date: '2026-10-31' }),
+    );
+    vi.mocked(subscriptionsRepository.findPlanById).mockResolvedValue(makePlan());
+    vi.mocked(subscriptionsRepository.cancel).mockResolvedValue(
+      makeSubscription({ status: 'CANCELLED', next_billing_date: null }),
+    );
+
+    await subscriptionsService.cancel('sub-1');
+
+    expect(subscriptionsRepository.insertCreditNote).toHaveBeenCalledWith(
+      FAKE_CLIENT,
+      expect.objectContaining({ subscriptionId: 'sub-1', customerId: 'customer-1' }),
     );
   });
 });

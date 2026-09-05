@@ -36,6 +36,7 @@ import { upsellRouter } from './modules/upsell/upsell.routes';
 import { reportingRouter } from './modules/reporting/reporting.routes';
 import { customersRouter } from './modules/customers/customers.routes';
 import { usersRouter } from './modules/users/users.routes';
+import { creditNotesRouter } from './modules/credit-notes/credit-notes.routes';
 
 const app = express();
 
@@ -108,6 +109,7 @@ app.use('/api/v1/products', upsellRouter);
 app.use('/api/v1/reports', reportingRouter);
 app.use('/api/v1/customers', customersRouter);
 app.use('/api/v1/users', usersRouter);
+app.use('/api/v1/credit-notes', creditNotesRouter);
 
 // ── Not Found Handler ─────────────────────────────────────────────────────────
 app.use(notFoundHandler);
