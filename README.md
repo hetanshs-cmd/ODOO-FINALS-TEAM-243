@@ -1,6 +1,6 @@
 # Odoo Hiring Hackathon — Team 243 — DealFlow360
 
-> **Status:** Phase 0 complete. Implementation in progress — 21 migrations applied, 13 backend modules scaffolded.
+> **Audit status (2026-09-05): NOT READY FOR JUDGING.** See [the audit report](docs/final-audit-2026-09-05.md) for verified checks, fixes, and blockers. Operational pages still use browser-local demo data; backend integration is incomplete.
 
 ---
 

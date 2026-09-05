@@ -16,12 +16,19 @@
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
 export type ItemDecision = 'AUTO_APPROVED' | 'REQUIRES_APPROVAL';
 
+// Note: discount_rules also has min_discount, approval_required,
+// approval_level and sales_role columns — these are reserved for future use
+// and deliberately not read by this evaluation engine (a decision, not an
+// oversight). `priority` IS read, as the tie-break between rules that apply
+// at the same specificity.
 export interface DiscountRuleInput {
   productId: string | null;
   categoryId: string | null;
   customerTierId: string | null;
   maxDiscount: number;
   active: boolean;
+  /** discount_rules.priority — higher wins among equally specific rules. */
+  priority?: number;
 }
 
 export interface QuotationItemInput {
@@ -52,10 +59,46 @@ export interface DiscountEvaluationResult {
 export const MEDIUM_RISK_THRESHOLD = 30;
 
 /**
- * Resolves the strictest applicable ceiling for one item: the minimum
- * `maxDiscount` across every active rule whose scope matches this item
- * (by product, by category, by customer tier, or a fully-global rule with
- * no scope at all).
+ * Does every scope this rule declares match this item?
+ *
+ * `discount_rules` lets product_id / category_id / customer_tier_id be set
+ * independently, so a rule can be compound ("product P1, but only for GOLD
+ * customers"). A non-null column is a REQUIREMENT, not an alternative: the
+ * rule applies only when all of its declared scopes match. A rule with no
+ * scope columns set is global and matches everything.
+ *
+ * This previously OR-ed the scopes, which meant a compound "P1 + GOLD" rule
+ * also applied to every other product bought by a GOLD customer, and to P1
+ * bought by every other tier — silently capping unrelated lines.
+ */
+function ruleApplies(
+  rule: DiscountRuleInput,
+  item: QuotationItemInput,
+  customerTierId: string
+): boolean {
+  if (!rule.active) return false;
+  if (rule.productId !== null && rule.productId !== item.productId) return false;
+  if (rule.categoryId !== null && rule.categoryId !== item.categoryId) return false;
+  if (rule.customerTierId !== null && rule.customerTierId !== customerTierId) return false;
+  return true;
+}
+
+/** How narrowly a rule is scoped. More specific rules win over broader ones. */
+function specificity(rule: DiscountRuleInput): number {
+  return (
+    (rule.productId !== null ? 4 : 0) +
+    (rule.categoryId !== null ? 2 : 0) +
+    (rule.customerTierId !== null ? 1 : 0)
+  );
+}
+
+/**
+ * Resolves the effective ceiling for one item.
+ *
+ * Precedence: the most specific applicable rule wins (product > category >
+ * tier > global). Among rules of equal specificity, the highest `priority`
+ * wins; if priority ties too, the strictest (lowest) ceiling wins so a tie
+ * can never loosen governance.
  *
  * Safe-by-default: if no rule matches, the ceiling is 0 (no discount is
  * permitted until an admin explicitly configures a rule) rather than
@@ -66,19 +109,27 @@ export function resolveEffectiveCeiling(
   rules: DiscountRuleInput[],
   customerTierId: string
 ): number {
-  const candidates = rules.filter((rule) => {
-    if (!rule.active) return false;
-    const isGlobal = !rule.productId && !rule.categoryId && !rule.customerTierId;
-    return (
-      isGlobal ||
-      rule.productId === item.productId ||
-      rule.categoryId === item.categoryId ||
-      rule.customerTierId === customerTierId
-    );
-  });
-
+  const candidates = rules.filter((rule) => ruleApplies(rule, item, customerTierId));
   if (candidates.length === 0) return 0;
-  return Math.min(...candidates.map((rule) => rule.maxDiscount));
+
+  let best = candidates[0]!;
+  for (const rule of candidates.slice(1)) {
+    const bestSpecificity = specificity(best);
+    const ruleSpecificity = specificity(rule);
+    if (ruleSpecificity !== bestSpecificity) {
+      if (ruleSpecificity > bestSpecificity) best = rule;
+      continue;
+    }
+    const bestPriority = best.priority ?? 0;
+    const rulePriority = rule.priority ?? 0;
+    if (rulePriority !== bestPriority) {
+      if (rulePriority > bestPriority) best = rule;
+      continue;
+    }
+    if (rule.maxDiscount < best.maxDiscount) best = rule;
+  }
+
+  return best.maxDiscount;
 }
 
 function bandForOverage(overBy: number): RiskLevel {

@@ -2,6 +2,11 @@ import { z } from 'zod';
 
 export const idParamSchema = z.object({ id: z.string().uuid('id must be a valid UUID') });
 
+export const listNegotiationsQuerySchema = z.object({
+  page: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().positive().optional(),
+});
+
 const counterOfferChangeSchema = z.object({
   quotation_item_id: z.string().uuid(),
   new_discount_percent: z.number().min(0).max(100),

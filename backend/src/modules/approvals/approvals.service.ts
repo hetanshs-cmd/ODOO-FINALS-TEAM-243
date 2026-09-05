@@ -1,6 +1,8 @@
-import { Errors } from '../../errors/AppError';
+import { AppError, Errors } from '../../errors/AppError';
+import { mapDbError } from '../../shared/crud/dbErrors';
 import { withTransaction } from '../../shared/db/withTransaction';
 import { findApprovalLevelsAscending } from '../../shared/approvalLevels';
+import { insertAuditLog } from '../../shared/auditLog';
 import { getPaginationParams, buildPaginatedResult, PaginatedResult } from '../../utils/pagination';
 import { approvalsRepository } from './approvals.repository';
 import { ApprovalAction, ApprovalActionRow, ApprovalRequest } from './approvals.model';
@@ -9,6 +11,8 @@ import { AuthenticatedUser } from '../auth/auth.types';
 interface ActOnApprovalDto {
   action: ApprovalAction;
   userId: string;
+  /** Role of the acting user — ADMIN may override an assigned_to restriction. */
+  actorRole: string;
   comment?: string | null;
 }
 
@@ -63,16 +67,40 @@ export const approvalsService = {
    * request.
    */
   async act(approvalRequestId: string, dto: ActOnApprovalDto): Promise<ActOnApprovalResult> {
-    const request = await approvalsRepository.findById(approvalRequestId);
-    if (!request) throw Errors.notFound('Approval request');
+    try {
+      return await withTransaction(async (client) => {
+      // Lock and re-check inside the transaction — see findByIdForUpdate.
+      const request = await approvalsRepository.findByIdForUpdate(client, approvalRequestId);
+      if (!request) throw Errors.notFound('Approval request');
 
-    if (dto.action !== 'COMMENTED' && request.status !== 'PENDING') {
-      throw Errors.businessRuleViolation(
-        `This approval request has already been resolved (status: ${request.status})`,
-      );
-    }
+      if (dto.action !== 'COMMENTED' && request.status !== 'PENDING') {
+        throw Errors.businessRuleViolation(
+          `This approval request has already been resolved (status: ${request.status})`,
+        );
+      }
 
-    return withTransaction(async (client) => {
+      // Segregation of duties: a request routed to a specific approver may
+      // only be actioned by that approver (an ADMIN can always step in). The
+      // assigned_to column existed but was never checked, so any manager
+      // could approve any request — including one escalated away from them,
+      // making the multi-level chain purely cosmetic.
+      if (
+        dto.action !== 'COMMENTED' &&
+        request.assigned_to !== null &&
+        request.assigned_to !== dto.userId &&
+        dto.actorRole !== 'ADMIN'
+      ) {
+        throw Errors.forbidden();
+      }
+
+      // A rep must never be able to approve the discount they requested,
+      // even if they also hold an approving role.
+      if (dto.action !== 'COMMENTED' && request.requested_by === dto.userId) {
+        throw Errors.businessRuleViolation(
+          'You cannot act on an approval request you raised yourself',
+        );
+      }
+
       const actionRow = await approvalsRepository.insertAction(client, {
         approvalRequestId,
         userId: dto.userId,
@@ -114,7 +142,7 @@ export const approvalsService = {
         );
 
         const levels = await findApprovalLevelsAscending();
-        const currentIndex = levels.findIndex((l) => l.id === request.approval_level);
+        const currentIndex = levels.findIndex((l) => l.id === request.approval_level_id);
         const nextLevel = currentIndex >= 0 ? levels[currentIndex + 1] : undefined;
         if (!nextLevel) {
           throw Errors.businessRuleViolation(
@@ -133,7 +161,24 @@ export const approvalsService = {
       }
       // COMMENTED: the action log entry itself is the only effect.
 
-      return { request: updatedRequest, action: actionRow, escalatedRequestId };
-    });
+      await insertAuditLog(client, {
+        entityType: 'quotation',
+        entityId: request.quotation_id,
+        action: `APPROVAL_${dto.action}`,
+        actorId: dto.userId,
+        oldValue: { status: request.status },
+        newValue: { status: updatedRequest.status, escalatedRequestId },
+      });
+
+        return { request: updatedRequest, action: actionRow, escalatedRequestId };
+      });
+    } catch (err) {
+      // uq_approval_requests_one_pending_per_quotation (migration 026) is the
+      // final backstop against a concurrent discountEngine.checkDiscounts
+      // re-evaluation (which locks the quotation row, not this request)
+      // racing an escalation — translate that 23505 into a clean 409.
+      if (err instanceof AppError) throw err;
+      throw mapDbError(err, 'Approval request');
+    }
   },
 };
