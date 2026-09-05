@@ -1,25 +1,40 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { PageHeader } from '../components/ui/PageHeader';
-import { useDealStore } from '../hooks/useDealStore';
+import { useDealHealthAlerts } from '../hooks/useDealHealth';
+import { dealHealthService } from '../services';
+import { ApiError } from '../services/httpClient';
 import { DealHealthFlagCard } from '../components/domain/DealHealthFlagCard';
 import { Card } from '../components/ui/Card';
 import { useNavigate } from 'react-router-dom';
 import { toast } from '../components/ui/Toast';
 
 export const DealHealthPage: React.FC = () => {
-  const { dealHealthFlags } = useDealStore();
+  const { alerts, loading, error, refetch } = useDealHealthAlerts();
+  const [actingOn, setActingOn] = useState<string | null>(null);
   const navigate = useNavigate();
 
   const handleOpenDeal = (quotationId: string) => {
     navigate(`/quotations/${quotationId}`);
   };
 
-  const handleNudgeRep = (quotationId: string) => {
-    toast.info('Rep Nudged', `Automated alert dispatched for deal ${quotationId}.`);
-  };
-
-  const handleEscalate = (quotationId: string) => {
-    toast.warning('Deal Escalated', `Governance review requested for ${quotationId}.`);
+  const actOnAlert = async (alertId: string, status: 'NUDGED' | 'ESCALATED') => {
+    setActingOn(alertId);
+    try {
+      await dealHealthService.actOnAlert(alertId, status);
+      if (status === 'NUDGED') {
+        toast.info('Rep Nudged', 'The assigned rep has been alerted on this deal.');
+      } else {
+        toast.warning('Deal Escalated', 'Governance review requested for this deal.');
+      }
+      await refetch();
+    } catch (err) {
+      toast.error(
+        'Action Failed',
+        err instanceof ApiError ? err.message : 'Could not update this alert. Try again.'
+      );
+    } finally {
+      setActingOn(null);
+    }
   };
 
   return (
@@ -30,23 +45,49 @@ export const DealHealthPage: React.FC = () => {
         breadcrumbs={[{ label: 'Workspace' }, { label: 'Deal Health' }]}
       />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {dealHealthFlags.map((flag) => (
-          <DealHealthFlagCard
-            key={flag.id}
-            flag={flag}
-            onOpenDeal={handleOpenDeal}
-            onNudgeRep={handleNudgeRep}
-            onEscalate={handleEscalate}
-          />
-        ))}
-      </div>
+      {loading && (
+        <Card padding="lg">
+          <p className="text-xs text-slate-500">Loading open deal alerts…</p>
+        </Card>
+      )}
 
-      <Card title="Deal Health Anomaly Triage (Screen 14 Placeholder)" padding="lg">
-        <p className="text-xs text-slate-600 leading-relaxed max-w-xl">
-          Deal health flags loaded from shared store state. Full interactive anomaly filters (Stalled, Discount Anomaly, Delivery Slippage) and direct operational triage actions will be implemented in the Deal Health feature prompt.
-        </p>
-      </Card>
+      {!loading && error && (
+        <Card padding="lg">
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-rose-700">{error.message}</p>
+            <button
+              type="button"
+              onClick={refetch}
+              className="text-xs font-medium text-[#714B67] hover:text-[#62415A] cursor-pointer"
+            >
+              Try again
+            </button>
+          </div>
+        </Card>
+      )}
+
+      {!loading && !error && alerts.length === 0 && (
+        <Card padding="lg">
+          <p className="text-xs text-slate-600 leading-relaxed max-w-xl">
+            No open deal health alerts. Stalled negotiations, discount anomalies, and delivery
+            slippage will appear here as they are detected.
+          </p>
+        </Card>
+      )}
+
+      {!loading && !error && alerts.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {alerts.map((alert) => (
+            <DealHealthFlagCard
+              key={alert.id}
+              flag={alert}
+              onOpenDeal={handleOpenDeal}
+              onNudgeRep={actingOn ? undefined : (id) => actOnAlert(id, 'NUDGED')}
+              onEscalate={actingOn ? undefined : (id) => actOnAlert(id, 'ESCALATED')}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 };

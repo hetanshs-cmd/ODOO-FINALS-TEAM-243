@@ -61,6 +61,40 @@ export interface ApiQuotationWithItems extends ApiQuotation {
   items: ApiQuotationItem[];
 }
 
+// ── Customer portal ──────────────────────────────────────────────────────────
+// GET /portal/quotations/:id joins products so the customer-facing line list
+// has a real label; /customers and /admin/products are gated away from portal
+// tokens, so these fields have no other source.
+export interface ApiPortalQuotationItem extends ApiQuotationItem {
+  product_name: string;
+  product_category: string;
+}
+
+export interface ApiPortalQuotation extends ApiQuotation {
+  items: ApiPortalQuotationItem[];
+}
+
+export interface ApiPortalProfile {
+  id: string;
+  company_name: string;
+  customer_code: string;
+  industry: string | null;
+  email: string | null;
+  phone: string | null;
+  website: string | null;
+  tier: string;
+}
+
+export interface ApiPortalNegotiation {
+  id: string;
+  quotation_id: string;
+  quotation_number: string;
+  initiated_by: string;
+  status: 'OPEN' | 'IN_PROGRESS' | 'ACCEPTED' | 'REJECTED' | 'CLOSED';
+  created_at: string;
+  closed_at: string | null;
+}
+
 export interface CreateQuotationInput {
   customer_id: string;
   price_list_id?: string | null;
@@ -248,13 +282,18 @@ export interface ApiDealHealthScore {
   created_at: string;
 }
 
+export type ApiDealAlertType = 'STALLED' | 'DISCOUNT_ANOMALY' | 'DELIVERY_SLIPPAGE';
+export type ApiDealAlertSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
 export interface ApiDealAlert {
   id: string;
   quotation_id: string;
-  alert_type: string;
-  severity: string;
+  /** Joined in by the list endpoint so callers don't need a second lookup. */
+  quotation_number: string;
+  alert_type: ApiDealAlertType;
+  severity: ApiDealAlertSeverity;
   message: string;
-  status: string;
+  status: 'OPEN' | 'ESCALATED' | 'NUDGED' | 'RESOLVED';
   created_at: string;
   resolved_at: string | null;
 }

@@ -25,16 +25,17 @@ import {
   Command,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import { useDealStore } from '../hooks/useDealStore';
+import { useQuotations } from '../hooks/useQuotations';
+import { useDealHealthAlerts } from '../hooks/useDealHealth';
 import { toast } from '../components/ui/Toast';
 import { CommandPalette } from '../components/ui/CommandPalette';
 
 export const InternalShell: React.FC = () => {
   const { user, logout } = useAuth();
-  const { refreshData, resetToSeed, quotations, dealHealthFlags } = useDealStore();
+  const { quotations, refetch: refetchQuotations } = useQuotations();
+  const { alerts, refetch: refetchAlerts } = useDealHealthAlerts();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
-  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
@@ -54,6 +55,8 @@ export const InternalShell: React.FC = () => {
   if (user.role.toLowerCase() === 'customer') {
     return <Navigate to="/portal/quotation" replace />;
   }
+
+  const pendingApprovalsCount = quotations.filter((q) => q.status === 'PENDING_APPROVAL').length;
 
   // Exact 9 navigation items in required order (Section 8)
   interface NavItem {
@@ -80,7 +83,7 @@ export const InternalShell: React.FC = () => {
       label: 'Approvals',
       path: '/approvals',
       icon: <CheckSquare className="w-4 h-4 shrink-0" />,
-      badge: quotations.filter((q) => q.stage === 'PendingApproval' || q.stage === 'Pending Approval').length,
+      badge: pendingApprovalsCount,
       badgeColor: 'bg-amber-100 text-amber-800 border border-amber-200',
     },
     {
@@ -102,7 +105,7 @@ export const InternalShell: React.FC = () => {
       label: 'Deal Health',
       path: '/deal-health',
       icon: <Activity className="w-4 h-4 shrink-0" />,
-      badge: dealHealthFlags.filter((f) => !f.isResolved).length,
+      badge: alerts.length,
       badgeColor: 'bg-rose-100 text-rose-800 border border-rose-200',
     },
     {
@@ -118,14 +121,9 @@ export const InternalShell: React.FC = () => {
   ];
 
   const handleReloadData = () => {
-    refreshData();
+    refetchQuotations();
+    refetchAlerts();
     toast.success('Workspace Refreshed', 'Application state synchronized with live deal desk.');
-  };
-
-  const handleResetDemoState = () => {
-    resetToSeed();
-    setIsResetConfirmOpen(false);
-    toast.info('State Reset', 'Application restored to original deterministic seed data baseline.');
   };
 
   const handleCloseWorkspace = () => {
@@ -140,11 +138,6 @@ export const InternalShell: React.FC = () => {
       navigate(`/quotations?search=${encodeURIComponent(searchQuery.trim())}`);
     }
   };
-
-  // Pending items count for notification bell
-  const pendingApprovalsCount = quotations.filter(
-    (q) => q.stage === 'PendingApproval' || q.stage === 'Pending Approval'
-  ).length;
 
   return (
     <div className="min-h-screen flex flex-col bg-[#F8F9FA] text-[#1F2937] font-sans antialiased">
@@ -221,21 +214,6 @@ export const InternalShell: React.FC = () => {
             <Sliders className="w-3.5 h-3.5" />
             <span className="hidden lg:inline">Back-end</span>
           </Link>
-
-          {/* Reset Demo Data Button (Section 58) */}
-          <button
-            type="button"
-            onClick={() => setIsResetConfirmOpen(true)}
-            title="Reset DealFlow360 demo data"
-            className="hidden xl:inline-flex text-[11px] font-medium text-[#6B7280] hover:text-rose-700 px-2 py-1 rounded-[6px] hover:bg-rose-50 transition-colors cursor-pointer"
-          >
-            Reset Demo
-          </button>
-
-          {/* Demo Mode Subtle Indicator (Section 56) */}
-          <span className="hidden xl:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-            Demo
-          </span>
 
           {/* Notifications Icon with pending approvals indicator */}
           <Link
@@ -415,40 +393,11 @@ export const InternalShell: React.FC = () => {
         </main>
       </div>
 
-      {/* Reset Seed Baseline Confirmation Dialog (Section 58 & 59) */}
-      {isResetConfirmOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-2xs">
-          <div className="bg-white rounded-[8px] p-5 max-w-sm w-full border border-[#E5E7EB] shadow-xl space-y-3">
-            <h3 className="text-sm font-bold text-[#1F2937]">Reset DealFlow360 demo data?</h3>
-            <p className="text-xs text-[#4B5563] leading-relaxed">
-              This will restore seeded quotations, approvals, stock, subscriptions, invoices, and configuration.
-            </p>
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setIsResetConfirmOpen(false)}
-                className="px-3 py-1.5 text-xs font-medium border border-[#D1D5DB] rounded-[6px] hover:bg-[#F8F9FA] text-[#4B5563] cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleResetDemoState}
-                className="px-3 py-1.5 text-xs font-semibold bg-[#714B67] hover:bg-[#62415A] text-white rounded-[6px] shadow-2xs cursor-pointer"
-              >
-                Reset Demo
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Global Command Palette (Section 52: Ctrl/Cmd + K) */}
       <CommandPalette
         isOpen={isCommandPaletteOpen}
         onClose={() => setIsCommandPaletteOpen(false)}
         onReload={handleReloadData}
-        onReset={() => setIsResetConfirmOpen(true)}
       />
     </div>
   );

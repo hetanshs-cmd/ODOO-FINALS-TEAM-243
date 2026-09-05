@@ -16,10 +16,13 @@
  * Kept untouched per instructions: ./ai/aiService.ts and ./reportingExport.ts.
  */
 
-import { httpClient, ApiError } from './httpClient';
+import { httpClient, getListItems, ApiError } from './httpClient';
 import {
   ApiQuotation,
   ApiQuotationWithItems,
+  ApiPortalQuotation,
+  ApiPortalProfile,
+  ApiPortalNegotiation,
   CreateQuotationInput,
   UpdateQuotationInput,
   CreateQuotationItemInput,
@@ -74,7 +77,7 @@ import {
 //    POST /quotations/:id/convert)
 export const quotationService = {
   async getAll(query?: ListQuery): Promise<ApiQuotation[]> {
-    return httpClient.get<ApiQuotation[]>('/quotations', { query });
+    return getListItems<ApiQuotation>('/quotations', { query });
   },
   async getById(id: string): Promise<ApiQuotationWithItems> {
     return httpClient.get<ApiQuotationWithItems>(`/quotations/${id}`);
@@ -113,7 +116,7 @@ export const quotationService = {
 // 2. APPROVAL SERVICE (GET /approvals, GET /approvals/:id, POST /approvals/:id/act)
 export const approvalService = {
   async getAll(query?: ListQuery): Promise<ApiApprovalRequest[]> {
-    return httpClient.get<ApiApprovalRequest[]>('/approvals', { query });
+    return getListItems<ApiApprovalRequest>('/approvals', { query });
   },
   async getById(id: string): Promise<ApiApprovalRequest> {
     return httpClient.get<ApiApprovalRequest>(`/approvals/${id}`);
@@ -127,7 +130,7 @@ export const approvalService = {
 // 3. SALES ORDER SERVICE (new — real, distinct entity; GET /sales-orders, GET /sales-orders/:id)
 export const salesOrderService = {
   async getAll(query?: ListQuery): Promise<SalesOrder[]> {
-    return httpClient.get<SalesOrder[]>('/sales-orders', { query });
+    return getListItems<SalesOrder>('/sales-orders', { query });
   },
   async getById(id: string): Promise<SalesOrder> {
     return httpClient.get<SalesOrder>(`/sales-orders/${id}`);
@@ -159,7 +162,7 @@ export const fulfillmentService = {
 // BACKORDER SERVICE (new)
 export const backorderService = {
   async getAll(query?: ListQuery): Promise<ApiBackorder[]> {
-    return httpClient.get<ApiBackorder[]>('/backorders', { query });
+    return getListItems<ApiBackorder>('/backorders', { query });
   },
   async consolidate(id: string): Promise<ApiBackorder> {
     return httpClient.post<ApiBackorder>(`/backorders/${id}/consolidate`);
@@ -207,7 +210,7 @@ export const billingService = {
     return httpClient.post(`/sales-orders/${salesOrderId}/billing/confirm`, planId ? { plan_id: planId } : {});
   },
   async getInvoices(query?: ListQuery): Promise<ApiInvoice[]> {
-    return httpClient.get<ApiInvoice[]>('/invoices', { query });
+    return getListItems<ApiInvoice>('/invoices', { query });
   },
   async getInvoiceById(id: string): Promise<ApiInvoice> {
     return httpClient.get<ApiInvoice>(`/invoices/${id}`);
@@ -226,7 +229,7 @@ export const billingService = {
 export const subscriptionService = {
   plans: adminService.subscriptionPlans,
   async getAll(query?: ListQuery): Promise<ApiSubscription[]> {
-    return httpClient.get<ApiSubscription[]>('/subscriptions', { query });
+    return getListItems<ApiSubscription>('/subscriptions', { query });
   },
   async getById(id: string): Promise<ApiSubscription> {
     return httpClient.get<ApiSubscription>(`/subscriptions/${id}`);
@@ -246,7 +249,7 @@ export const subscriptionService = {
 // automatically by the backend on subscription downgrade/cancel)
 export const creditNoteService = {
   async getAll(query?: ListQuery): Promise<ApiCreditNote[]> {
-    return httpClient.get<ApiCreditNote[]>('/credit-notes', { query });
+    return getListItems<ApiCreditNote>('/credit-notes', { query });
   },
   async getById(id: string): Promise<ApiCreditNote> {
     return httpClient.get<ApiCreditNote>(`/credit-notes/${id}`);
@@ -265,7 +268,7 @@ export const dealHealthService = {
     return httpClient.post<ApiDealHealthScore>(`/quotations/${quotationId}/deal-health/recalculate`);
   },
   async listAlerts(query?: ListQuery): Promise<ApiDealAlert[]> {
-    return httpClient.get<ApiDealAlert[]>('/deal-health', { query });
+    return getListItems<ApiDealAlert>('/deal-health', { query });
   },
   async actOnAlert(alertId: string, status: 'ESCALATED' | 'NUDGED' | 'RESOLVED'): Promise<ApiDealAlert> {
     return httpClient.post<ApiDealAlert>(`/deal-health/${alertId}`, { status });
@@ -289,7 +292,7 @@ export const negotiationService = {
 // 9. NOTIFICATIONS SERVICE (new)
 export const notificationsService = {
   async getAll(query?: ListQuery): Promise<ApiNotification[]> {
-    return httpClient.get<ApiNotification[]>('/notifications', { query });
+    return getListItems<ApiNotification>('/notifications', { query });
   },
   async markRead(id: string): Promise<ApiNotification> {
     return httpClient.patch<ApiNotification>(`/notifications/${id}/read`);
@@ -387,26 +390,47 @@ export const timelineService = {
   },
 };
 
-// Customer Portal service — the only portal-scoped resource route beyond
-// auth today is negotiations (POST /quotations/:id/negotiations falls back
-// to portal auth — see backend/src/modules/negotiations/negotiations.routes.ts).
-// There is no GET endpoint yet for a customer's own quotations/orders, so
-// that part of the portal UI has no live data source until one exists.
+// Customer Portal service — negotiations are the one resource both internal
+// reps and portal customers act on (negotiations.routes.ts accepts either
+// token), so the portal reuses the same service.
 export const customerPortalService = {
   negotiations: negotiationService,
 };
 
-// Portal-scoped reads (customer's own quotations). Stopgap: a small section
-// here rather than a full resource-hook module, per task scope — mirrors the
-// existing service call pattern.
+/**
+ * Portal-scoped reads. Every route here is filtered server-side by the
+ * portal token's customerId (portal.repository.ts), so a customer can only
+ * ever see their own records — the client does no tenant filtering.
+ */
 export const portalService = {
   async getQuotations(query?: ListQuery): Promise<ApiQuotation[]> {
     return httpClient.get<ApiQuotation[]>('/portal/quotations', { query });
   },
-  async getQuotationById(id: string): Promise<ApiQuotationWithItems> {
-    return httpClient.get<ApiQuotationWithItems>(`/portal/quotations/${id}`);
+  async getQuotationById(id: string): Promise<ApiPortalQuotation> {
+    return httpClient.get<ApiPortalQuotation>(`/portal/quotations/${id}`);
+  },
+  async getProfile(): Promise<ApiPortalProfile> {
+    return httpClient.get<ApiPortalProfile>('/portal/profile');
+  },
+  async getNegotiations(): Promise<ApiPortalNegotiation[]> {
+    return httpClient.get<ApiPortalNegotiation[]>('/portal/negotiations');
+  },
+  /**
+   * FR9 — customer confirmation. Re-runs the discount engine server-side, so
+   * a negotiated quotation can legitimately come back as PENDING_APPROVAL
+   * instead of converting; the caller must handle both outcomes.
+   */
+  async confirmQuotation(id: string): Promise<PortalConfirmResult> {
+    return httpClient.post<PortalConfirmResult>(`/portal/quotations/${id}/confirm`);
   },
 };
+
+export interface PortalConfirmResult {
+  quotationId: string;
+  status: 'ACCEPTED' | 'PENDING_APPROVAL';
+  salesOrder: SalesOrder | null;
+  requiresApproval: boolean;
+}
 
 // Directory lookups (customers/users). STOPGAP inline helpers — a parallel
 // workstream is adding proper useCustomers/useUsers hooks + dedicated

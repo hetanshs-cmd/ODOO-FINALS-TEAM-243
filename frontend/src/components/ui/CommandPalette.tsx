@@ -14,7 +14,6 @@ import {
   Sparkles,
   Sliders,
   RotateCw,
-  RefreshCw,
   X,
   Plus,
 } from 'lucide-react';
@@ -22,7 +21,6 @@ export interface CommandPaletteProps {
   isOpen: boolean;
   onClose: () => void;
   onReload: () => void;
-  onReset: () => void;
 }
 
 interface CommandItem {
@@ -38,7 +36,6 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   isOpen,
   onClose,
   onReload,
-  onReset,
 }) => {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
@@ -183,16 +180,6 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       action: () => {
         onReload();
         onClose();
-      },
-    },
-    {
-      id: 'action_reset',
-      label: 'Reset Demo Baseline State',
-      category: 'Actions',
-      icon: <RefreshCw className="w-4 h-4 text-rose-600" />,
-      action: () => {
-        onClose();
-        onReset();
       },
     },
   ];
