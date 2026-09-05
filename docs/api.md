@@ -223,8 +223,8 @@ Use the token as `Authorization: Bearer <accessToken>` on protected internal rou
 Creates a new internal (staff) `users` row and immediately returns a session for it —
 identical `{ accessToken, user }` shape to login, so a client can treat signup and login
 responses the same way. `role` is optional and defaults to `SALES_REP` (the least-privileged
-internal role) when omitted; when given, it must be one of the values `roles.name` allows
-(`SALES_REP`, `SALES_MANAGER`, `FINANCE`, `OPERATIONS`, `CUSTOMER`, `ADMIN`). The password is
+internal role) when omitted; when given, it must be `SALES_REP`. Privileged and customer
+roles cannot be requested through public signup. The password is
 hashed with bcrypt (`BCRYPT_ROUNDS`), same as login verifies against.
 
 **Authentication:** None
@@ -252,7 +252,7 @@ hashed with bcrypt (`BCRYPT_ROUNDS`), same as login verifies against.
 
 | Status | Code | When |
 |---|---|---|
-| 400 | `VALIDATION_ERROR` | Missing/invalid `name`, `email`, `password` (min 8 chars), or an unrecognized `role` value |
+| 400 | `VALIDATION_ERROR` | Missing/invalid `name`, `email`, `password` (min 8 chars), or any role other than `SALES_REP` |
 | 400 | `INVALID_ROLE` | `role` is a syntactically valid enum value that somehow doesn't exist as a `roles` row |
 | 409 | `CONFLICT` | A user with this email already exists |
 
@@ -453,6 +453,18 @@ the ADMIN-only `/admin/customers` CRUD, which is unchanged.
 | 422 | `BUSINESS_RULE_VIOLATION` | Fulfillment isn't `PENDING`, an item isn't part of this fulfillment, or the increase exceeds available inventory at this warehouse |
 
 ### Billing
+
+Audit safety changes (2026-09-05): initial billing locks the sales order and rejects
+cancelled orders (422), previously billed orders (409), and any order with unshipped
+`ONE_TIME` product quantities (422). The current schema does not distinguish physical
+goods from one-time services, so this guard conservatively blocks both until shipped.
+Partial invoicing is not implemented: 6 shipped out of 10 produces no invoice yet.
+Invoice subtotal excludes tax; total includes tax exactly once.
+
+Payments require finite positive amounts with at most two decimal places. Validation
+rejects malformed amounts (400); the service checks the locked invoice status and
+remaining balance before inserting payment/audit records (422 for paid/void invoices
+or overpayment). Repeated full-payment requests cannot overpay the locked balance.
 
 | Method | Path | Notes |
 |---|---|---|
