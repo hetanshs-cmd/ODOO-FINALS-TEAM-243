@@ -102,13 +102,72 @@ describe('resolveEffectiveCeiling', () => {
     expect(resolveEffectiveCeiling(item, [], 'tier-1')).toBe(0);
   });
 
-  it('picks the strictest (minimum) ceiling when multiple scoped rules match', () => {
+  it('picks the more specific rule when two independently-scoped rules both match', () => {
+    // A category rule and a tier rule that each match this item on their own
+    // scope are NOT the same governance case — the more specific one (here,
+    // category: productId null but categoryId set = specificity 2) wins over
+    // the broader one (tier only = specificity 1). This used to take
+    // Math.min() across every independently-matching rule, so a rule scoped
+    // to an unrelated tier could tighten (or loosen) a ceiling for a
+    // category it says nothing about.
     const rules: DiscountRuleInput[] = [
       { productId: null, categoryId: 'cat-1', customerTierId: null, maxDiscount: 20, active: true },
       { productId: null, categoryId: null, customerTierId: 'tier-1', maxDiscount: 8, active: true },
     ];
 
-    expect(resolveEffectiveCeiling(item, rules, 'tier-1')).toBe(8);
+    expect(resolveEffectiveCeiling(item, rules, 'tier-1')).toBe(20);
+  });
+
+  it('requires ALL of a compound rule\'s scopes to match, not just one', () => {
+    // A rule scoped to BOTH a specific product and a specific tier must not
+    // apply to that product for every tier, nor to that tier for every
+    // product — both conditions are requirements, not independent
+    // alternatives. This is the exact compound-scope bug: a "product P1 +
+    // GOLD tier" rule used to also cap every other product bought by a GOLD
+    // customer, and P1 bought by every other tier.
+    const compoundRule: DiscountRuleInput = {
+      productId: 'prod-1',
+      categoryId: null,
+      customerTierId: 'tier-gold',
+      maxDiscount: 5,
+      active: true,
+    };
+
+    // Same product, different (non-matching) tier -> compound rule must NOT apply.
+    expect(resolveEffectiveCeiling(item, [compoundRule], 'tier-silver')).toBe(0);
+
+    // Same tier, different (non-matching) product -> compound rule must NOT apply.
+    const otherProductItem: QuotationItemInput = { ...item, productId: 'prod-2' };
+    expect(resolveEffectiveCeiling(otherProductItem, [compoundRule], 'tier-gold')).toBe(0);
+
+    // Both scopes match -> compound rule DOES apply.
+    expect(resolveEffectiveCeiling(item, [compoundRule], 'tier-gold')).toBe(5);
+  });
+
+  it('breaks a tie between equally-specific rules using priority, then the strictest ceiling', () => {
+    const lowerPriority: DiscountRuleInput = {
+      productId: 'prod-1',
+      categoryId: null,
+      customerTierId: null,
+      maxDiscount: 15,
+      priority: 1,
+      active: true,
+    };
+    const higherPriority: DiscountRuleInput = {
+      productId: 'prod-1',
+      categoryId: null,
+      customerTierId: null,
+      maxDiscount: 25,
+      priority: 5,
+      active: true,
+    };
+
+    expect(resolveEffectiveCeiling(item, [lowerPriority, higherPriority], 'tier-1')).toBe(25);
+
+    // Equal priority (or both omitted, defaulting to 0) -> the strictest wins.
+    const tiedA: DiscountRuleInput = { ...lowerPriority, maxDiscount: 30, priority: 1 };
+    const tiedB: DiscountRuleInput = { ...higherPriority, maxDiscount: 10, priority: 1 };
+    expect(resolveEffectiveCeiling(item, [tiedA, tiedB], 'tier-1')).toBe(10);
   });
 
   it('ignores inactive rules', () => {

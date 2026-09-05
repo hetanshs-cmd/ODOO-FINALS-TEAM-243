@@ -44,4 +44,22 @@ export const portalController = {
       next(err);
     }
   },
+
+  async confirmQuotation(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const result = await portalService.confirmQuotation(
+        req.params['id'] as string,
+        req.portalUser!.customerId,
+      );
+      sendSuccess({
+        res,
+        data: result,
+        message: result.requiresApproval
+          ? 'Quotation re-entered approval — the negotiated discount exceeds the permitted ceiling'
+          : 'Quotation confirmed and converted into a sales order',
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
 };

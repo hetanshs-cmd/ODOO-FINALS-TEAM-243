@@ -10,7 +10,7 @@
  * than letting it surface as an unhandled crash.
  */
 
-import { httpClient, getListItems, ApiError } from './httpClient';
+import { httpClient, ApiError } from './httpClient';
 import type {
   ListQuery,
   ApiWarehouse,
@@ -24,7 +24,7 @@ export function createAdminResource<T extends { id: string }>(resourcePath: stri
   const base = `/admin/${resourcePath}`;
   return {
     async list(query?: ListQuery): Promise<T[]> {
-      return getListItems<T>(base, { query });
+      return httpClient.get<T[]>(base, { query });
     },
     async getById(id: string): Promise<T> {
       return httpClient.get<T>(`${base}/${id}`);

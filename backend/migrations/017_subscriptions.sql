@@ -11,16 +11,11 @@ CREATE TABLE subscription_plans (
     price               NUMERIC(14,2) NOT NULL,
     trial_days          INTEGER NOT NULL DEFAULT 0,
     status              VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT chk_subscription_plans_frequency CHECK (billing_frequency IN ('MONTHLY', 'QUARTERLY', 'YEARLY')),
     CONSTRAINT chk_subscription_plans_price CHECK (price >= 0),
     CONSTRAINT chk_subscription_plans_trial_days CHECK (trial_days >= 0),
     CONSTRAINT chk_subscription_plans_status CHECK (status IN ('ACTIVE', 'INACTIVE'))
 );
-CREATE TRIGGER trg_subscription_plans_updated_at
-    BEFORE UPDATE ON subscription_plans
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- sales_order_id / quotation_id nullable: a subscription may originate from
 -- a converted quotation/order, or be created directly (e.g. self-serve).
@@ -35,19 +30,16 @@ CREATE TABLE subscriptions (
     end_date              DATE,
     next_billing_date     DATE,
     current_price         NUMERIC(14,2) NOT NULL,
-    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT chk_subscriptions_status CHECK (status IN ('ACTIVE', 'CANCELLED', 'MODIFIED')),
     CONSTRAINT chk_subscriptions_current_price CHECK (current_price >= 0),
     CONSTRAINT chk_subscriptions_date_range CHECK (end_date IS NULL OR end_date >= start_date)
 );
 CREATE INDEX idx_subscriptions_customer_id ON subscriptions(customer_id);
+CREATE INDEX idx_subscriptions_sales_order_id ON subscriptions(sales_order_id);
+CREATE INDEX idx_subscriptions_quotation_id ON subscriptions(quotation_id);
 CREATE INDEX idx_subscriptions_plan_id ON subscriptions(plan_id);
 CREATE INDEX idx_subscriptions_status ON subscriptions(status);
 CREATE INDEX idx_subscriptions_next_billing_date ON subscriptions(next_billing_date);
-CREATE TRIGGER trg_subscriptions_updated_at
-    BEFORE UPDATE ON subscriptions
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 CREATE TABLE subscription_items (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -55,13 +47,8 @@ CREATE TABLE subscription_items (
     product_id        UUID NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
     quantity          NUMERIC(12,2) NOT NULL,
     unit_price        NUMERIC(14,2) NOT NULL,
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT chk_subscription_items_quantity CHECK (quantity > 0),
     CONSTRAINT chk_subscription_items_unit_price CHECK (unit_price >= 0)
 );
 CREATE INDEX idx_subscription_items_subscription_id ON subscription_items(subscription_id);
 CREATE INDEX idx_subscription_items_product_id ON subscription_items(product_id);
-CREATE TRIGGER trg_subscription_items_updated_at
-    BEFORE UPDATE ON subscription_items
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();

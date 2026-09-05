@@ -51,6 +51,10 @@ vi.mock('../../shared/db/withTransaction', () => ({
 describe('subscriptionsService.modify', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: subscription has one item at quantity 1, so tests that omit
+    // `quantity` from the PATCH body (a plan-only change) keep behaving like
+    // a single-seat subscription unless a test overrides this explicitly.
+    vi.mocked(subscriptionsRepository.sumItemQuantity).mockResolvedValue(1);
   });
 
   it('rejects an unknown subscription', async () => {
@@ -143,6 +147,38 @@ describe('subscriptionsService.modify', () => {
       FAKE_CLIENT,
       expect.objectContaining({ subscriptionId: 'sub-1', customerId: 'customer-1' }),
     );
+  });
+
+  it('derives quantity from the subscription\'s items when omitted, instead of defaulting to 1', async () => {
+    // A plan-only change (no `quantity` in the request) used to silently
+    // treat the subscription as quantity 1, collapsing a 5-seat
+    // subscription's price to a single seat's price on any plan-only PATCH.
+    vi.mocked(subscriptionsRepository.findByIdForUpdate).mockResolvedValue(
+      makeSubscription({ current_price: '500.00', next_billing_date: null }),
+    );
+    vi.mocked(subscriptionsRepository.findPlanById).mockResolvedValue(makePlan({ id: 'plan-2', price: '100.00' }));
+    vi.mocked(subscriptionsRepository.sumItemQuantity).mockResolvedValue(5);
+    vi.mocked(subscriptionsRepository.applyModification).mockResolvedValue(
+      makeSubscription({ plan_id: 'plan-2', current_price: '500.00', status: 'MODIFIED' }),
+    );
+
+    await subscriptionsService.modify('sub-1', { plan_id: 'plan-2' });
+
+    expect(subscriptionsRepository.applyModification).toHaveBeenCalledWith(
+      FAKE_CLIENT,
+      'sub-1',
+      expect.objectContaining({ currentPrice: 500 }), // 100 * 5, not 100 * 1
+    );
+  });
+
+  it('refuses to modify a subscription with no items when quantity is omitted', async () => {
+    vi.mocked(subscriptionsRepository.findByIdForUpdate).mockResolvedValue(makeSubscription());
+    vi.mocked(subscriptionsRepository.findPlanById).mockResolvedValue(makePlan({ id: 'plan-2' }));
+    vi.mocked(subscriptionsRepository.sumItemQuantity).mockResolvedValue(null);
+
+    await expect(
+      subscriptionsService.modify('sub-1', { plan_id: 'plan-2' }),
+    ).rejects.toMatchObject({ statusCode: 422 });
   });
 
   it('applies quantity as a multiplier against the plan price', async () => {

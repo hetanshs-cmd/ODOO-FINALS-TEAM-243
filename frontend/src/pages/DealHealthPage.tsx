@@ -41,7 +41,7 @@ export const DealHealthPage: React.FC = () => {
     <div className="space-y-6">
       <PageHeader
         title="Deal Health & Anomaly Dashboard"
-        description="Proactive detection of stalled negotiations, rep discount deviations, and delivery fulfillment slippage."
+        description="Proactive detection of stalled negotiations, rep discount deviations, and delivery fulfillment slippage — backed by GET /deal-health."
         breadcrumbs={[{ label: 'Workspace' }, { label: 'Deal Health' }]}
       />
 

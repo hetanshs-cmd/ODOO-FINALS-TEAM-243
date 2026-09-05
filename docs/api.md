@@ -170,8 +170,8 @@ GET /api/v1/health
 ---
 
 > Table/field names below match the definitive schema in
-> [`database/schema/er-diagram.md`](../database/schema/er-diagram.md) (roles/users,
-> customer_users, quotations/quotation_items, discount_rules/discount_evaluations,
+> [`database/schema/er-diagram.md`](../database/schema/er-diagram.md) (roles/users
+> (portal link via `users.customer_id`), quotations/quotation_items, discount_rules/discount_evaluations,
 > approval_requests/approval_actions, negotiations, sales_orders, fulfillments/backorders,
 > invoices/payments, subscriptions/billing_schedules, deal_health_scores/deal_alerts).
 
@@ -181,7 +181,7 @@ GET /api/v1/health
 |---|---|---|---|
 | POST | `/api/v1/auth/login` | `{ email, password }` | Internal users — JWT + role claim (`role_id` → `roles.name`) |
 | POST | `/api/v1/auth/signup` | `{ name, email, password, role? }` | Creates a `users` row (bcrypt-hashed password) and logs in immediately — same response shape as login |
-| POST | `/api/v1/portal/request-link` | `{ email }` | Sends a magic-link to a `customer_users`-linked email |
+| POST | `/api/v1/portal/request-link` | `{ email }` | Sends a magic-link to a `users` row with `customer_id` set |
 | POST | `/api/v1/portal/verify-link` | `{ token }` | Exchanges magic-link token for a portal session scoped to one `customer_id` |
 
 #### POST /api/v1/auth/login
@@ -223,8 +223,8 @@ Use the token as `Authorization: Bearer <accessToken>` on protected internal rou
 Creates a new internal (staff) `users` row and immediately returns a session for it —
 identical `{ accessToken, user }` shape to login, so a client can treat signup and login
 responses the same way. `role` is optional and defaults to `SALES_REP` (the least-privileged
-internal role) when omitted; when given, it must be one of the values `roles.name` allows
-(`SALES_REP`, `SALES_MANAGER`, `FINANCE`, `OPERATIONS`, `CUSTOMER`, `ADMIN`). The password is
+internal role) when omitted; when given, it must be `SALES_REP`. Privileged and customer
+roles cannot be requested through public signup. The password is
 hashed with bcrypt (`BCRYPT_ROUNDS`), same as login verifies against.
 
 **Authentication:** None
@@ -252,13 +252,13 @@ hashed with bcrypt (`BCRYPT_ROUNDS`), same as login verifies against.
 
 | Status | Code | When |
 |---|---|---|
-| 400 | `VALIDATION_ERROR` | Missing/invalid `name`, `email`, `password` (min 8 chars), or an unrecognized `role` value |
+| 400 | `VALIDATION_ERROR` | Missing/invalid `name`, `email`, `password` (min 8 chars), or any role other than `SALES_REP` |
 | 400 | `INVALID_ROLE` | `role` is a syntactically valid enum value that somehow doesn't exist as a `roles` row |
 | 409 | `CONFLICT` | A user with this email already exists |
 
 #### POST /api/v1/portal/request-link
 
-Requests a magic login link for a customer portal user (resolved through `customer_users`).
+Requests a magic login link for a customer portal user (resolved through `users.customer_id`).
 **Stub for this phase** — no email is sent yet; outside `NODE_ENV=production` the response
 includes `devToken` so the flow can be exercised without a real inbox.
 
@@ -454,6 +454,18 @@ the ADMIN-only `/admin/customers` CRUD, which is unchanged.
 
 ### Billing
 
+Audit safety changes (2026-09-05): initial billing locks the sales order and rejects
+cancelled orders (422), previously billed orders (409), and any order with unshipped
+`ONE_TIME` product quantities (422). The current schema does not distinguish physical
+goods from one-time services, so this guard conservatively blocks both until shipped.
+Partial invoicing is not implemented: 6 shipped out of 10 produces no invoice yet.
+Invoice subtotal excludes tax; total includes tax exactly once.
+
+Payments require finite positive amounts with at most two decimal places. Validation
+rejects malformed amounts (400); the service checks the locked invoice status and
+remaining balance before inserting payment/audit records (422 for paid/void invoices
+or overpayment). Repeated full-payment requests cannot overpay the locked balance.
+
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/api/v1/sales-orders/:id/billing/confirm` | Splits items by `billing_type` — `ONE_TIME` → `invoices`/`invoice_items`, `RECURRING` → `subscriptions`/`subscription_items` (FR7) |
@@ -544,7 +556,7 @@ Cancels an active subscription: sets `status = CANCELLED`, `end_date` to today, 
 
 ### Customer Portal (`/api/v1/portal/...`)
 
-Scoped strictly to the authenticated `customer_users` row — every query filters by
+Scoped strictly to the authenticated user's `users.customer_id` — every query filters by
 `customer_id`, never trusts a client-supplied id (NFR2).
 
 | Method | Path | Notes |

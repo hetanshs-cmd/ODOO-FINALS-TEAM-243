@@ -102,7 +102,7 @@ class AuthService {
     }
 
     const email = credentials.email.trim().toLowerCase();
-    const password = credentials.password?.trim() || '';
+    const password = credentials.password || '';
 
     if (!email) {
       return { success: false, targetRoute: '/login', error: 'Enter a valid email address.' };
@@ -135,7 +135,7 @@ class AuthService {
   public async signup(credentials: SignupCredentials): Promise<AuthResult> {
     const email = credentials.email.trim().toLowerCase();
     const name = credentials.name.trim();
-    const password = credentials.password.trim();
+    const password = credentials.password;
 
     if (!name) {
       return { success: false, targetRoute: '/login', error: 'Full name is required.' };
@@ -143,8 +143,8 @@ class AuthService {
     if (!email || !email.includes('@')) {
       return { success: false, targetRoute: '/login', error: 'Enter a valid work email address.' };
     }
-    if (password.length < 6) {
-      return { success: false, targetRoute: '/login', error: 'Password must be at least 6 characters long.' };
+    if (password.length < 8) {
+      return { success: false, targetRoute: '/login', error: 'Password must be at least 8 characters long.' };
     }
     if (!credentials.role) {
       return { success: false, targetRoute: '/login', error: 'Select a role before creating the account.' };
@@ -165,7 +165,7 @@ class AuthService {
         name,
         email,
         password,
-        role: credentials.role,
+        role: 'SALES_REP',
       });
       tokenStore.setToken(result.accessToken);
       const user = toUser(result.user);
