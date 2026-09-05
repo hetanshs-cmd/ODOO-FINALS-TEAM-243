@@ -1,10 +1,14 @@
 /**
- * DealFlow360 — Dedicated Authentication Service
- * Mock & swappable authentication provider supporting deterministic demo accounts and internal signup.
+ * DealFlow360 — Authentication Service
+ * Talks to the real backend: POST /auth/login, POST /auth/signup (staff),
+ * POST /portal/request-link + POST /portal/verify-link (customer portal
+ * magic-link flow). See docs/architecture notes in backend/src/modules/auth.
  */
 
 import { User, UserRole } from '../types';
-import { dealStore } from '../store/dealStore';
+import { httpClient, ApiError } from './httpClient';
+import { tokenStore } from './tokenStore';
+import { decodeJwt } from '../utils/jwt';
 
 export interface LoginCredentials {
   email: string;
@@ -37,17 +41,67 @@ export const VALID_TEAMS = [
 
 export type TeamName = (typeof VALID_TEAMS)[number];
 
+// Dev-only demo credentials seeded by backend/scripts/seed.js. Used only by
+// the "Quick Demo Account" buttons on the login screen — never a substitute
+// for the real login/signup flow.
+const DEMO_ROLE_EMAILS: Partial<Record<string, string>> = {
+  admin: 'admin@dev.local',
+  sales_rep: 'rep@dev.local',
+  sales_manager: 'manager@dev.local',
+  customer: 'portal@dev.local',
+};
+const DEMO_PASSWORD = 'DevPassword123!';
+
+interface InternalLoginResponse {
+  accessToken: string;
+  user: { id: string; name: string; email: string; role: string };
+}
+
+interface PortalVerifyResponse {
+  accessToken: string;
+  user: { id: string; name: string; email: string };
+  customerId: string;
+}
+
+interface PortalRequestLinkResponse {
+  message: string;
+  devToken?: string;
+}
+
+function targetRouteForRole(role: string): string {
+  return role.toUpperCase() === 'CUSTOMER' ? '/portal/quotation' : '/dashboard';
+}
+
+function toUser(raw: { id: string; name: string; email: string; role?: string }, customerId?: string): User {
+  return {
+    id: raw.id,
+    name: raw.name,
+    email: raw.email,
+    role: (raw.role || 'CUSTOMER') as UserRole,
+    active: true,
+    customerId,
+  };
+}
+
 class AuthService {
   /**
-   * Log in user using email and password
+   * Internal staff login. Customer-portal login does NOT go through this
+   * method on the real backend — it's the two-step magic-link flow below
+   * (requestPortalLink / verifyPortalLink). `isCustomerPortal` is kept on
+   * the credentials shape for backward compatibility with existing call
+   * sites, but is rejected here with guidance to use the magic-link flow.
    */
   public async login(credentials: LoginCredentials): Promise<AuthResult> {
-    // Simulated realistic enterprise auth verification delay (300-400ms)
-    await new Promise((resolve) => setTimeout(resolve, 350));
+    if (credentials.isCustomerPortal) {
+      return {
+        success: false,
+        targetRoute: '/login',
+        error: 'Customer portal sign-in uses a secure access link. Request one below.',
+      };
+    }
 
     const email = credentials.email.trim().toLowerCase();
-    const password = credentials.password?.trim() || '';
-    const users = dealStore.getState().users;
+    const password = credentials.password || '';
 
     if (!email) {
       return { success: false, targetRoute: '/login', error: 'Enter a valid email address.' };
@@ -56,76 +110,31 @@ class AuthService {
       return { success: false, targetRoute: '/login', error: 'Password is required.' };
     }
 
-    // Match by email (case-insensitive) or demo alias
-    let matchedUser = users.find(
-      (u) =>
-        u.email.toLowerCase() === email ||
-        u.email.toLowerCase().replace('@dealflow360.internal', '@dealflow.demo') === email ||
-        u.email.toLowerCase().split('@')[0] === email.split('@')[0]
-    );
-
-    // If in Customer mode, ensure user is a customer
-    if (credentials.isCustomerPortal) {
-      if (matchedUser && matchedUser.role.toLowerCase() !== 'customer') {
-        return {
-          success: false,
-          targetRoute: '/login',
-          error: 'This account belongs to the internal workspace. Please switch to Internal Workspace.',
-        };
-      }
-      // If customer not found, check if it matches demo customer
-      if (!matchedUser && (email.includes('acme') || email.includes('mehta') || email.includes('customer') || email.includes('meridian'))) {
-        matchedUser = users.find((u) => u.role.toLowerCase() === 'customer');
-      }
-    } else {
-      // In Internal mode, forbid customer login
-      if (matchedUser && matchedUser.role.toLowerCase() === 'customer') {
-        return {
-          success: false,
-          targetRoute: '/login',
-          error: 'Customer portal credentials cannot be used for internal workspace login. Switch to Customer Portal.',
-        };
-      }
-    }
-
-    if (!matchedUser) {
+    try {
+      const result = await httpClient.post<InternalLoginResponse>('/auth/login', { email, password });
+      tokenStore.setToken(result.accessToken);
+      const user = toUser(result.user);
+      return { success: true, user, targetRoute: targetRouteForRole(user.role) };
+    } catch (err) {
       return {
         success: false,
         targetRoute: '/login',
-        error: 'The email or password does not match a demo account.',
+        error: err instanceof ApiError ? err.message : 'Unable to sign in. Please retry.',
       };
     }
-
-    // Check password (for demo purposes, any password of 3+ chars or standard passwords pass for seeded users)
-    if (password.length < 3) {
-      return {
-        success: false,
-        targetRoute: '/login',
-        error: 'Password must be at least 3 characters long.',
-      };
-    }
-
-    // Authenticate in store
-    dealStore.loginUser(matchedUser, credentials.team || 'Enterprise Accounts');
-
-    const targetRoute = matchedUser.role.toLowerCase() === 'customer' ? '/portal/quotation' : '/dashboard';
-
-    return {
-      success: true,
-      user: matchedUser,
-      targetRoute,
-    };
   }
 
   /**
-   * Internal user registration
+   * Internal staff registration. NOTE: POST /auth/signup is being added by
+   * a teammate on the `backend` branch concurrently and may not exist yet —
+   * this call is shaped correctly per the documented contract (mirrors
+   * /auth/login's response: { accessToken, user }) and will 404 until that
+   * branch is merged. That's expected; it is not a bug in this wiring.
    */
   public async signup(credentials: SignupCredentials): Promise<AuthResult> {
-    await new Promise((resolve) => setTimeout(resolve, 400));
-
     const email = credentials.email.trim().toLowerCase();
     const name = credentials.name.trim();
-    const password = credentials.password.trim();
+    const password = credentials.password;
 
     if (!name) {
       return { success: false, targetRoute: '/login', error: 'Full name is required.' };
@@ -133,93 +142,138 @@ class AuthService {
     if (!email || !email.includes('@')) {
       return { success: false, targetRoute: '/login', error: 'Enter a valid work email address.' };
     }
-    if (password.length < 6) {
-      return { success: false, targetRoute: '/login', error: 'Password must be at least 6 characters long.' };
+    if (password.length < 8) {
+      return { success: false, targetRoute: '/login', error: 'Password must be at least 8 characters long.' };
     }
     if (!credentials.role) {
       return { success: false, targetRoute: '/login', error: 'Select a role before creating the account.' };
     }
-    if (!credentials.team) {
-      return { success: false, targetRoute: '/login', error: 'Select a Company / Team.' };
-    }
-
-    // Prevent Customer role in internal signup
-    if (credentials.role.toLowerCase() === 'customer') {
+    if (credentials.role.toString().toUpperCase() === 'CUSTOMER') {
       return {
         success: false,
         targetRoute: '/login',
         error: 'Customer accounts cannot be registered through the internal workspace.',
       };
     }
+    if (!credentials.team) {
+      return { success: false, targetRoute: '/login', error: 'Select a Company / Team.' };
+    }
 
-    const state = dealStore.getState();
-    const existing = state.users.find((u) => u.email.toLowerCase() === email);
-    if (existing) {
+    try {
+      const result = await httpClient.post<InternalLoginResponse>('/auth/signup', {
+        name,
+        email,
+        password,
+        role: 'SALES_REP',
+      });
+      tokenStore.setToken(result.accessToken);
+      const user = toUser(result.user);
+      return { success: true, user, targetRoute: targetRouteForRole(user.role) };
+    } catch (err) {
       return {
         success: false,
         targetRoute: '/login',
-        error: 'An account with this work email already exists. Please log in.',
+        error:
+          err instanceof ApiError
+            ? err.isNotFound
+              ? 'Sign-up is not yet available on this backend deployment.'
+              : err.message
+            : 'Failed to register account. Please retry.',
+      };
+    }
+  }
+
+  /**
+   * Step 1 of the customer portal magic-link flow: POST /portal/request-link.
+   * Always resolves successfully from the backend's point of view (it never
+   * reveals whether the email is registered), but the response may carry a
+   * `devToken` outside production so the flow is testable without a real
+   * inbox — surfaced here so the UI can offer a "paste your link token" step.
+   */
+  public async requestPortalLink(email: string): Promise<{ message: string; devToken?: string }> {
+    const result = await httpClient.post<PortalRequestLinkResponse>('/portal/request-link', {
+      email: email.trim().toLowerCase(),
+    });
+    return result;
+  }
+
+  /**
+   * Step 2 of the customer portal magic-link flow: POST /portal/verify-link.
+   */
+  public async verifyPortalLink(token: string): Promise<AuthResult> {
+    try {
+      const result = await httpClient.post<PortalVerifyResponse>('/portal/verify-link', { token });
+      tokenStore.setToken(result.accessToken);
+      const user = toUser({ ...result.user, role: 'CUSTOMER' }, result.customerId);
+      return { success: true, user, targetRoute: '/portal/quotation' };
+    } catch (err) {
+      return {
+        success: false,
+        targetRoute: '/login',
+        error: err instanceof ApiError ? err.message : 'This link is invalid or has expired.',
+      };
+    }
+  }
+
+  /**
+   * Log out: clear the stored token. Any cached user state in useAuth is
+   * cleared by the hook itself.
+   */
+  public logout(): void {
+    tokenStore.clearToken();
+  }
+
+  /**
+   * Quick demo account login helper — dev convenience only, backed by the
+   * fixed accounts seeded in backend/scripts/seed.js (DevPassword123!).
+   * Internal roles without a seeded account (FINANCE, OPERATIONS) resolve
+   * to a clean error rather than a silent stub.
+   */
+  public async quickLoginByRole(role: UserRole, specificEmailOrId?: string): Promise<AuthResult> {
+    const normalized = role.toString().toLowerCase().replace(/_/g, '');
+    const isCustomer = normalized === 'customer';
+
+    if (isCustomer) {
+      // Demo customers don't have a real backend account distinct from the
+      // one seeded portal user — route through the magic-link flow using
+      // the seeded portal email so the demo still exercises the real API.
+      const email = DEMO_ROLE_EMAILS.customer!;
+      const linkResult = await this.requestPortalLink(email);
+      if (!linkResult.devToken) {
+        return {
+          success: false,
+          targetRoute: '/login',
+          error: 'Demo customer login requires a dev backend (no devToken returned).',
+        };
+      }
+      return this.verifyPortalLink(linkResult.devToken);
+    }
+
+    const demoKey = Object.keys(DEMO_ROLE_EMAILS).find(
+      (key) => key.replace(/_/g, '') === normalized
+    );
+    const email = demoKey ? DEMO_ROLE_EMAILS[demoKey] : undefined;
+    if (!email) {
+      return {
+        success: false,
+        targetRoute: '/login',
+        error: `No seeded demo account exists for role "${role}" yet.`,
       };
     }
 
-    const newUser: User = {
-      id: `USR-${Date.now()}`,
-      name,
-      email,
-      role: credentials.role,
-      title: `${credentials.team} Member`,
-      department: credentials.team,
-      active: true,
-    };
-
-    dealStore.setState((prev) => ({
-      users: [...prev.users, newUser],
-    }));
-
-    dealStore.loginUser(newUser, credentials.team);
-
-    return {
-      success: true,
-      user: newUser,
-      targetRoute: '/dashboard',
-    };
+    return this.login({ email, password: DEMO_PASSWORD, isCustomerPortal: false });
   }
 
-  /**
-   * Log out currently active user session
-   */
-  public logout(): void {
-    dealStore.logoutUser();
+  public getStoredToken(): string | null {
+    return tokenStore.getToken();
   }
 
-  /**
-   * Quick demo account login helper
-   */
-  public quickLoginByRole(role: UserRole, specificEmailOrId?: string): AuthResult {
-    const normalized = role.toLowerCase().replace('_', '');
-    const user = specificEmailOrId
-      ? dealStore.getState().users.find((u) => u.email === specificEmailOrId || u.id === specificEmailOrId) ||
-        dealStore.getState().users.find((u) => u.role.toLowerCase().replace('_', '') === normalized) ||
-        dealStore.getState().users[0]
-      : dealStore.getState().users.find((u) => u.role.toLowerCase().replace('_', '') === normalized) ||
-        dealStore.getState().users[0];
-
-    dealStore.loginUser(user, 'Enterprise Accounts');
-    const targetRoute = user.role.toLowerCase() === 'customer' ? '/portal/quotation' : '/dashboard';
-
-    return {
-      success: true,
-      user,
-      targetRoute,
-    };
-  }
-
-  public getCurrentUser(): User {
-    return dealStore.getState().currentUser;
-  }
-
-  public isAuthenticated(): boolean {
-    return dealStore.getState().isAuthenticated;
+  public decodeStoredUser(): { id: string; role?: string; customerId?: string } | null {
+    const token = tokenStore.getToken();
+    if (!token) return null;
+    const payload = decodeJwt(token);
+    if (!payload) return null;
+    return { id: payload.sub, role: payload.role as string | undefined, customerId: payload.customerId as string | undefined };
   }
 }
 

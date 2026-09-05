@@ -9,7 +9,7 @@
  * - Triggers canonical discount governance engine for counter-offers.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   FileText,
@@ -34,7 +34,10 @@ import {
 } from 'lucide-react';
 import { useDealStore } from '../hooks/useDealStore';
 import { useAuth } from '../hooks/useAuth';
+import { useNegotiation } from '../hooks/useNegotiation';
 import { toast } from '../components/ui/Toast';
+import { portalService } from '../services';
+import { ApiQuotation } from '../services/apiTypes';
 import {
   getCustomerVisibleQuotation,
   getLineMessages,
@@ -818,37 +821,30 @@ export const PortalQuotationPage: React.FC = () => {
 
 export const PortalMessagesPage: React.FC = () => {
   const { user } = useAuth();
-  const { quotations, negotiations, addNegotiationMessage } = useDealStore();
-  const currentCustomerId = user.customerId || 'CUST-008';
 
-  // Customer's primary quotation
-  const customerQuote =
-    quotations.find((q) => q.customerId === currentCustomerId) || quotations[0];
+  // Real quotations for this portal customer (GET /portal/quotations,
+  // filtered server-side by the JWT's customer_id) — the negotiation API
+  // below needs a real quotation UUID, not a mock-store id.
+  const [customerQuote, setCustomerQuote] = useState<ApiQuotation | null>(null);
+  useEffect(() => {
+    portalService.getQuotations().then((quotes) => setCustomerQuote(quotes[0] ?? null));
+  }, []);
 
-  // All messages / negotiation records for this customer's quotation
-  const customerMessages = useMemo(() => {
-    return negotiations.filter(
-      (n) => n.customerId === currentCustomerId || n.quotationId === customerQuote?.id
-    );
-  }, [negotiations, currentCustomerId, customerQuote]);
+  const { messages, loading, sending, sendMessage } = useNegotiation(customerQuote?.id);
 
   const [newMessageText, setNewMessageText] = useState<string>('');
-  const [selectedTargetLine, setSelectedTargetLine] = useState<string>('general');
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessageText.trim() || !customerQuote) return;
 
-    addNegotiationMessage({
-      quotationId: customerQuote.id,
-      lineId: selectedTargetLine === 'general' ? undefined : selectedTargetLine,
-      message: newMessageText.trim(),
-      authorName: user.name,
-      authorRole: 'Customer',
-    });
-
-    setNewMessageText('');
-    toast.success('Message Dispatched', 'Your message has been sent to your account team.');
+    try {
+      await sendMessage(newMessageText.trim());
+      setNewMessageText('');
+      toast.success('Message Dispatched', 'Your message has been sent to your account team.');
+    } catch {
+      toast.error('Failed to send', 'Your message could not be delivered. Please try again.');
+    }
   };
 
   return (
@@ -865,51 +861,33 @@ export const PortalMessagesPage: React.FC = () => {
         </div>
 
         <div className="text-xs bg-gray-50 px-3 py-1.5 rounded border border-gray-200 text-gray-600">
-          Proposal: <strong>{customerQuote?.code || 'QT-2026-1042'}</strong>
+          Proposal: <strong>{customerQuote?.quotation_number || 'Loading...'}</strong>
         </div>
       </div>
 
       {/* Message Composer */}
       <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-2xs">
         <form onSubmit={handleSendMessage} className="space-y-3">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="w-full sm:w-64">
-              <label className="block text-xs font-semibold text-gray-700 mb-1">
-                Relates to
-              </label>
-              <select
-                value={selectedTargetLine}
-                onChange={(e) => setSelectedTargetLine(e.target.value)}
-                className="w-full text-xs bg-white border border-gray-300 rounded px-2.5 py-1.5 text-gray-800 focus:outline-none focus:border-[#714B67]"
+          <div className="flex-1">
+            <label className="block text-xs font-semibold text-gray-700 mb-1">
+              Your Question / Inquiry
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newMessageText}
+                onChange={(e) => setNewMessageText(e.target.value)}
+                placeholder="Ask a question regarding delivery timelines, commercial terms, or line items..."
+                disabled={!customerQuote || sending}
+                className="flex-1 text-xs bg-white border border-gray-300 rounded px-3 py-1.5 text-gray-800 focus:outline-none focus:border-[#714B67] disabled:bg-gray-50"
+              />
+              <button
+                type="submit"
+                disabled={!customerQuote || sending}
+                className="bg-[#714B67] hover:bg-[#5A3A52] text-white px-4 py-1.5 rounded text-xs font-semibold transition-colors cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <option value="general">General Commercial Proposal</option>
-                {customerQuote?.lines.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    Item: {l.productName}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex-1">
-              <label className="block text-xs font-semibold text-gray-700 mb-1">
-                Your Question / Inquiry
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newMessageText}
-                  onChange={(e) => setNewMessageText(e.target.value)}
-                  placeholder="Ask a question regarding delivery timelines, commercial terms, or line items..."
-                  className="flex-1 text-xs bg-white border border-gray-300 rounded px-3 py-1.5 text-gray-800 focus:outline-none focus:border-[#714B67]"
-                />
-                <button
-                  type="submit"
-                  className="bg-[#714B67] hover:bg-[#5A3A52] text-white px-4 py-1.5 rounded text-xs font-semibold transition-colors cursor-pointer shrink-0"
-                >
-                  Send
-                </button>
-              </div>
+                {sending ? 'Sending...' : 'Send'}
+              </button>
             </div>
           </div>
         </form>
@@ -917,14 +895,17 @@ export const PortalMessagesPage: React.FC = () => {
 
       {/* Chronological Message Thread */}
       <div className="space-y-3">
-        {customerMessages.length === 0 ? (
+        {loading ? (
+          <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-xs text-gray-500">
+            Loading messages...
+          </div>
+        ) : messages.length === 0 ? (
           <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-xs text-gray-500">
             No message history recorded yet. Use the input above to ask your account executive a question.
           </div>
         ) : (
-          customerMessages.map((msg) => {
-            const targetLine = customerQuote?.lines.find((l) => l.id === msg.lineId);
-
+          messages.map((msg) => {
+            const isMine = msg.sender_user_id === user.id;
             return (
               <div
                 key={msg.id}
@@ -933,46 +914,24 @@ export const PortalMessagesPage: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-bold text-gray-900">
-                      {msg.authorName || msg.customerName}
+                      {isMine ? user.name : 'Account Team'}
                     </span>
                     <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-medium">
-                      {msg.authorRole || 'Customer'}
+                      {isMine ? 'You' : 'Sales Rep'}
                     </span>
-                    {targetLine && (
-                      <span className="text-[10px] bg-purple-50 text-purple-700 border border-purple-200 px-1.5 py-0.5 rounded">
-                        Item: {targetLine.productName}
-                      </span>
-                    )}
-                    {msg.type === 'discount_counter' && (
+                    {msg.message_type === 'COUNTER_OFFER' && (
                       <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded font-semibold">
-                        Counter-Offer: {msg.requestedDiscount}%
+                        Counter-Offer
                       </span>
                     )}
                   </div>
 
                   <span className="text-[11px] text-gray-400">
-                    {new Date(msg.createdAt).toLocaleString()}
+                    {new Date(msg.created_at).toLocaleString()}
                   </span>
                 </div>
 
                 <p className="text-xs text-gray-700 leading-relaxed">{msg.message}</p>
-
-                {/* Account Executive Response */}
-                {msg.response && (
-                  <div className="mt-3 pt-2.5 border-t border-gray-100 pl-3 border-l-2 border-l-[#714B67] bg-[#FDFBFD] p-2.5 rounded">
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="font-bold text-[#714B67]">
-                        Sarah Chen (Account Executive)
-                      </span>
-                      {msg.respondedAt && (
-                        <span className="text-gray-400 text-[10px]">
-                          {new Date(msg.respondedAt).toLocaleDateString()}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-700 mt-1">{msg.response}</p>
-                  </div>
-                )}
               </div>
             );
           })

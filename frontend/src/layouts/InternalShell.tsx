@@ -16,7 +16,6 @@ import {
   Sliders,
   UserCheck,
   LogOut,
-  Shield,
   Bell,
   Menu,
   X,
@@ -24,15 +23,15 @@ import {
   ChevronDown,
   Sparkles,
   Command,
+  MessageSquare,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useDealStore } from '../hooks/useDealStore';
 import { toast } from '../components/ui/Toast';
-import { UserRole } from '../types';
 import { CommandPalette } from '../components/ui/CommandPalette';
 
 export const InternalShell: React.FC = () => {
-  const { user, switchRole, logout } = useAuth();
+  const { user, logout } = useAuth();
   const { refreshData, resetToSeed, quotations, dealHealthFlags } = useDealStore();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
@@ -99,6 +98,11 @@ export const InternalShell: React.FC = () => {
       label: 'Invoices',
       path: '/invoices',
       icon: <Receipt className="w-4 h-4 shrink-0" />,
+    },
+    {
+      label: 'Negotiations',
+      path: '/negotiations',
+      icon: <MessageSquare className="w-4 h-4 shrink-0" />,
     },
     {
       label: 'Deal Health',
@@ -250,22 +254,6 @@ export const InternalShell: React.FC = () => {
               <span className="absolute top-1 right-1 w-2 h-2 bg-amber-500 rounded-full ring-2 ring-white" />
             )}
           </Link>
-
-          {/* Role Switcher */}
-          <div className="hidden sm:flex items-center gap-1 bg-[#F8F9FA] border border-[#D1D5DB] rounded-[6px] px-2 py-0.5 text-xs">
-            <Shield className="w-3 h-3 text-[#714B67] shrink-0" />
-            <select
-              value={user.role}
-              onChange={(e) => switchRole(e.target.value as UserRole)}
-              className="bg-transparent text-xs text-[#1F2937] font-medium focus:outline-hidden cursor-pointer py-1 pr-1"
-            >
-              <option value="SalesRep">Sarah Chen (Sales Rep)</option>
-              <option value="SalesManager">David Vance (Sales Manager)</option>
-              <option value="Finance">Elena Rostova (Finance Dir)</option>
-              <option value="Admin">Marcus Sterling (Admin)</option>
-              <option value="Customer">Vikram Mehta (Customer)</option>
-            </select>
-          </div>
 
           {/* User Profile Area (Section 12: Sarah Chen / Sales Rep) */}
           <div className="flex items-center gap-2 pl-1 sm:pl-2 border-l border-[#E5E7EB]">
