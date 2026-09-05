@@ -53,6 +53,31 @@ export { authService } from './authService';
 export { adminService, isForbiddenError } from './adminService';
 export * from './apiTypes';
 
+/**
+ * Most backend list endpoints (quotations, approvals, sales-orders,
+ * backorders, invoices, subscriptions, credit-notes, deal-health alerts,
+ * notifications) return the shared pagination envelope
+ * (`{ items, total, page, limit, totalPages, hasNextPage, hasPreviousPage }`,
+ * see backend/src/utils/pagination.ts), not a bare array — but several
+ * `getAll()` methods below were typed and treated as if they returned
+ * `T[]` directly. That mismatch is exactly what crashed
+ * QuotationsListPage with "customers.map is not a function": the state
+ * held the whole envelope object, not its items.
+ *
+ * This helper unwraps `.items` when present, and passes an already-flat
+ * array (e.g. /users, /customers, /portal/quotations — genuinely
+ * unpaginated on the backend) straight through, so callers always get
+ * `T[]` regardless of which shape a given endpoint happens to use.
+ */
+async function getListItems<T>(path: string, query?: ListQuery): Promise<T[]> {
+  const response = await httpClient.get<T[] | { items: T[] }>(path, { query });
+  if (Array.isArray(response)) return response;
+  if (response && Array.isArray((response as { items?: unknown }).items)) {
+    return (response as { items: T[] }).items;
+  }
+  return [];
+}
+
 // Still backed by the mock store — kept for the client-side domain
 // calculations/permission model used across the (not-yet-migrated) pages.
 // See the top-of-file note: these are independent of the API rewire below.
@@ -74,7 +99,7 @@ import {
 //    POST /quotations/:id/convert)
 export const quotationService = {
   async getAll(query?: ListQuery): Promise<ApiQuotation[]> {
-    return httpClient.get<ApiQuotation[]>('/quotations', { query });
+    return getListItems<ApiQuotation>('/quotations', query);
   },
   async getById(id: string): Promise<ApiQuotationWithItems> {
     return httpClient.get<ApiQuotationWithItems>(`/quotations/${id}`);
@@ -113,7 +138,7 @@ export const quotationService = {
 // 2. APPROVAL SERVICE (GET /approvals, GET /approvals/:id, POST /approvals/:id/act)
 export const approvalService = {
   async getAll(query?: ListQuery): Promise<ApiApprovalRequest[]> {
-    return httpClient.get<ApiApprovalRequest[]>('/approvals', { query });
+    return getListItems<ApiApprovalRequest>('/approvals', query);
   },
   async getById(id: string): Promise<ApiApprovalRequest> {
     return httpClient.get<ApiApprovalRequest>(`/approvals/${id}`);
@@ -127,7 +152,7 @@ export const approvalService = {
 // 3. SALES ORDER SERVICE (new — real, distinct entity; GET /sales-orders, GET /sales-orders/:id)
 export const salesOrderService = {
   async getAll(query?: ListQuery): Promise<SalesOrder[]> {
-    return httpClient.get<SalesOrder[]>('/sales-orders', { query });
+    return getListItems<SalesOrder>('/sales-orders', query);
   },
   async getById(id: string): Promise<SalesOrder> {
     return httpClient.get<SalesOrder>(`/sales-orders/${id}`);
@@ -159,7 +184,7 @@ export const fulfillmentService = {
 // BACKORDER SERVICE (new)
 export const backorderService = {
   async getAll(query?: ListQuery): Promise<ApiBackorder[]> {
-    return httpClient.get<ApiBackorder[]>('/backorders', { query });
+    return getListItems<ApiBackorder>('/backorders', query);
   },
   async consolidate(id: string): Promise<ApiBackorder> {
     return httpClient.post<ApiBackorder>(`/backorders/${id}/consolidate`);
@@ -207,7 +232,7 @@ export const billingService = {
     return httpClient.post(`/sales-orders/${salesOrderId}/billing/confirm`, planId ? { plan_id: planId } : {});
   },
   async getInvoices(query?: ListQuery): Promise<ApiInvoice[]> {
-    return httpClient.get<ApiInvoice[]>('/invoices', { query });
+    return getListItems<ApiInvoice>('/invoices', query);
   },
   async getInvoiceById(id: string): Promise<ApiInvoice> {
     return httpClient.get<ApiInvoice>(`/invoices/${id}`);
@@ -226,7 +251,7 @@ export const billingService = {
 export const subscriptionService = {
   plans: adminService.subscriptionPlans,
   async getAll(query?: ListQuery): Promise<ApiSubscription[]> {
-    return httpClient.get<ApiSubscription[]>('/subscriptions', { query });
+    return getListItems<ApiSubscription>('/subscriptions', query);
   },
   async getById(id: string): Promise<ApiSubscription> {
     return httpClient.get<ApiSubscription>(`/subscriptions/${id}`);
@@ -246,7 +271,7 @@ export const subscriptionService = {
 // automatically by the backend on subscription downgrade/cancel)
 export const creditNoteService = {
   async getAll(query?: ListQuery): Promise<ApiCreditNote[]> {
-    return httpClient.get<ApiCreditNote[]>('/credit-notes', { query });
+    return getListItems<ApiCreditNote>('/credit-notes', query);
   },
   async getById(id: string): Promise<ApiCreditNote> {
     return httpClient.get<ApiCreditNote>(`/credit-notes/${id}`);
@@ -265,16 +290,28 @@ export const dealHealthService = {
     return httpClient.post<ApiDealHealthScore>(`/quotations/${quotationId}/deal-health/recalculate`);
   },
   async listAlerts(query?: ListQuery): Promise<ApiDealAlert[]> {
-    return httpClient.get<ApiDealAlert[]>('/deal-health', { query });
+    return getListItems<ApiDealAlert>('/deal-health', query);
   },
   async actOnAlert(alertId: string, status: 'ESCALATED' | 'NUDGED' | 'RESOLVED'): Promise<ApiDealAlert> {
     return httpClient.post<ApiDealAlert>(`/deal-health/${alertId}`, { status });
   },
 };
 
-// 8. NEGOTIATION SERVICE (POST /quotations/:id/negotiations, GET
+// 8. NEGOTIATION SERVICE (GET/POST /quotations/:id/negotiations, GET
 //    /negotiations/:id, POST /negotiations/:id/messages)
 export const negotiationService = {
+  /** Sales-rep inbox: every thread across the caller's own quotations (all of them for managers/admins). */
+  async listAll(
+    query?: ListQuery,
+  ): Promise<(ApiNegotiation & { quotation_number: string; customer_id: string })[]> {
+    return getListItems('/negotiations', query);
+  },
+  /** Existing thread(s) for a quotation, most-recent first, each with its messages. */
+  async listForQuotation(
+    quotationId: string,
+  ): Promise<(ApiNegotiation & { messages: ApiNegotiationMessage[] })[]> {
+    return httpClient.get(`/quotations/${quotationId}/negotiations`);
+  },
   async open(quotationId: string): Promise<ApiNegotiation> {
     return httpClient.post<ApiNegotiation>(`/quotations/${quotationId}/negotiations`);
   },
@@ -284,12 +321,24 @@ export const negotiationService = {
   async addMessage(negotiationId: string, data: AddNegotiationMessageInput): Promise<ApiNegotiationMessage> {
     return httpClient.post<ApiNegotiationMessage>(`/negotiations/${negotiationId}/messages`, data);
   },
+  /**
+   * Fetch-or-create: resumes the most recent open thread for a quotation if
+   * one exists, otherwise opens a new one. Both the portal and the internal
+   * negotiation panel use this as their single entry point so neither side
+   * spawns a duplicate thread just by loading the page.
+   */
+  async openOrResume(quotationId: string): Promise<ApiNegotiation> {
+    const existing = await this.listForQuotation(quotationId);
+    const openThread = existing.find((n) => n.status === 'OPEN' || n.status === 'IN_PROGRESS');
+    if (openThread) return openThread;
+    return this.open(quotationId);
+  },
 };
 
 // 9. NOTIFICATIONS SERVICE (new)
 export const notificationsService = {
   async getAll(query?: ListQuery): Promise<ApiNotification[]> {
-    return httpClient.get<ApiNotification[]>('/notifications', { query });
+    return getListItems<ApiNotification>('/notifications', query);
   },
   async markRead(id: string): Promise<ApiNotification> {
     return httpClient.patch<ApiNotification>(`/notifications/${id}/read`);
