@@ -57,6 +57,7 @@ async function seed() {
       email: 'manager@dev.local',
       roleName: 'SALES_MANAGER',
     });
+    await seedUser(client, { name: 'Dev Finance', email: 'finance@dev.local', roleName: 'FINANCE' });
 
     // One customer + a portal user linked to it, for POST /portal/request-link.
     const customerResult = await client.query(
@@ -81,6 +82,30 @@ async function seed() {
     await client.query('UPDATE users SET customer_id = $1 WHERE id = $2', [
       customerId,
       portalUserId,
+    ]);
+
+    // Second demo customer + portal user for the "Customer (Meridian)" quick
+    // login button — a distinct tenant so the demo shows real per-customer
+    // portal scoping instead of reusing the DEV-CUST-001 account.
+    const meridianResult = await client.query(
+      `INSERT INTO customers (company_name, customer_code, customer_tier_id, status)
+       SELECT 'Meridian Industrial', 'MERIDIAN-001', customer_tiers.id, 'ACTIVE'
+       FROM customer_tiers WHERE customer_tiers.name = 'GOLD'
+       ON CONFLICT (customer_code) DO NOTHING
+       RETURNING id`,
+    );
+    const meridianId = meridianResult.rows[0]
+      ? meridianResult.rows[0].id
+      : (await client.query("SELECT id FROM customers WHERE customer_code = 'MERIDIAN-001'")).rows[0].id;
+
+    const meridianUserId = await seedUser(client, {
+      name: 'Priya Nair',
+      email: 'priya.nair@meridianindustrial.com',
+      roleName: 'CUSTOMER',
+    });
+    await client.query('UPDATE users SET customer_id = $1 WHERE id = $2', [
+      meridianId,
+      meridianUserId,
     ]);
 
     console.log(`✅ Seeds complete. Dev password for all seeded users: ${DEV_PASSWORD}`);
