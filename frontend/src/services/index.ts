@@ -42,6 +42,8 @@ import {
   ApiCustomer,
   ApiUser,
   ApiTimelineEvent,
+  ApiBackorder,
+  ApiCreditNote,
   ListQuery,
 } from './apiTypes';
 import { SalesOrder } from '../types';
@@ -102,6 +104,10 @@ export const quotationService = {
   async convert(quotationId: string): Promise<SalesOrder> {
     return httpClient.post<SalesOrder>(`/quotations/${quotationId}/convert`);
   },
+  /** Audit-log-backed activity feed for a quotation. */
+  async getTimeline(quotationId: string): Promise<ApiTimelineEvent[]> {
+    return httpClient.get<ApiTimelineEvent[]>(`/quotations/${quotationId}/timeline`);
+  },
 };
 
 // 2. APPROVAL SERVICE (GET /approvals, GET /approvals/:id, POST /approvals/:id/act)
@@ -142,6 +148,22 @@ export const fulfillmentService = {
   async ship(fulfillmentId: string): Promise<ApiFulfillment> {
     return httpClient.post<ApiFulfillment>(`/fulfillments/${fulfillmentId}/ship`);
   },
+  async acceptSplit(fulfillmentId: string): Promise<ApiFulfillment> {
+    return httpClient.post<ApiFulfillment>(`/fulfillments/${fulfillmentId}/accept-split`);
+  },
+  async overrideSplit(fulfillmentId: string, allocations: unknown[]): Promise<ApiFulfillment> {
+    return httpClient.post<ApiFulfillment>(`/fulfillments/${fulfillmentId}/override-split`, { allocations });
+  },
+};
+
+// BACKORDER SERVICE (new)
+export const backorderService = {
+  async getAll(query?: ListQuery): Promise<ApiBackorder[]> {
+    return httpClient.get<ApiBackorder[]>('/backorders', { query });
+  },
+  async consolidate(id: string): Promise<ApiBackorder> {
+    return httpClient.post<ApiBackorder>(`/backorders/${id}/consolidate`);
+  },
 };
 
 // Legacy warehouse/split helpers used by (not-yet-migrated) fulfillment UI.
@@ -165,18 +187,16 @@ export const warehouseService = {
   async computeSplit(lines: any[]): Promise<WarehouseSplitResult> {
     return computeWarehouseSplit(lines, dealStore.getState().warehouses);
   },
-  // TODO: no backend endpoint exists yet for accepting/overriding a
-  // client-computed split, or for consolidating a backorder — the real
-  // flow is fulfillmentService.suggestFulfillment + .ship. Left as
-  // UI-safe no-ops (rather than silent mock writes) until that lands.
-  async acceptSplit(_quotationId: string, _split: WarehouseSplitResult): Promise<void> {
-    console.warn('warehouseService.acceptSplit: no backend endpoint yet — no-op.');
+  // Now backed by the real endpoints (fulfillmentId, not quotationId — the
+  // real flow operates on a specific ApiFulfillment record).
+  async acceptSplit(fulfillmentId: string): Promise<ApiFulfillment> {
+    return fulfillmentService.acceptSplit(fulfillmentId);
   },
-  async overrideSplit(_quotationId: string, _allocations: unknown[]): Promise<void> {
-    console.warn('warehouseService.overrideSplit: no backend endpoint yet — no-op.');
+  async overrideSplit(fulfillmentId: string, allocations: unknown[]): Promise<ApiFulfillment> {
+    return fulfillmentService.overrideSplit(fulfillmentId, allocations);
   },
-  async consolidateBackorder(): Promise<void> {
-    console.warn('warehouseService.consolidateBackorder: no backend endpoint yet — no-op.');
+  async consolidateBackorder(backorderId: string): Promise<ApiBackorder> {
+    return backorderService.consolidate(backorderId);
   },
 };
 
@@ -202,18 +222,14 @@ export const billingService = {
 
 // 6. SUBSCRIPTION SERVICE
 // Plan definitions are admin-owned config (/admin/subscription-plans).
-// Customer-facing modify/cancel use the two endpoints a `backend`-branch
-// teammate is adding concurrently (see task notes): PATCH /subscriptions/:id
-// and POST /subscriptions/:id/cancel. They may 404 until that branch merges
-// — that's expected, not a bug in this wiring.
+// Full CRUD (list/get/modify/cancel) is now live on the backend.
 export const subscriptionService = {
   plans: adminService.subscriptionPlans,
-  // TODO: no GET /subscriptions (list) endpoint is documented in the
-  // current contract. Left unavailable rather than silently returning
-  // mock rows.
-  async getAll(): Promise<ApiSubscription[]> {
-    console.warn('subscriptionService.getAll: no backend list endpoint documented yet.');
-    return [];
+  async getAll(query?: ListQuery): Promise<ApiSubscription[]> {
+    return httpClient.get<ApiSubscription[]>('/subscriptions', { query });
+  },
+  async getById(id: string): Promise<ApiSubscription> {
+    return httpClient.get<ApiSubscription>(`/subscriptions/${id}`);
   },
   async modify(id: string, updates: Partial<ApiSubscription>): Promise<ApiSubscription> {
     return httpClient.patch<ApiSubscription>(`/subscriptions/${id}`, updates);
@@ -223,6 +239,20 @@ export const subscriptionService = {
     options?: { reason?: string; effectiveDate?: string }
   ): Promise<ApiSubscription> {
     return httpClient.post<ApiSubscription>(`/subscriptions/${id}/cancel`, options || {});
+  },
+};
+
+// CREDIT NOTE SERVICE (new — read-only from the frontend; created
+// automatically by the backend on subscription downgrade/cancel)
+export const creditNoteService = {
+  async getAll(query?: ListQuery): Promise<ApiCreditNote[]> {
+    return httpClient.get<ApiCreditNote[]>('/credit-notes', { query });
+  },
+  async getById(id: string): Promise<ApiCreditNote> {
+    return httpClient.get<ApiCreditNote>(`/credit-notes/${id}`);
+  },
+  async updateStatus(id: string, status: ApiCreditNote['status']): Promise<ApiCreditNote> {
+    return httpClient.patch<ApiCreditNote>(`/credit-notes/${id}/status`, { status });
   },
 };
 
@@ -364,6 +394,40 @@ export const timelineService = {
 // that part of the portal UI has no live data source until one exists.
 export const customerPortalService = {
   negotiations: negotiationService,
+};
+
+// Portal-scoped reads (customer's own quotations). Stopgap: a small section
+// here rather than a full resource-hook module, per task scope — mirrors the
+// existing service call pattern.
+export const portalService = {
+  async getQuotations(query?: ListQuery): Promise<ApiQuotation[]> {
+    return httpClient.get<ApiQuotation[]>('/portal/quotations', { query });
+  },
+  async getQuotationById(id: string): Promise<ApiQuotationWithItems> {
+    return httpClient.get<ApiQuotationWithItems>(`/portal/quotations/${id}`);
+  },
+};
+
+// Directory lookups (customers/users). STOPGAP inline helpers — a parallel
+// workstream is adding proper useCustomers/useUsers hooks + dedicated
+// service methods; these exist only so Group 2/5 detail pages can resolve a
+// display name in the meantime. Flag for reconciliation at merge time to
+// avoid duplicating the other agent's equivalent additions.
+export const directoryService = {
+  async getCustomer(id: string): Promise<ApiCustomer | null> {
+    try {
+      return await httpClient.get<ApiCustomer>(`/customers/${id}`);
+    } catch {
+      return null;
+    }
+  },
+  async getUser(id: string): Promise<ApiUser | null> {
+    try {
+      return await httpClient.get<ApiUser>(`/users/${id}`);
+    } catch {
+      return null;
+    }
+  },
 };
 
 import { reportingService } from './reportingService';
