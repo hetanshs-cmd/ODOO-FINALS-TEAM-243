@@ -49,15 +49,4 @@ export const backordersRepository = {
     );
     return rows[0] as Backorder;
   },
-
-  async reduceBackorderedQuantity(
-    client: PoolClient,
-    salesOrderItemId: string,
-    quantity: number,
-  ): Promise<void> {
-    await client.query(
-      `UPDATE sales_order_items SET backordered_quantity = backordered_quantity - $2 WHERE id = $1`,
-      [salesOrderItemId, quantity],
-    );
-  },
 };

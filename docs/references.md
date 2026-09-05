@@ -39,7 +39,7 @@ Ranked by relevance to DealFlow360.
 
 - **Policy-based, field/row-level permissions.** Every request — human or API caller — goes
   through the same permission layer; there is no special-cased "internal" bypass. This is
-  exactly the discipline NFR2 demands for the customer portal: `customer_users` scoping must
+  exactly the discipline NFR2 demands for the customer portal: `users.customer_id` scoping must
   be enforced as a permission policy applied uniformly, not an if-branch bolted onto portal
   controllers.
   **Apply to:** `auth`/`portal` modules — model portal access as a policy scoped to

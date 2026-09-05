@@ -1,8 +1,10 @@
-import { Errors } from '../../errors/AppError';
+import { AppError, Errors } from '../../errors/AppError';
+import { mapDbError } from '../../shared/crud/dbErrors';
 import { withTransaction } from '../../shared/db/withTransaction';
 import { findApprovalLevelsAscending, ApprovalLevelRef } from '../../shared/approvalLevels';
 import { dealHealthService } from '../deal-health/deal-health.service';
 import { insertAuditLog } from '../../shared/auditLog';
+import { runPostCommit } from '../../shared/postCommit';
 import { evaluateQuotationDiscounts, RiskLevel } from './discountEngine';
 import { discountEngineRepository } from './discount-engine.repository';
 import { CheckDiscountsResult } from './discount-engine.model';
@@ -37,7 +39,8 @@ export const discountEngineService = {
    * quotation half-updated.
    */
   async checkDiscounts(quotationId: string): Promise<CheckDiscountsResult> {
-    // Step 1 — load state (read-only, outside the transaction).
+    // Step 1 — load state. The status is re-checked under a row lock inside
+    // the transaction below; this read only shapes the evaluation inputs.
     const quotation = await discountEngineRepository.findQuotationWithTier(quotationId);
     if (!quotation) throw Errors.notFound('Quotation');
 
@@ -69,7 +72,24 @@ export const discountEngineService = {
 
     // Step 3 — persist: evaluations + status + (conditionally) approval
     // request, atomically. See withTransaction for the rollback guarantee.
-    const result = await withTransaction(async (client) => {
+    // The DB's uq_approval_requests_one_pending_per_quotation index (see
+    // migration 026) is the final backstop against a concurrent escalation
+    // (approvals.service.ts::act, which locks a different row) racing this
+    // insert — translate that 23505 into a clean 409 instead of a raw 500.
+    let result;
+    try {
+      result = await withTransaction(async (client) => {
+      // Re-check the status under a row lock: two concurrent submits/checks
+      // both used to pass the check above and each write a full set of
+      // evaluations plus an approval request.
+      const lockedStatus = await discountEngineRepository.lockQuotationStatus(client, quotationId);
+      if (lockedStatus === null) throw Errors.notFound('Quotation');
+      if (!CHECKABLE_STATUSES.has(lockedStatus)) {
+        throw Errors.businessRuleViolation(
+          `Cannot check discounts on a quotation in status ${lockedStatus}`
+        );
+      }
+
       const evaluations = await Promise.all(
         evaluation.items.map((item) =>
           discountEngineRepository.insertEvaluation(client, quotationId, item)
@@ -78,6 +98,10 @@ export const discountEngineService = {
 
       const newStatus = evaluation.riskLevel === 'LOW' ? 'APPROVED' : 'PENDING_APPROVAL';
       await discountEngineRepository.updateQuotationStatus(client, quotationId, newStatus);
+
+      // Any earlier PENDING request is now stale — this evaluation supersedes
+      // it, whether or not a new request is raised.
+      await discountEngineRepository.supersedePendingApprovalRequests(client, quotationId);
 
       let approvalRequestId: string | null = null;
       if (targetLevel) {
@@ -110,11 +134,18 @@ export const discountEngineService = {
         evaluations,
         approvalRequestId,
       };
-    });
+      });
+    } catch (err) {
+      if (err instanceof AppError) throw err;
+      throw mapDbError(err, 'Approval request');
+    }
 
     // Post-commit: the discount outcome is itself a deal-health signal, so
     // refresh the score/alerts once the new evaluation/status is durable.
-    await dealHealthService.recalculate(quotationId);
+    // Failing here must not 500 an evaluation that already committed.
+    await runPostCommit('discountEngine.checkDiscounts', () =>
+      dealHealthService.recalculate(quotationId).then(() => undefined)
+    );
 
     return result;
   },

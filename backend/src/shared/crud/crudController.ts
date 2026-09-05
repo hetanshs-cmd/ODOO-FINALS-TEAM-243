@@ -14,8 +14,10 @@ export interface CrudController {
  * Generic Controller Factory
  *
  * Parses the request, calls the Service, formats the response — nothing
- * resource-specific lives here. `req.user` does not exist yet (no `auth`
- * module); `actorId` resolves to null until that middleware populates it.
+ * resource-specific lives here. Every admin route runs `authenticate` first
+ * (admin.routes.ts), so `req.user` is always set for these controllers in
+ * practice; the fallback to null only matters if this factory is ever reused
+ * for an unauthenticated route.
  */
 export function createCrudController<T>(
   service: CrudService<T>,

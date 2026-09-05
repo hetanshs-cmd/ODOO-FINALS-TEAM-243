@@ -26,10 +26,10 @@ export interface CrudService<T> {
  * handling, DB constraint error translation, and audit logging.
  *
  * Every admin write is recorded in `audit_logs` (docs/architecture.md: "every
- * admin write goes through the audit log"). `actorId` is nullable because the
- * `auth` module (JWT/req.user) has not landed yet — audit_logs.user_id is
- * nullable for exactly this reason. Once auth exists, pass req.user.id
- * through the controller instead of null.
+ * admin write goes through the audit log"). `actorId` comes from req.user.id
+ * via crudController's actorId() helper; it stays nullable because
+ * audit_logs.user_id is nullable for system-initiated writes that have no
+ * authenticated actor.
  */
 export function createCrudService<T extends { id: string }>(
   repository: CrudRepository<T>,

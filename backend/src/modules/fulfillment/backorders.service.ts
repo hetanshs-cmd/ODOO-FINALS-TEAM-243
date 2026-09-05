@@ -29,8 +29,9 @@ export const backordersService = {
    * Consolidate: now that inventory has arrived, find a warehouse that can
    * fully cover the backordered quantity, create a fulfillment for it (same
    * fulfillments/fulfillment_items/reserve-inventory steps as the original
-   * allocation in fulfillment.service.ts::allocate), reduce the sales order
-   * item's backordered_quantity, and mark the backorder FULFILLED. Requires
+   * allocation in fulfillment.service.ts::allocate), and mark the backorder
+   * FULFILLED (the backorders row itself is the only record of the backordered
+   * quantity — sales_order_items has no redundant counter). Requires
    * a single warehouse to cover the full remaining quantity — a backorder
    * that can only be partially covered is left OPEN for a later retry
    * rather than silently under-shipping it.
@@ -71,11 +72,6 @@ export const backordersService = {
         client,
         covering.warehouse_id,
         backorder.product_id,
-        quantityNeeded,
-      );
-      await backordersRepository.reduceBackorderedQuantity(
-        client,
-        backorder.sales_order_item_id,
         quantityNeeded,
       );
       const updatedBackorder = await backordersRepository.markFulfilled(client, backorderId);

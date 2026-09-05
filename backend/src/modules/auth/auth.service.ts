@@ -15,7 +15,7 @@ import { LoginResult, RequestMagicLinkResult, VerifyMagicLinkResult } from './au
 
 // Least-privileged internal role — applied when a signup request doesn't
 // specify one. Staff signup is the only flow this endpoint serves for now;
-// CUSTOMER accounts are provisioned via customer_users/admin, not self-signup.
+// CUSTOMER accounts are provisioned via users.customer_id/admin, not self-signup.
 const DEFAULT_SIGNUP_ROLE = 'SALES_REP';
 
 /**
@@ -134,6 +134,21 @@ const magicLinks = new Map<string, MagicLinkRecord>();
 const MAGIC_LINK_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
 /**
+ * Hard cap on the in-memory store. Entries used to be removed only when
+ * someone looked them up, so repeatedly requesting links for a valid address
+ * grew this map without bound. Until the store moves into Postgres (tracked
+ * in CODEBASE_AUDIT.md as DB-14), sweeping on write bounds the memory.
+ */
+const MAGIC_LINK_MAX_ENTRIES = 10_000;
+
+function sweepExpiredMagicLinks(): void {
+  const now = Date.now();
+  for (const [token, record] of magicLinks) {
+    if (record.expiresAt < now) magicLinks.delete(token);
+  }
+}
+
+/**
  * POST /portal/request-link
  *
  * Always returns the same generic message, whether or not the email
@@ -155,6 +170,13 @@ export async function requestMagicLink(email: string): Promise<RequestMagicLinkR
     return genericResponse;
   }
 
+  sweepExpiredMagicLinks();
+  if (magicLinks.size >= MAGIC_LINK_MAX_ENTRIES) {
+    // Refuse to grow further rather than exhaust process memory. The caller
+    // still gets the generic response, so this reveals nothing.
+    return genericResponse;
+  }
+
   const token = crypto.randomBytes(32).toString('hex');
   magicLinks.set(token, {
     userId: user.id,
@@ -166,9 +188,10 @@ export async function requestMagicLink(email: string): Promise<RequestMagicLinkR
 
   return {
     ...genericResponse,
-    // Only returned outside production, so the flow is testable end-to-end
-    // without a real inbox. Never do this in production.
-    devToken: config.NODE_ENV !== 'production' ? token : undefined,
+    // Gated on an explicit opt-in, NOT on "not production" — an unset
+    // NODE_ENV must never be enough to hand out a portal session to anyone
+    // who knows a customer's email address.
+    devToken: config.ALLOW_DEV_MAGIC_LINK ? token : undefined,
   };
 }
 

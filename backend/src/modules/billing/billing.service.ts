@@ -1,4 +1,5 @@
-import { Errors } from '../../errors/AppError';
+import { AppError, Errors } from '../../errors/AppError';
+import { mapDbError } from '../../shared/crud/dbErrors';
 import { withTransaction } from '../../shared/db/withTransaction';
 import { roundMoney } from '../../shared/money';
 import { generateDocumentNumber } from '../../shared/documentNumber';
@@ -58,7 +59,8 @@ export const billingService = {
     const plan = planId ? await billingRepository.findSubscriptionPlan(planId) : null;
     if (planId && !plan) throw Errors.notFound('Subscription plan');
 
-    return withTransaction(async (client) => {
+    try {
+      return await withTransaction(async (client) => {
       const locked = await billingRepository.lockOrderForBilling(client, salesOrderId);
       if (!locked) throw Errors.notFound('Sales order');
       if (locked.status === 'CANCELLED') {
@@ -79,36 +81,36 @@ export const billingService = {
           roundMoney(
             Number(item.quantity) * Number(item.unit_price) - Number(item.discount_amount),
           );
-        const subtotal = roundMoney(oneTimeItems.reduce((sum, item) => sum + netAmount(item), 0));
-        const taxTotal = roundMoney(
-          oneTimeItems.reduce(
-            (sum, item) => sum + roundMoney(Number(item.line_total) - netAmount(item)),
-            0,
-          ),
-        );
 
         invoice = await billingRepository.insertInvoice(client, {
           invoiceNumber: generateDocumentNumber('INV'),
           customerId: order.customer_id,
           salesOrderId,
           quotationId: order.quotation_id,
-          subtotal,
-          taxTotal,
-          total: roundMoney(subtotal + taxTotal),
           dueDate: addDays(new Date(), INVOICE_DUE_NET_DAYS),
         });
 
         for (const item of oneTimeItems) {
+          // invoice_items has no discount column (015_billing_invoices.sql) —
+          // the quotation-line discount is netted into unit_price here so
+          // quantity * unit_price already equals the discounted amount the
+          // customer agreed to; tax_percent carries over unchanged.
+          const effectiveUnitPrice =
+            Number(item.quantity) > 0 ? roundMoney(netAmount(item) / Number(item.quantity)) : 0;
           await billingRepository.insertInvoiceItem(client, {
             invoiceId: invoice.id,
             productId: item.product_id,
             description: item.product_name,
             quantity: item.quantity,
-            unitPrice: item.unit_price,
-            tax: roundMoney(Number(item.line_total) - netAmount(item)),
-            total: item.line_total,
+            unitPrice: String(effectiveUnitPrice),
+            taxPercent: item.tax_percent,
           });
         }
+
+        // invoices stores no totals — read the just-inserted items back
+        // through invoice_totals so the response carries subtotal/tax_total/total.
+        const totals = await billingRepository.findInvoiceTotals(client, invoice.id);
+        invoice = { ...invoice, ...totals, discount_total: '0.00' };
       }
 
       let subscription = null;
@@ -154,7 +156,11 @@ export const billingService = {
       });
 
       return { invoice, subscription };
-    });
+      });
+    } catch (err) {
+      if (err instanceof AppError) throw err;
+      throw mapDbError(err, 'Billing generation');
+    }
   },
 
   async getInvoiceDetail(id: string): Promise<InvoiceWithItems & { payments: PaymentRow[] }> {

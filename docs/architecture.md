@@ -143,7 +143,7 @@ Table/field names below match the definitive schema in
 
 **Auth & Config** — `POST /auth/login` (internal user, `users.role_id` → `roles.name` as the
 JWT claim); `POST /portal/request-link` + `POST /portal/verify-link` (customer, magic-link,
-resolved through `customer_users`). Admin CRUD over `products`, `product_categories`,
+resolved through `users.customer_id`). Admin CRUD over `products`, `product_categories`,
 `price_lists`, `customer_tiers`, `discount_rules`, `approval_levels`, `warehouses`,
 `subscription_plans`, `recommendation_rules` — every admin write goes through `audit_logs`.
 
@@ -219,7 +219,7 @@ price_delta`. Cancel mid-cycle with a prepaid balance → a refund `payments` ro
 `payments` row.
 
 **Customer Portal / Negotiation** (separate route namespace `/portal/*`, separate auth
-middleware, resolved through `customer_users`) — `GET /portal/quotations/:id` scoped to that
+middleware, resolved through `users.customer_id`) — `GET /portal/quotations/:id` scoped to that
 customer only, row-level check on every query; `POST /portal/quotations/:id/negotiations/messages`;
 `POST /portal/quotations/:id/confirm`:
 ```
