@@ -16,7 +16,7 @@ router.use(authenticate, requireRole('SALES_REP', 'SALES_MANAGER', 'ADMIN'));
 router.post(
   '/:id/check-discounts',
   validate({ params: idParamSchema }),
-  discountEngineController.checkDiscounts
+  discountEngineController.checkDiscounts,
 );
 
 export { router as discountEngineRouter };

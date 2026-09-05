@@ -11,13 +11,19 @@ export const paymentsRepository = {
       amount: number;
       paymentMethod: string;
       transactionReference: string | null;
-    }
+    },
   ): Promise<Payment> {
     const { rows } = await client.query(
       `INSERT INTO payments (invoice_id, customer_id, amount, payment_method, transaction_reference, status, paid_at)
        VALUES ($1, $2, $3, $4, $5, 'SUCCESS', now())
        RETURNING *`,
-      [input.invoiceId, input.customerId, input.amount, input.paymentMethod, input.transactionReference]
+      [
+        input.invoiceId,
+        input.customerId,
+        input.amount,
+        input.paymentMethod,
+        input.transactionReference,
+      ],
     );
     return rows[0] as Payment;
   },
@@ -25,7 +31,7 @@ export const paymentsRepository = {
   async listForInvoice(invoiceId: string): Promise<Payment[]> {
     const { rows } = await db.query(
       'SELECT * FROM payments WHERE invoice_id = $1 ORDER BY created_at DESC',
-      [invoiceId]
+      [invoiceId],
     );
     return rows as Payment[];
   },
@@ -34,7 +40,7 @@ export const paymentsRepository = {
     const { rows } = await client.query(
       `SELECT COALESCE(SUM(amount), 0)::float8 AS total FROM payments
        WHERE invoice_id = $1 AND status = 'SUCCESS'`,
-      [invoiceId]
+      [invoiceId],
     );
     return (rows[0] as { total: number }).total;
   },

@@ -18,7 +18,7 @@ export const discountEngineRepository = {
        FROM quotations q
        JOIN customers c ON c.id = q.customer_id
        WHERE q.id = $1`,
-      [quotationId]
+      [quotationId],
     );
     return (rows[0] as QuotationForEvaluation | undefined) ?? null;
   },
@@ -31,7 +31,7 @@ export const discountEngineRepository = {
        FROM quotation_items qi
        JOIN products p ON p.id = qi.product_id
        WHERE qi.quotation_id = $1`,
-      [quotationId]
+      [quotationId],
     );
     return rows as QuotationItemInput[];
   },
@@ -42,7 +42,7 @@ export const discountEngineRepository = {
               customer_tier_id AS "customerTierId", max_discount::float8 AS "maxDiscount",
               priority, active
        FROM discount_rules
-       WHERE active = true`
+       WHERE active = true`,
     );
     return rows as DiscountRuleInput[];
   },
@@ -50,7 +50,7 @@ export const discountEngineRepository = {
   async insertEvaluation(
     client: PoolClient,
     quotationId: string,
-    evaluation: ItemEvaluation
+    evaluation: ItemEvaluation,
   ): Promise<DiscountEvaluationRow> {
     const { rows } = await client.query(
       `INSERT INTO discount_evaluations
@@ -66,7 +66,7 @@ export const discountEngineRepository = {
         evaluation.riskScore,
         evaluation.riskLevel,
         evaluation.decision,
-      ]
+      ],
     );
     return rows[0] as DiscountEvaluationRow;
   },
@@ -74,17 +74,16 @@ export const discountEngineRepository = {
   async updateQuotationStatus(
     client: PoolClient,
     quotationId: string,
-    status: string
+    status: string,
   ): Promise<void> {
     await client.query('UPDATE quotations SET status = $2 WHERE id = $1', [quotationId, status]);
   },
 
   /** Locks the quotation row so the status re-check and write are atomic. */
   async lockQuotationStatus(client: PoolClient, quotationId: string): Promise<string | null> {
-    const { rows } = await client.query(
-      'SELECT status FROM quotations WHERE id = $1 FOR UPDATE',
-      [quotationId]
-    );
+    const { rows } = await client.query('SELECT status FROM quotations WHERE id = $1 FOR UPDATE', [
+      quotationId,
+    ]);
     return (rows[0] as { status: string } | undefined)?.status ?? null;
   },
 
@@ -94,28 +93,25 @@ export const discountEngineRepository = {
    * does) previously stacked a fresh PENDING request on top of the old one,
    * so one quotation could occupy several slots in the approval queue.
    */
-  async supersedePendingApprovalRequests(
-    client: PoolClient,
-    quotationId: string
-  ): Promise<number> {
+  async supersedePendingApprovalRequests(client: PoolClient, quotationId: string): Promise<number> {
     const { rowCount } = await client.query(
       `UPDATE approval_requests
        SET status = 'CANCELLED', responded_at = now()
        WHERE quotation_id = $1 AND status = 'PENDING'`,
-      [quotationId]
+      [quotationId],
     );
     return rowCount ?? 0;
   },
 
   async createApprovalRequest(
     client: PoolClient,
-    input: { quotationId: string; requestedBy: string; approvalLevelId: string; reason: string }
+    input: { quotationId: string; requestedBy: string; approvalLevelId: string; reason: string },
   ): Promise<string> {
     const { rows } = await client.query(
       `INSERT INTO approval_requests (quotation_id, requested_by, approval_level_id, reason)
        VALUES ($1, $2, $3, $4)
        RETURNING id`,
-      [input.quotationId, input.requestedBy, input.approvalLevelId, input.reason]
+      [input.quotationId, input.requestedBy, input.approvalLevelId, input.reason],
     );
     return (rows[0] as { id: string }).id;
   },

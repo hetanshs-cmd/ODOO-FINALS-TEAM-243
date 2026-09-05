@@ -26,7 +26,7 @@ export const dealHealthRepository = {
          WHERE quotation_id = $1
          ORDER BY quotation_item_id, evaluated_at DESC
        ) latest`,
-      [quotationId]
+      [quotationId],
     );
     return (rows[0] as { avg_risk: number }).avg_risk;
   },
@@ -37,7 +37,7 @@ export const dealHealthRepository = {
        FROM negotiation_messages nm
        JOIN negotiations n ON n.id = nm.negotiation_id
        WHERE n.quotation_id = $1 AND nm.message_type = 'COUNTER_OFFER'`,
-      [quotationId]
+      [quotationId],
     );
     return (rows[0] as { count: number }).count;
   },
@@ -51,7 +51,7 @@ export const dealHealthRepository = {
        WHERE so.quotation_id = $1
          AND f.status NOT IN ('DELIVERED', 'CANCELLED')
          AND f.scheduled_date IS NOT NULL`,
-      [quotationId]
+      [quotationId],
     );
     return (rows[0] as { delay_days: number }).delay_days;
   },
@@ -66,7 +66,7 @@ export const dealHealthRepository = {
       negotiationRisk: number;
       delayRisk: number;
       fulfillmentRisk: number;
-    }
+    },
   ): Promise<DealHealthScoreRow> {
     const { rows } = await client.query(
       `INSERT INTO deal_health_scores
@@ -81,27 +81,30 @@ export const dealHealthRepository = {
         input.negotiationRisk,
         input.delayRisk,
         input.fulfillmentRisk,
-      ]
+      ],
     );
     return rows[0] as DealHealthScoreRow;
   },
 
-  async findOpenAlertOfType(quotationId: string, alertType: AlertType): Promise<DealAlertRow | null> {
+  async findOpenAlertOfType(
+    quotationId: string,
+    alertType: AlertType,
+  ): Promise<DealAlertRow | null> {
     const { rows } = await db.query(
       `SELECT * FROM deal_alerts WHERE quotation_id = $1 AND alert_type = $2 AND status = 'OPEN'`,
-      [quotationId, alertType]
+      [quotationId, alertType],
     );
     return (rows[0] as DealAlertRow | undefined) ?? null;
   },
 
   async insertAlert(
     client: PoolClient,
-    input: { quotationId: string; alertType: AlertType; severity: AlertSeverity; message: string }
+    input: { quotationId: string; alertType: AlertType; severity: AlertSeverity; message: string },
   ): Promise<DealAlertRow> {
     const { rows } = await client.query(
       `INSERT INTO deal_alerts (quotation_id, alert_type, severity, message)
        VALUES ($1, $2, $3, $4) RETURNING *`,
-      [input.quotationId, input.alertType, input.severity, input.message]
+      [input.quotationId, input.alertType, input.severity, input.message],
     );
     return rows[0] as DealAlertRow;
   },
@@ -109,7 +112,7 @@ export const dealHealthRepository = {
   async findLatestScore(quotationId: string): Promise<DealHealthScoreRow | null> {
     const { rows } = await db.query(
       'SELECT * FROM deal_health_scores WHERE quotation_id = $1 ORDER BY calculated_at DESC LIMIT 1',
-      [quotationId]
+      [quotationId],
     );
     return (rows[0] as DealHealthScoreRow | undefined) ?? null;
   },
@@ -117,12 +120,15 @@ export const dealHealthRepository = {
   async listOpenAlertsForQuotation(quotationId: string): Promise<DealAlertRow[]> {
     const { rows } = await db.query(
       `SELECT * FROM deal_alerts WHERE quotation_id = $1 AND status = 'OPEN' ORDER BY created_at DESC`,
-      [quotationId]
+      [quotationId],
     );
     return rows as DealAlertRow[];
   },
 
-  async listOpenAlerts(limit: number, offset: number): Promise<(DealAlertRow & { quotation_number: string })[]> {
+  async listOpenAlerts(
+    limit: number,
+    offset: number,
+  ): Promise<(DealAlertRow & { quotation_number: string })[]> {
     const { rows } = await db.query(
       `SELECT da.*, q.quotation_number
        FROM deal_alerts da
@@ -130,24 +136,26 @@ export const dealHealthRepository = {
        WHERE da.status = 'OPEN'
        ORDER BY da.created_at DESC
        LIMIT $1 OFFSET $2`,
-      [limit, offset]
+      [limit, offset],
     );
     return rows as (DealAlertRow & { quotation_number: string })[];
   },
 
   async countOpenAlerts(): Promise<number> {
-    const { rows } = await db.query(`SELECT COUNT(*)::int AS count FROM deal_alerts WHERE status = 'OPEN'`);
+    const { rows } = await db.query(
+      `SELECT COUNT(*)::int AS count FROM deal_alerts WHERE status = 'OPEN'`,
+    );
     return (rows[0] as { count: number }).count;
   },
 
   async updateAlertStatus(
     alertId: string,
-    status: 'ESCALATED' | 'NUDGED' | 'RESOLVED'
+    status: 'ESCALATED' | 'NUDGED' | 'RESOLVED',
   ): Promise<DealAlertRow | null> {
     const { rows } = await db.query(
       `UPDATE deal_alerts SET status = $2, resolved_at = CASE WHEN $2 = 'RESOLVED' THEN now() ELSE resolved_at END
        WHERE id = $1 RETURNING *`,
-      [alertId, status]
+      [alertId, status],
     );
     return (rows[0] as DealAlertRow | undefined) ?? null;
   },

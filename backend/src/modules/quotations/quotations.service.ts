@@ -173,7 +173,7 @@ export const quotationsService = {
     // The item is already committed, so a scoring failure must not 500 the
     // request and invite a retry that adds the line a second time.
     await runPostCommit('quotations.addItem', () =>
-      dealHealthService.recalculate(quotationId).then(() => undefined)
+      dealHealthService.recalculate(quotationId).then(() => undefined),
     );
 
     return item;

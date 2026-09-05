@@ -23,7 +23,9 @@ export const dealHealthController = {
 
   async listAlerts(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const result = await dealHealthService.listOpenAlerts(req.query as { page?: unknown; limit?: unknown });
+      const result = await dealHealthService.listOpenAlerts(
+        req.query as { page?: unknown; limit?: unknown },
+      );
       sendSuccess({ res, data: result, message: 'Open deal alerts retrieved successfully' });
     } catch (err) {
       next(err);
@@ -33,7 +35,10 @@ export const dealHealthController = {
   async updateAlertStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { status } = req.body as { status: 'ESCALATED' | 'NUDGED' | 'RESOLVED' };
-      const alert = await dealHealthService.updateAlertStatus(req.params['alertId'] as string, status);
+      const alert = await dealHealthService.updateAlertStatus(
+        req.params['alertId'] as string,
+        status,
+      );
       sendSuccess({ res, data: alert, message: `Alert marked ${status.toLowerCase()}` });
     } catch (err) {
       next(err);

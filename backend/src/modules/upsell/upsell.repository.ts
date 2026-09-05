@@ -21,7 +21,7 @@ export const upsellRepository = {
   async findRecommendations(
     sourceProductId: string,
     type: 'UPSELL' | 'CROSS_SELL' | undefined,
-    minMarginPercent: number | undefined
+    minMarginPercent: number | undefined,
   ): Promise<RecommendedProduct[]> {
     const conditions = ["rr.status = 'ACTIVE'", "p.status = 'ACTIVE'", 'rr.source_product_id = $1'];
     const params: unknown[] = [sourceProductId];
@@ -45,7 +45,7 @@ export const upsellRepository = {
        WHERE ${conditions.join(' AND ')}
        ${havingMargin ? `AND (p.cost_price IS NULL OR ((p.base_price - p.cost_price) / NULLIF(p.base_price, 0) * 100) >= $${params.length})` : ''}
        ORDER BY rr.priority ASC`,
-      params
+      params,
     );
     return rows as RecommendedProduct[];
   },

@@ -178,10 +178,10 @@ export const negotiationsRepository = {
     itemId: string,
     input: { discountPercent: number },
   ): Promise<void> {
-    await client.query(
-      `UPDATE quotation_items SET discount_percent = $2 WHERE id = $1`,
-      [itemId, input.discountPercent],
-    );
+    await client.query(`UPDATE quotation_items SET discount_percent = $2 WHERE id = $1`, [
+      itemId,
+      input.discountPercent,
+    ]);
   },
 
   async insertChange(

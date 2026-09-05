@@ -74,7 +74,7 @@ export const MEDIUM_RISK_THRESHOLD = 30;
 function ruleApplies(
   rule: DiscountRuleInput,
   item: QuotationItemInput,
-  customerTierId: string
+  customerTierId: string,
 ): boolean {
   if (!rule.active) return false;
   if (rule.productId !== null && rule.productId !== item.productId) return false;
@@ -107,7 +107,7 @@ function specificity(rule: DiscountRuleInput): number {
 export function resolveEffectiveCeiling(
   item: QuotationItemInput,
   rules: DiscountRuleInput[],
-  customerTierId: string
+  customerTierId: string,
 ): number {
   const candidates = rules.filter((rule) => ruleApplies(rule, item, customerTierId));
   if (candidates.length === 0) return 0;
@@ -141,7 +141,7 @@ function bandForOverage(overBy: number): RiskLevel {
 function evaluateItem(
   item: QuotationItemInput,
   rules: DiscountRuleInput[],
-  customerTierId: string
+  customerTierId: string,
 ): ItemEvaluation {
   const allowedDiscount = resolveEffectiveCeiling(item, rules, customerTierId);
   const overBy = Math.max(0, item.discountPercent - allowedDiscount);
@@ -177,7 +177,7 @@ function blendedRiskLevel(score: number): RiskLevel {
 export function evaluateQuotationDiscounts(
   items: QuotationItemInput[],
   rules: DiscountRuleInput[],
-  customerTierId: string
+  customerTierId: string,
 ): DiscountEvaluationResult {
   const itemEvaluations = items.map((item) => evaluateItem(item, rules, customerTierId));
 

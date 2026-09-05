@@ -3,7 +3,11 @@ import { authenticate, authenticatePortal } from '../../middleware/authenticate'
 import { requireRole } from '../../middleware/authorize';
 import { validate } from '../../middleware/validate';
 import { negotiationsController } from './negotiations.controller';
-import { addMessageSchema, idParamSchema, listNegotiationsQuerySchema } from './negotiations.validator';
+import {
+  addMessageSchema,
+  idParamSchema,
+  listNegotiationsQuerySchema,
+} from './negotiations.validator';
 
 /**
  * Negotiations are the one resource both internal sales reps AND portal

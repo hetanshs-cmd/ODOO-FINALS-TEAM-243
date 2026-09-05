@@ -1,6 +1,11 @@
 import { db } from '../../config/database';
 import { Errors } from '../../errors/AppError';
-import { getPaginationParams, buildPaginatedResult, PaginationParams, PaginatedResult } from '../../utils/pagination';
+import {
+  getPaginationParams,
+  buildPaginatedResult,
+  PaginationParams,
+  PaginatedResult,
+} from '../../utils/pagination';
 import { CrudRepository } from './crudRepository';
 import { mapDbError } from './dbErrors';
 
@@ -33,7 +38,7 @@ export interface CrudService<T> {
  */
 export function createCrudService<T extends { id: string }>(
   repository: CrudRepository<T>,
-  config: CrudServiceConfig
+  config: CrudServiceConfig,
 ): CrudService<T> {
   const { resourceName, entityType } = config;
 
@@ -42,7 +47,7 @@ export function createCrudService<T extends { id: string }>(
     entityId: string,
     actorId: string | null,
     oldValue: unknown,
-    newValue: unknown
+    newValue: unknown,
   ): Promise<void> {
     await db.query(
       `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, old_value, new_value)
@@ -54,7 +59,7 @@ export function createCrudService<T extends { id: string }>(
         entityId,
         oldValue !== undefined ? JSON.stringify(oldValue) : null,
         newValue !== undefined ? JSON.stringify(newValue) : null,
-      ]
+      ],
     );
   }
 
