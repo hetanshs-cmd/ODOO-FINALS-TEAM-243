@@ -92,10 +92,7 @@ export const subscriptionsService = {
         throw Errors.businessRuleViolation('Cannot move a subscription to an inactive plan');
       }
 
-      const currentPlan = await subscriptionsRepository.findPlanById(
-        client,
-        subscription.plan_id,
-      );
+      const currentPlan = await subscriptionsRepository.findPlanById(client, subscription.plan_id);
 
       let quantity = input.quantity;
       if (quantity === undefined) {
@@ -119,7 +116,11 @@ export const subscriptionsService = {
         : null;
 
       if (priceDelta > 0 && subscription.next_billing_date) {
-        const prorated = prorateForCycle(priceDelta, subscription.next_billing_date, plan.billing_frequency);
+        const prorated = prorateForCycle(
+          priceDelta,
+          subscription.next_billing_date,
+          plan.billing_frequency,
+        );
         if (prorated > 0) {
           await subscriptionsRepository.insertProrationSchedule(client, {
             subscriptionId: subscription.id,

@@ -12,7 +12,7 @@ router.use(authenticate, requireRole('SALES_REP', 'SALES_MANAGER', 'ADMIN'));
 router.get(
   '/:id/recommendations',
   validate({ params: idParamSchema, query: recommendationsQuerySchema }),
-  upsellController.getRecommendations
+  upsellController.getRecommendations,
 );
 
 export { router as upsellRouter };

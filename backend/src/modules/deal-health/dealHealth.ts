@@ -62,7 +62,11 @@ export function calculateDealHealth(input: DealHealthInput): DealHealthResult {
 
   const score = clamp(100 - compositeRisk);
   const riskLevel: RiskLevel =
-    compositeRisk >= HIGH_RISK_THRESHOLD ? 'HIGH' : compositeRisk >= MEDIUM_RISK_THRESHOLD ? 'MEDIUM' : 'LOW';
+    compositeRisk >= HIGH_RISK_THRESHOLD
+      ? 'HIGH'
+      : compositeRisk >= MEDIUM_RISK_THRESHOLD
+        ? 'MEDIUM'
+        : 'LOW';
 
   const alerts: DealAlert[] = [];
   if (input.daysSinceLastActivity >= STALLED_DAYS_THRESHOLD) {

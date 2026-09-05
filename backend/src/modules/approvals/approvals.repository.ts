@@ -149,9 +149,7 @@ export const approvalsRepository = {
   },
 
   /** For the approval-detail screen's risk breakdown (docs/architecture.md). */
-  async findLatestEvaluationsForQuotation(
-    quotationId: string,
-  ): Promise<
+  async findLatestEvaluationsForQuotation(quotationId: string): Promise<
     {
       quotation_item_id: string | null;
       requested_discount: string;

@@ -21,12 +21,10 @@ const CHECKABLE_STATUSES = new Set(['DRAFT', 'SUBMITTED', 'NEGOTIATION']);
  */
 function pickApprovalLevel(
   riskLevel: RiskLevel,
-  levelsAscending: ApprovalLevelRef[]
+  levelsAscending: ApprovalLevelRef[],
 ): ApprovalLevelRef | null {
   if (riskLevel === 'LOW' || levelsAscending.length === 0) return null;
-  return riskLevel === 'HIGH'
-    ? levelsAscending[levelsAscending.length - 1]!
-    : levelsAscending[0]!;
+  return riskLevel === 'HIGH' ? levelsAscending[levelsAscending.length - 1]! : levelsAscending[0]!;
 }
 
 export const discountEngineService = {
@@ -46,7 +44,7 @@ export const discountEngineService = {
 
     if (!CHECKABLE_STATUSES.has(quotation.status)) {
       throw Errors.businessRuleViolation(
-        `Cannot check discounts on a quotation in status ${quotation.status}`
+        `Cannot check discounts on a quotation in status ${quotation.status}`,
       );
     }
 
@@ -66,7 +64,7 @@ export const discountEngineService = {
     const targetLevel = pickApprovalLevel(evaluation.riskLevel, approvalLevels);
     if (evaluation.riskLevel !== 'LOW' && !targetLevel) {
       throw Errors.businessRuleViolation(
-        'Quotation requires approval but no approval levels are configured'
+        'Quotation requires approval but no approval levels are configured',
       );
     }
 
@@ -79,61 +77,64 @@ export const discountEngineService = {
     let result;
     try {
       result = await withTransaction(async (client) => {
-      // Re-check the status under a row lock: two concurrent submits/checks
-      // both used to pass the check above and each write a full set of
-      // evaluations plus an approval request.
-      const lockedStatus = await discountEngineRepository.lockQuotationStatus(client, quotationId);
-      if (lockedStatus === null) throw Errors.notFound('Quotation');
-      if (!CHECKABLE_STATUSES.has(lockedStatus)) {
-        throw Errors.businessRuleViolation(
-          `Cannot check discounts on a quotation in status ${lockedStatus}`
-        );
-      }
-
-      const evaluations = await Promise.all(
-        evaluation.items.map((item) =>
-          discountEngineRepository.insertEvaluation(client, quotationId, item)
-        )
-      );
-
-      const newStatus = evaluation.riskLevel === 'LOW' ? 'APPROVED' : 'PENDING_APPROVAL';
-      await discountEngineRepository.updateQuotationStatus(client, quotationId, newStatus);
-
-      // Any earlier PENDING request is now stale — this evaluation supersedes
-      // it, whether or not a new request is raised.
-      await discountEngineRepository.supersedePendingApprovalRequests(client, quotationId);
-
-      let approvalRequestId: string | null = null;
-      if (targetLevel) {
-        approvalRequestId = await discountEngineRepository.createApprovalRequest(client, {
+        // Re-check the status under a row lock: two concurrent submits/checks
+        // both used to pass the check above and each write a full set of
+        // evaluations plus an approval request.
+        const lockedStatus = await discountEngineRepository.lockQuotationStatus(
+          client,
           quotationId,
-          requestedBy: quotation.sales_rep_id,
-          approvalLevelId: targetLevel.id,
-          reason: `Blended risk ${evaluation.riskLevel} (score ${evaluation.blendedScore}) — discount ceiling exceeded on ${evaluation.items.filter((i) => i.overBy > 0).length} line(s)`,
-        });
-      }
+        );
+        if (lockedStatus === null) throw Errors.notFound('Quotation');
+        if (!CHECKABLE_STATUSES.has(lockedStatus)) {
+          throw Errors.businessRuleViolation(
+            `Cannot check discounts on a quotation in status ${lockedStatus}`,
+          );
+        }
 
-      await insertAuditLog(client, {
-        entityType: 'quotation',
-        entityId: quotationId,
-        action: 'DISCOUNT_CHECK',
-        actorId: quotation.sales_rep_id,
-        newValue: {
+        const evaluations = await Promise.all(
+          evaluation.items.map((item) =>
+            discountEngineRepository.insertEvaluation(client, quotationId, item),
+          ),
+        );
+
+        const newStatus = evaluation.riskLevel === 'LOW' ? 'APPROVED' : 'PENDING_APPROVAL';
+        await discountEngineRepository.updateQuotationStatus(client, quotationId, newStatus);
+
+        // Any earlier PENDING request is now stale — this evaluation supersedes
+        // it, whether or not a new request is raised.
+        await discountEngineRepository.supersedePendingApprovalRequests(client, quotationId);
+
+        let approvalRequestId: string | null = null;
+        if (targetLevel) {
+          approvalRequestId = await discountEngineRepository.createApprovalRequest(client, {
+            quotationId,
+            requestedBy: quotation.sales_rep_id,
+            approvalLevelId: targetLevel.id,
+            reason: `Blended risk ${evaluation.riskLevel} (score ${evaluation.blendedScore}) — discount ceiling exceeded on ${evaluation.items.filter((i) => i.overBy > 0).length} line(s)`,
+          });
+        }
+
+        await insertAuditLog(client, {
+          entityType: 'quotation',
+          entityId: quotationId,
+          action: 'DISCOUNT_CHECK',
+          actorId: quotation.sales_rep_id,
+          newValue: {
+            status: newStatus,
+            blendedScore: evaluation.blendedScore,
+            riskLevel: evaluation.riskLevel,
+            approvalRequestId,
+          },
+        });
+
+        return {
+          quotationId,
           status: newStatus,
           blendedScore: evaluation.blendedScore,
           riskLevel: evaluation.riskLevel,
+          evaluations,
           approvalRequestId,
-        },
-      });
-
-      return {
-        quotationId,
-        status: newStatus,
-        blendedScore: evaluation.blendedScore,
-        riskLevel: evaluation.riskLevel,
-        evaluations,
-        approvalRequestId,
-      };
+        };
       });
     } catch (err) {
       if (err instanceof AppError) throw err;
@@ -144,7 +145,7 @@ export const discountEngineService = {
     // refresh the score/alerts once the new evaluation/status is durable.
     // Failing here must not 500 an evaluation that already committed.
     await runPostCommit('discountEngine.checkDiscounts', () =>
-      dealHealthService.recalculate(quotationId).then(() => undefined)
+      dealHealthService.recalculate(quotationId).then(() => undefined),
     );
 
     return result;

@@ -29,7 +29,10 @@ export const portalRepository = {
   },
 
   /** Scoped by customer_id in the WHERE clause itself — a quotation belonging to another customer simply doesn't come back. */
-  async findQuotationForCustomer(id: string, customerId: string): Promise<QuotationWithItems | null> {
+  async findQuotationForCustomer(
+    id: string,
+    customerId: string,
+  ): Promise<QuotationWithItems | null> {
     const { rows } = await db.query(
       `SELECT q.*, qt.subtotal, qt.discount_total, qt.tax_total, qt.grand_total
        FROM quotations q

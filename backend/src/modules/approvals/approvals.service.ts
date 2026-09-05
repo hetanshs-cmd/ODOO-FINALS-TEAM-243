@@ -69,106 +69,106 @@ export const approvalsService = {
   async act(approvalRequestId: string, dto: ActOnApprovalDto): Promise<ActOnApprovalResult> {
     try {
       return await withTransaction(async (client) => {
-      // Lock and re-check inside the transaction — see findByIdForUpdate.
-      const request = await approvalsRepository.findByIdForUpdate(client, approvalRequestId);
-      if (!request) throw Errors.notFound('Approval request');
+        // Lock and re-check inside the transaction — see findByIdForUpdate.
+        const request = await approvalsRepository.findByIdForUpdate(client, approvalRequestId);
+        if (!request) throw Errors.notFound('Approval request');
 
-      if (dto.action !== 'COMMENTED' && request.status !== 'PENDING') {
-        throw Errors.businessRuleViolation(
-          `This approval request has already been resolved (status: ${request.status})`,
-        );
-      }
-
-      // Segregation of duties: a request routed to a specific approver may
-      // only be actioned by that approver (an ADMIN can always step in). The
-      // assigned_to column existed but was never checked, so any manager
-      // could approve any request — including one escalated away from them,
-      // making the multi-level chain purely cosmetic.
-      if (
-        dto.action !== 'COMMENTED' &&
-        request.assigned_to !== null &&
-        request.assigned_to !== dto.userId &&
-        dto.actorRole !== 'ADMIN'
-      ) {
-        throw Errors.forbidden();
-      }
-
-      // A rep must never be able to approve the discount they requested,
-      // even if they also hold an approving role.
-      if (dto.action !== 'COMMENTED' && request.requested_by === dto.userId) {
-        throw Errors.businessRuleViolation(
-          'You cannot act on an approval request you raised yourself',
-        );
-      }
-
-      const actionRow = await approvalsRepository.insertAction(client, {
-        approvalRequestId,
-        userId: dto.userId,
-        action: dto.action,
-        comment: dto.comment ?? null,
-      });
-
-      let updatedRequest = request;
-      let escalatedRequestId: string | null = null;
-
-      if (dto.action === 'APPROVED') {
-        updatedRequest = await approvalsRepository.updateStatus(
-          client,
-          approvalRequestId,
-          'APPROVED',
-        );
-        await approvalsRepository.updateQuotationStatus(client, request.quotation_id, 'APPROVED');
-      } else if (dto.action === 'REJECTED') {
-        updatedRequest = await approvalsRepository.updateStatus(
-          client,
-          approvalRequestId,
-          'REJECTED',
-        );
-        await approvalsRepository.updateQuotationStatus(client, request.quotation_id, 'REJECTED');
-      } else if (dto.action === 'CANCELLED') {
-        updatedRequest = await approvalsRepository.updateStatus(
-          client,
-          approvalRequestId,
-          'CANCELLED',
-        );
-        // Returned to the rep for rework — matches docs/architecture.md's
-        // approval-workflow "return" outcome.
-        await approvalsRepository.updateQuotationStatus(client, request.quotation_id, 'DRAFT');
-      } else if (dto.action === 'ESCALATED') {
-        updatedRequest = await approvalsRepository.updateStatus(
-          client,
-          approvalRequestId,
-          'ESCALATED',
-        );
-
-        const levels = await findApprovalLevelsAscending();
-        const currentIndex = levels.findIndex((l) => l.id === request.approval_level_id);
-        const nextLevel = currentIndex >= 0 ? levels[currentIndex + 1] : undefined;
-        if (!nextLevel) {
+        if (dto.action !== 'COMMENTED' && request.status !== 'PENDING') {
           throw Errors.businessRuleViolation(
-            'Cannot escalate: no higher approval level is configured',
+            `This approval request has already been resolved (status: ${request.status})`,
           );
         }
 
-        escalatedRequestId = await approvalsRepository.createEscalatedRequest(client, {
-          quotationId: request.quotation_id,
-          requestedBy: request.requested_by,
-          approvalLevelId: nextLevel.id,
-          reason: `Escalated from approval request ${approvalRequestId}${
-            dto.comment ? `: ${dto.comment}` : ''
-          }`,
-        });
-      }
-      // COMMENTED: the action log entry itself is the only effect.
+        // Segregation of duties: a request routed to a specific approver may
+        // only be actioned by that approver (an ADMIN can always step in). The
+        // assigned_to column existed but was never checked, so any manager
+        // could approve any request — including one escalated away from them,
+        // making the multi-level chain purely cosmetic.
+        if (
+          dto.action !== 'COMMENTED' &&
+          request.assigned_to !== null &&
+          request.assigned_to !== dto.userId &&
+          dto.actorRole !== 'ADMIN'
+        ) {
+          throw Errors.forbidden();
+        }
 
-      await insertAuditLog(client, {
-        entityType: 'quotation',
-        entityId: request.quotation_id,
-        action: `APPROVAL_${dto.action}`,
-        actorId: dto.userId,
-        oldValue: { status: request.status },
-        newValue: { status: updatedRequest.status, escalatedRequestId },
-      });
+        // A rep must never be able to approve the discount they requested,
+        // even if they also hold an approving role.
+        if (dto.action !== 'COMMENTED' && request.requested_by === dto.userId) {
+          throw Errors.businessRuleViolation(
+            'You cannot act on an approval request you raised yourself',
+          );
+        }
+
+        const actionRow = await approvalsRepository.insertAction(client, {
+          approvalRequestId,
+          userId: dto.userId,
+          action: dto.action,
+          comment: dto.comment ?? null,
+        });
+
+        let updatedRequest = request;
+        let escalatedRequestId: string | null = null;
+
+        if (dto.action === 'APPROVED') {
+          updatedRequest = await approvalsRepository.updateStatus(
+            client,
+            approvalRequestId,
+            'APPROVED',
+          );
+          await approvalsRepository.updateQuotationStatus(client, request.quotation_id, 'APPROVED');
+        } else if (dto.action === 'REJECTED') {
+          updatedRequest = await approvalsRepository.updateStatus(
+            client,
+            approvalRequestId,
+            'REJECTED',
+          );
+          await approvalsRepository.updateQuotationStatus(client, request.quotation_id, 'REJECTED');
+        } else if (dto.action === 'CANCELLED') {
+          updatedRequest = await approvalsRepository.updateStatus(
+            client,
+            approvalRequestId,
+            'CANCELLED',
+          );
+          // Returned to the rep for rework — matches docs/architecture.md's
+          // approval-workflow "return" outcome.
+          await approvalsRepository.updateQuotationStatus(client, request.quotation_id, 'DRAFT');
+        } else if (dto.action === 'ESCALATED') {
+          updatedRequest = await approvalsRepository.updateStatus(
+            client,
+            approvalRequestId,
+            'ESCALATED',
+          );
+
+          const levels = await findApprovalLevelsAscending();
+          const currentIndex = levels.findIndex((l) => l.id === request.approval_level_id);
+          const nextLevel = currentIndex >= 0 ? levels[currentIndex + 1] : undefined;
+          if (!nextLevel) {
+            throw Errors.businessRuleViolation(
+              'Cannot escalate: no higher approval level is configured',
+            );
+          }
+
+          escalatedRequestId = await approvalsRepository.createEscalatedRequest(client, {
+            quotationId: request.quotation_id,
+            requestedBy: request.requested_by,
+            approvalLevelId: nextLevel.id,
+            reason: `Escalated from approval request ${approvalRequestId}${
+              dto.comment ? `: ${dto.comment}` : ''
+            }`,
+          });
+        }
+        // COMMENTED: the action log entry itself is the only effect.
+
+        await insertAuditLog(client, {
+          entityType: 'quotation',
+          entityId: request.quotation_id,
+          action: `APPROVAL_${dto.action}`,
+          actorId: dto.userId,
+          oldValue: { status: request.status },
+          newValue: { status: updatedRequest.status, escalatedRequestId },
+        });
 
         return { request: updatedRequest, action: actionRow, escalatedRequestId };
       });

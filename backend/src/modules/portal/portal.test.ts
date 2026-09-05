@@ -22,10 +22,7 @@ describe('portalService tenant isolation', () => {
     await expect(portalService.getQuotation('quote-1', 'customer-2')).rejects.toMatchObject({
       statusCode: 404,
     });
-    expect(portalRepository.findQuotationForCustomer).toHaveBeenCalledWith(
-      'quote-1',
-      'customer-2',
-    );
+    expect(portalRepository.findQuotationForCustomer).toHaveBeenCalledWith('quote-1', 'customer-2');
   });
 
   it('getInvoice 404s when the invoice does not belong to this customer', async () => {
@@ -34,10 +31,7 @@ describe('portalService tenant isolation', () => {
     await expect(portalService.getInvoice('invoice-1', 'customer-2')).rejects.toMatchObject({
       statusCode: 404,
     });
-    expect(portalRepository.findInvoiceForCustomer).toHaveBeenCalledWith(
-      'invoice-1',
-      'customer-2',
-    );
+    expect(portalRepository.findInvoiceForCustomer).toHaveBeenCalledWith('invoice-1', 'customer-2');
   });
 
   it('listQuotations only queries scoped to the requesting customer', async () => {

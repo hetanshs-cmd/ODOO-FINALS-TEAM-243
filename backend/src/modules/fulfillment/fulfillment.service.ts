@@ -61,11 +61,14 @@ export const fulfillmentService = {
       if (!lockedOrder) throw Errors.notFound('Sales order');
       if (!ALLOCATABLE_STATUSES.has(lockedOrder.status)) {
         throw Errors.businessRuleViolation(
-          `Cannot allocate a sales order in status ${lockedOrder.status}; it must be PENDING or CONFIRMED`
+          `Cannot allocate a sales order in status ${lockedOrder.status}; it must be PENDING or CONFIRMED`,
         );
       }
 
-      const inventoryRows = await fulfillmentRepository.lockInventoryForProducts(client, productIds);
+      const inventoryRows = await fulfillmentRepository.lockInventoryForProducts(
+        client,
+        productIds,
+      );
       const inventory: InventoryRow[] = inventoryRows.map((row) => ({
         warehouseId: row.warehouse_id,
         productId: row.product_id,
@@ -90,7 +93,7 @@ export const fulfillmentService = {
             client,
             allocation.warehouseId,
             line.productId,
-            line.quantity
+            line.quantity,
           );
         }
         fulfillments.push(fulfillment);
@@ -116,7 +119,11 @@ export const fulfillmentService = {
         entityId: salesOrderId,
         action: 'FULFILLMENT_ALLOCATED',
         actorId,
-        newValue: { fulfillmentCount: fulfillments.length, backorderCount: backorders.length, status },
+        newValue: {
+          fulfillmentCount: fulfillments.length,
+          backorderCount: backorders.length,
+          status,
+        },
       });
 
       return { salesOrderId, fulfillments, backorderCount: backorders.length, status };
@@ -173,7 +180,7 @@ export const fulfillmentService = {
       if (!fulfillment) throw Errors.notFound('Fulfillment');
       if (!SHIPPABLE_STATUSES.has(fulfillment.status)) {
         throw Errors.businessRuleViolation(
-          `Cannot ship a fulfillment in status ${fulfillment.status}`
+          `Cannot ship a fulfillment in status ${fulfillment.status}`,
         );
       }
 
@@ -185,16 +192,23 @@ export const fulfillmentService = {
           client,
           fulfillment.warehouse_id,
           item.product_id,
-          Number(item.quantity)
+          Number(item.quantity),
         );
-        await fulfillmentRepository.addFulfilledQuantity(client, item.sales_order_item_id, Number(item.quantity));
+        await fulfillmentRepository.addFulfilledQuantity(
+          client,
+          item.sales_order_item_id,
+          Number(item.quantity),
+        );
       }
 
-      const fullyFulfilled = await fulfillmentRepository.allItemsFulfilled(client, fulfillment.sales_order_id);
+      const fullyFulfilled = await fulfillmentRepository.allItemsFulfilled(
+        client,
+        fulfillment.sales_order_id,
+      );
       await fulfillmentRepository.updateSalesOrderStatus(
         client,
         fulfillment.sales_order_id,
-        fullyFulfilled ? 'FULFILLED' : 'PARTIALLY_FULFILLED'
+        fullyFulfilled ? 'FULFILLED' : 'PARTIALLY_FULFILLED',
       );
 
       await insertAuditLog(client, {
@@ -227,7 +241,11 @@ export const fulfillmentService = {
           `Cannot accept a split for a fulfillment in status ${fulfillment.status}`,
         );
       }
-      const updated = await fulfillmentRepository.updateStatus(client, fulfillmentId, 'IN_PROGRESS');
+      const updated = await fulfillmentRepository.updateStatus(
+        client,
+        fulfillmentId,
+        'IN_PROGRESS',
+      );
       await insertAuditLog(client, {
         entityType: 'fulfillment',
         entityId: fulfillmentId,
@@ -259,74 +277,74 @@ export const fulfillmentService = {
     }
     try {
       return await withTransaction(async (client) => {
-      const fulfillment = await fulfillmentRepository.findByIdForUpdate(client, fulfillmentId);
-      if (!fulfillment) throw Errors.notFound('Fulfillment');
-      if (!SPLIT_EDITABLE_STATUSES.has(fulfillment.status)) {
-        throw Errors.businessRuleViolation(
-          `Cannot override a split for a fulfillment in status ${fulfillment.status}`,
-        );
-      }
-
-      for (const override of items) {
-        const item = await fulfillmentRepository.findItemForFulfillment(
-          client,
-          fulfillmentId,
-          override.sales_order_item_id,
-        );
-        if (!item) {
+        const fulfillment = await fulfillmentRepository.findByIdForUpdate(client, fulfillmentId);
+        if (!fulfillment) throw Errors.notFound('Fulfillment');
+        if (!SPLIT_EDITABLE_STATUSES.has(fulfillment.status)) {
           throw Errors.businessRuleViolation(
-            `Sales order item ${override.sales_order_item_id} is not part of this fulfillment`,
+            `Cannot override a split for a fulfillment in status ${fulfillment.status}`,
           );
         }
 
-        const currentQuantity = Number(item.quantity);
-        const delta = override.quantity - currentQuantity;
-        if (delta === 0) continue;
-
-        if (delta > 0) {
-          // Must be this fulfillment's own warehouse — that's where the
-          // reservation below is applied.
-          const inventoryRow = await fulfillmentRepository.lockInventoryAtWarehouse(
+        for (const override of items) {
+          const item = await fulfillmentRepository.findItemForFulfillment(
             client,
-            fulfillment.warehouse_id,
-            item.product_id,
+            fulfillmentId,
+            override.sales_order_item_id,
           );
-          const available = inventoryRow ? Number(inventoryRow.quantity_available) : 0;
-          if (available < delta) {
+          if (!item) {
             throw Errors.businessRuleViolation(
-              `Not enough available inventory at this warehouse to increase ${item.product_id} by ${delta}`,
+              `Sales order item ${override.sales_order_item_id} is not part of this fulfillment`,
             );
           }
-          await fulfillmentRepository.reserveInventory(
-            client,
-            fulfillment.warehouse_id,
-            item.product_id,
-            delta,
-          );
-        } else {
-          await fulfillmentRepository.releaseReservation(
-            client,
-            fulfillment.warehouse_id,
-            item.product_id,
-            -delta,
-          );
+
+          const currentQuantity = Number(item.quantity);
+          const delta = override.quantity - currentQuantity;
+          if (delta === 0) continue;
+
+          if (delta > 0) {
+            // Must be this fulfillment's own warehouse — that's where the
+            // reservation below is applied.
+            const inventoryRow = await fulfillmentRepository.lockInventoryAtWarehouse(
+              client,
+              fulfillment.warehouse_id,
+              item.product_id,
+            );
+            const available = inventoryRow ? Number(inventoryRow.quantity_available) : 0;
+            if (available < delta) {
+              throw Errors.businessRuleViolation(
+                `Not enough available inventory at this warehouse to increase ${item.product_id} by ${delta}`,
+              );
+            }
+            await fulfillmentRepository.reserveInventory(
+              client,
+              fulfillment.warehouse_id,
+              item.product_id,
+              delta,
+            );
+          } else {
+            await fulfillmentRepository.releaseReservation(
+              client,
+              fulfillment.warehouse_id,
+              item.product_id,
+              -delta,
+            );
+          }
+
+          await fulfillmentRepository.updateItemQuantity(client, item.id, override.quantity);
         }
 
-        await fulfillmentRepository.updateItemQuantity(client, item.id, override.quantity);
-      }
+        await insertAuditLog(client, {
+          entityType: 'fulfillment',
+          entityId: fulfillmentId,
+          action: 'FULFILLMENT_SPLIT_OVERRIDDEN',
+          actorId,
+          newValue: { items },
+        });
 
-      await insertAuditLog(client, {
-        entityType: 'fulfillment',
-        entityId: fulfillmentId,
-        action: 'FULFILLMENT_SPLIT_OVERRIDDEN',
-        actorId,
-        newValue: { items },
-      });
-
-      // Re-read rather than returning the row captured before the updates —
-      // the caller was previously handed pre-override state.
-      const refreshed = await fulfillmentRepository.findByIdForUpdate(client, fulfillmentId);
-      return refreshed ?? fulfillment;
+        // Re-read rather than returning the row captured before the updates —
+        // the caller was previously handed pre-override state.
+        const refreshed = await fulfillmentRepository.findByIdForUpdate(client, fulfillmentId);
+        return refreshed ?? fulfillment;
       });
     } catch (err) {
       // AppErrors (NOT_FOUND, BUSINESS_RULE_VIOLATION, ...) are already the

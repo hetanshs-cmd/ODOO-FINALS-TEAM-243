@@ -44,3 +44,6 @@ docker-compose.override.yml
 *.key
 *.p12
 secrets/
+
+# ── CI artifacts ────────────────────────────────────────────────────────────
+audit.json

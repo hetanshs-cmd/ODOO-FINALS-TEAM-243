@@ -21,7 +21,7 @@ export const billingController = {
   async listInvoices(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const result = await billingService.listInvoices(
-        req.query as { status?: string; customer_id?: string }
+        req.query as { status?: string; customer_id?: string },
       );
       sendSuccess({ res, data: result, message: 'Invoices retrieved successfully' });
     } catch (err) {

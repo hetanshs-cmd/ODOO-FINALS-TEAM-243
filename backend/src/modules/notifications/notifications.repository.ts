@@ -12,7 +12,7 @@ export const notificationsRepository = {
       message: string;
       referenceType?: string | null;
       referenceId?: string | null;
-    }
+    },
   ): Promise<Notification> {
     const { rows } = await client.query(
       `INSERT INTO notifications (user_id, type, title, message, reference_type, reference_id)
@@ -24,7 +24,7 @@ export const notificationsRepository = {
         input.message,
         input.referenceType ?? null,
         input.referenceId ?? null,
-      ]
+      ],
     );
     return rows[0] as Notification;
   },
@@ -32,22 +32,23 @@ export const notificationsRepository = {
   async listForUser(userId: string, limit: number, offset: number): Promise<Notification[]> {
     const { rows } = await db.query(
       'SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
-      [userId, limit, offset]
+      [userId, limit, offset],
     );
     return rows as Notification[];
   },
 
   async countForUser(userId: string): Promise<number> {
-    const { rows } = await db.query('SELECT COUNT(*)::int AS count FROM notifications WHERE user_id = $1', [
-      userId,
-    ]);
+    const { rows } = await db.query(
+      'SELECT COUNT(*)::int AS count FROM notifications WHERE user_id = $1',
+      [userId],
+    );
     return (rows[0] as { count: number }).count;
   },
 
   async markRead(id: string, userId: string): Promise<Notification | null> {
     const { rows } = await db.query(
       `UPDATE notifications SET is_read = true WHERE id = $1 AND user_id = $2 RETURNING *`,
-      [id, userId]
+      [id, userId],
     );
     return (rows[0] as Notification | undefined) ?? null;
   },

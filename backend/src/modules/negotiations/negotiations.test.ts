@@ -17,11 +17,7 @@ describe('negotiationsService.listAll', () => {
 
     await negotiationsService.listAll({}, { id: 'rep-1', role: 'SALES_REP' } as never);
 
-    expect(negotiationsRepository.listAll).toHaveBeenCalledWith(
-      { salesRepId: 'rep-1' },
-      20,
-      0,
-    );
+    expect(negotiationsRepository.listAll).toHaveBeenCalledWith({ salesRepId: 'rep-1' }, 20, 0);
   });
 
   it('does not scope a sales manager', async () => {

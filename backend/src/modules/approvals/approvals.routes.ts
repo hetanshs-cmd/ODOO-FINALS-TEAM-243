@@ -3,7 +3,11 @@ import { authenticate } from '../../middleware/authenticate';
 import { requireRole } from '../../middleware/authorize';
 import { validate } from '../../middleware/validate';
 import { approvalsController } from './approvals.controller';
-import { actOnApprovalSchema, idParamSchema, listApprovalsQuerySchema } from './approvals.validator';
+import {
+  actOnApprovalSchema,
+  idParamSchema,
+  listApprovalsQuerySchema,
+} from './approvals.validator';
 
 const router = Router();
 
@@ -15,19 +19,19 @@ router.get(
   '/',
   requireRole('SALES_REP', 'SALES_MANAGER', 'ADMIN'),
   validate({ query: listApprovalsQuerySchema }),
-  approvalsController.list
+  approvalsController.list,
 );
 router.get(
   '/:id',
   requireRole('SALES_REP', 'SALES_MANAGER', 'ADMIN'),
   validate({ params: idParamSchema }),
-  approvalsController.getById
+  approvalsController.getById,
 );
 router.post(
   '/:id/act',
   requireRole('SALES_MANAGER', 'ADMIN'),
   validate({ params: idParamSchema, body: actOnApprovalSchema }),
-  approvalsController.act
+  approvalsController.act,
 );
 
 export { router as approvalsRouter };
