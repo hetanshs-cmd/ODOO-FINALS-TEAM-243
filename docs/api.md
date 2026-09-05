@@ -145,8 +145,6 @@ Validation errors return `400` with `details` array listing each field error:
 
 ## Endpoints
 
-> Endpoints will be documented here after Phase 0.
-
 ### Health Check
 
 ```
@@ -171,9 +169,105 @@ GET /api/v1/health
 
 ---
 
-### [Future Endpoints]
+> Table/field names below match the definitive schema in
+> [`database/schema/er-diagram.md`](../database/schema/er-diagram.md) (roles/users,
+> customer_users, quotations/quotation_items, discount_rules/discount_evaluations,
+> approval_requests/approval_actions, negotiations, sales_orders, fulfillments/backorders,
+> invoices/payments, subscriptions/billing_schedules, deal_health_scores/deal_alerts).
 
-> Will be added after Phase 0 analysis identifies required API surface.
+### Auth & Config
+
+| Method | Path | Body | Notes |
+|---|---|---|---|
+| POST | `/api/v1/auth/login` | `{ email, password }` | Internal users — JWT + role claim (`role_id` → `roles.name`) |
+| POST | `/api/v1/portal/request-link` | `{ email }` | Sends a magic-link to a `customer_users`-linked email |
+| POST | `/api/v1/portal/verify-link` | `{ token }` | Exchanges magic-link token for a portal session scoped to one `customer_id` |
+| GET/POST/PATCH | `/api/v1/admin/products` | | `products` CRUD |
+| GET/POST/PATCH | `/api/v1/admin/product-categories` | | `product_categories` CRUD (supports nesting via `parent_category_id`) |
+| GET/POST/PATCH | `/api/v1/admin/price-lists` | | `price_lists` + `price_list_items` |
+| GET/POST/PATCH | `/api/v1/admin/customers` | | `customers` CRUD, `customer_tier_id` assignment |
+| GET/POST/PATCH | `/api/v1/admin/customer-tiers` | | `customer_tiers` CRUD |
+| GET/POST/PATCH | `/api/v1/admin/discount-rules` | | Per product/category/tier discount rules (FR2) |
+| GET/POST/PATCH | `/api/v1/admin/approval-levels` | | Approval chain levels |
+| GET/POST/PATCH | `/api/v1/admin/warehouses` | | `warehouses` CRUD, `inventory` levels |
+| GET/POST/PATCH | `/api/v1/admin/subscription-plans` | | `subscription_plans` config |
+| GET/POST/PATCH | `/api/v1/admin/recommendation-rules` | | Upsell/cross-sell rule config |
+
+All admin writes go through `audit_logs`.
+
+### Quotations & Discount Engine
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/v1/quotations` | Create a `DRAFT` quotation |
+| POST | `/api/v1/quotations/:id/items` | Add/edit a `quotation_items` row |
+| POST | `/api/v1/quotations/:id/check-discounts` | Evaluates every item against `discount_rules` (strictest applicable), writes a `discount_evaluations` row per item (append-only, FR2/FR3) — may create an `approval_requests` row and move status to `PENDING_APPROVAL` |
+
+### Approvals
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/approvals?status=PENDING` | Approver's queue over `approval_requests` |
+| GET | `/api/v1/approvals/:id` | Risk breakdown, item detail, `approval_actions` history |
+| POST | `/api/v1/approvals/:id/act` | `{ action: APPROVE\|REJECT\|ESCALATE\|RETURN, comment }` — inserts an `approval_actions` row and `audit_logs` entry (FR4); final `APPROVE` triggers fulfillment suggestion |
+
+### Negotiation
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/v1/quotations/:id/negotiations` | Opens a `negotiations` thread |
+| POST | `/api/v1/negotiations/:id/messages` | Adds a `negotiation_messages` row (`COMMENT`/`COUNTER_OFFER`/`ACCEPTANCE`/`REJECTION`) |
+| POST | `/api/v1/negotiations/:id/changes` | Records a `negotiation_changes` row (field-level diff) and re-runs `check-discounts`; breaching the ceiling again re-creates an `approval_requests` row (FR9) |
+
+### Upsell / Cross-Sell
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/quotations/:id/recommendations` | Ranked list from `recommendation_rules`, filtered by margin threshold (FR5) |
+
+### Sales Orders & Fulfillment
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/v1/quotations/:id/convert` | Converts an `APPROVED`/`ACCEPTED` quotation into a `sales_orders` row (1:1, unique `quotation_id`) |
+| POST | `/api/v1/sales-orders/:id/suggest-fulfillment` | Computes warehouse split into `fulfillments`/`fulfillment_items` — minimize shipment count, shortfall → `backorders` (FR6) |
+| POST | `/api/v1/fulfillments/:id/accept` | Marks a `fulfillments` row `ACCEPTED` |
+| POST | `/api/v1/fulfillments/:id/override` | Manual per-warehouse quantity override |
+
+### Billing
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/v1/sales-orders/:id/billing/confirm` | Splits items by `billing_type` — `ONE_TIME` → `invoices`/`invoice_items`, `RECURRING` → `subscriptions`/`subscription_items` (FR7) |
+| PATCH | `/api/v1/subscriptions/:id` | Modify qty/plan — prorates `days_remaining / total_days * price_delta` into a new `billing_schedules` row |
+| POST | `/api/v1/subscriptions/:id/cancel` | Sets `subscriptions.status = CANCELLED`; mid-cycle prepaid balance handled via a `payments` refund (`status = REFUNDED`) |
+| POST | `/api/v1/invoices/:id/payments` | Records a `payments` row against an invoice |
+
+### Customer Portal (`/api/v1/portal/...`)
+
+Scoped strictly to the authenticated `customer_users` row — every query filters by
+`customer_id`, never trusts a client-supplied id (NFR2).
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/portal/quotations/:id` | Read-only view of own quotation (`customer_id` match enforced server-side) |
+| POST | `/portal/quotations/:id/negotiations/messages` | Comment / counter-offer (FR8) |
+| POST | `/portal/quotations/:id/confirm` | Applies accepted discount, re-runs FR2/FR3; re-enters approval if still over threshold, else moves to `ACCEPTED` and triggers order conversion (FR9) |
+
+### Deal Health
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/deal-health` | Dashboard over `deal_alerts` (`STALLED`/`DISCOUNT_ANOMALY`/`DELIVERY_SLIPPAGE`) and latest `deal_health_scores` per quotation (FR10) |
+| POST | `/api/v1/deal-health/:id/escalate` | Sets a `deal_alerts` row to `ESCALATED` |
+| POST | `/api/v1/deal-health/:id/nudge` | Sets a `deal_alerts` row to `NUDGED`, fires a `notifications` row |
+
+### Reporting
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/reports` | Aggregates directly over `quotations`/`quotation_items`/`invoices` — filterable by period/team/status/product (FR11) |
+| GET | `/api/v1/reports/export` | PDF/XLS export (cut-list candidate — see `development-workflow.md`) |
 
 ---
 
@@ -202,4 +296,4 @@ GET /api/v1/health
 
 ---
 
-*Last updated: scaffold initialization — awaiting problem statement*
+*Last updated: Phase 0 complete — DealFlow360 (definitive 41-table schema)*
