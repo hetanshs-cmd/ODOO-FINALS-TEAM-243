@@ -39,7 +39,9 @@ export const billingService = {
     const order = await billingRepository.findSalesOrderForBilling(salesOrderId);
     if (!order) throw Errors.notFound('Sales order');
 
-    const quotationItems = await billingRepository.listQuotationItemsWithProduct(order.quotation_id);
+    const quotationItems = await billingRepository.listQuotationItemsWithProduct(
+      order.quotation_id,
+    );
     if (quotationItems.length === 0) {
       throw Errors.businessRuleViolation('Sales order has no billable items');
     }
@@ -49,7 +51,7 @@ export const billingService = {
 
     if (recurringItems.length > 0 && !planId) {
       throw Errors.businessRuleViolation(
-        'Order contains recurring items — plan_id is required to create the subscription'
+        'Order contains recurring items — plan_id is required to create the subscription',
       );
     }
 
@@ -57,16 +59,32 @@ export const billingService = {
     if (planId && !plan) throw Errors.notFound('Subscription plan');
 
     return withTransaction(async (client) => {
+      const locked = await billingRepository.lockOrderForBilling(client, salesOrderId);
+      if (!locked) throw Errors.notFound('Sales order');
+      if (locked.status === 'CANCELLED') {
+        throw Errors.businessRuleViolation('Cannot bill a cancelled sales order');
+      }
+      if (await billingRepository.hasBillingForOrder(client, salesOrderId)) {
+        throw Errors.conflict('Billing has already been generated for this order');
+      }
+      if (await billingRepository.hasUnshippedOneTimeItems(client, salesOrderId)) {
+        throw Errors.businessRuleViolation(
+          'All one-time goods must be shipped before billing this order',
+        );
+      }
       let invoice: Invoice | null = null;
       if (oneTimeItems.length > 0) {
-        const subtotal = roundMoney(
-          oneTimeItems.reduce((sum, item) => sum + Number(item.line_total), 0)
-        );
+        // quotation_items.line_total already includes tax.
+        const netAmount = (item: (typeof oneTimeItems)[number]) =>
+          roundMoney(
+            Number(item.quantity) * Number(item.unit_price) - Number(item.discount_amount),
+          );
+        const subtotal = roundMoney(oneTimeItems.reduce((sum, item) => sum + netAmount(item), 0));
         const taxTotal = roundMoney(
           oneTimeItems.reduce(
-            (sum, item) => sum + Number(item.line_total) * (Number(item.tax_percent) / 100),
-            0
-          )
+            (sum, item) => sum + roundMoney(Number(item.line_total) - netAmount(item)),
+            0,
+          ),
         );
 
         invoice = await billingRepository.insertInvoice(client, {
@@ -76,7 +94,7 @@ export const billingService = {
           quotationId: order.quotation_id,
           subtotal,
           taxTotal,
-          total: subtotal,
+          total: roundMoney(subtotal + taxTotal),
           dueDate: addDays(new Date(), INVOICE_DUE_NET_DAYS),
         });
 
@@ -87,7 +105,7 @@ export const billingService = {
             description: item.product_name,
             quantity: item.quantity,
             unitPrice: item.unit_price,
-            tax: roundMoney(Number(item.line_total) * (Number(item.tax_percent) / 100)),
+            tax: roundMoney(Number(item.line_total) - netAmount(item)),
             total: item.line_total,
           });
         }
@@ -98,7 +116,7 @@ export const billingService = {
         const startDate = new Date().toISOString().slice(0, 10);
         const nextBillingDate = computeNextBillingDate(new Date(), plan.billing_frequency);
         const currentPrice = roundMoney(
-          recurringItems.reduce((sum, item) => sum + Number(item.line_total), 0)
+          recurringItems.reduce((sum, item) => sum + Number(item.line_total), 0),
         );
 
         subscription = await billingRepository.insertSubscription(client, {
