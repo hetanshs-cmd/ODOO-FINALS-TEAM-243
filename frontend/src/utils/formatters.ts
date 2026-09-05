@@ -13,6 +13,15 @@ export function formatCurrency(val?: number): string {
   }).format(val);
 }
 
+/** 'PENDING_APPROVAL' -> 'Pending Approval'. Matches StatusBadge's label cases. */
+export function humanizeStatus(status: string): string {
+  return status
+    .toLowerCase()
+    .split('_')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
 export function formatPercent(val?: number): string {
   if (val === undefined || val === null || isNaN(val)) return '0%';
   const rounded = Math.round(val * 10) / 10;

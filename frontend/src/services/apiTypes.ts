@@ -397,6 +397,13 @@ export interface ApiProduct {
   [key: string]: unknown;
 }
 
+export interface ApiProductCategory {
+  id: string;
+  name: string;
+  description: string | null;
+  parent_category_id: string | null;
+}
+
 // ── Admin: Recommendation Rules (= "Upsell rules" in the mock UI) ───────────
 export interface ApiRecommendationRule {
   id: string;

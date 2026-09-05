@@ -2,7 +2,6 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { PageHeader } from '../components/ui/PageHeader';
 import { StatusBadge } from '../components/ui/Badge';
-import { useDealStore } from '../hooks/useDealStore';
 import { Quotation, WarehouseSplitResult, WarehouseSplitAllocation } from '../types';
 import {
   computeWarehouseSplit,

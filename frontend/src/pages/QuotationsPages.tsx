@@ -32,6 +32,7 @@ import {
   formatCurrency,
   formatRelativeTime,
   formatExactDateTime,
+  humanizeStatus,
 } from '../utils/formatters';
 
 // The mock QuotationToolbar's stage filter/groupBy still speaks the legacy
@@ -45,14 +46,6 @@ const STAGE_LABEL_TO_STATUS: Record<string, ApiQuotationStatus> = {
   Negotiation: 'NEGOTIATION',
   Confirmed: 'CONVERTED',
 };
-
-function humanizeStatus(status: string): string {
-  return status
-    .toLowerCase()
-    .split('_')
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ');
-}
 
 export const QuotationsListPage: React.FC = () => {
   const { quotations, loading, error, refetch } = useQuotations();
