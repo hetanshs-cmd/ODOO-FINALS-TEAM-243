@@ -32,6 +32,7 @@ import { Modal } from '../components/ui/Modal';
 import { Button } from '../components/ui/Button';
 import { useSubscriptions, useSubscription } from '../hooks/useSubscriptions';
 import { useCreditNotes } from '../hooks/useCreditNotes';
+import { useCustomers } from '../hooks/useCustomers';
 import { subscriptionService, creditNoteService, billingService, adminService, isForbiddenError } from '../services';
 import { ApiSubscription, ApiCreditNote, ApiInvoice } from '../services/apiTypes';
 import { ApiError } from '../services/httpClient';
@@ -39,7 +40,11 @@ import { ApiError } from '../services/httpClient';
 export const SubscriptionsListPage: React.FC = () => {
   const { subscriptions, loading, error } = useSubscriptions();
   const { creditNotes, loading: creditNotesLoading, refetch: refetchCreditNotes } = useCreditNotes();
+  const { customers } = useCustomers();
   const navigate = useNavigate();
+
+  const customersById = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
+  const getCustomerName = (id: string | null | undefined) => (id && customersById.get(id)?.name) || 'Unknown Customer';
 
   const [activeTab, setActiveTab] = useState<'subscriptions' | 'creditNotes'>('subscriptions');
   const [searchTerm, setSearchTerm] = useState('');
@@ -56,6 +61,7 @@ export const SubscriptionsListPage: React.FC = () => {
         !searchTerm.trim() ||
         sub.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
         sub.customer_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        getCustomerName(sub.customer_id).toLowerCase().includes(searchTerm.toLowerCase()) ||
         sub.plan_id.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesStatus = statusFilter === 'ALL' || sub.status === statusFilter;
       return matchesSearch && matchesStatus;
@@ -86,8 +92,7 @@ export const SubscriptionsListPage: React.FC = () => {
     {
       key: 'customer_id',
       header: 'Customer',
-      // TODO: resolve customer display name once a customers directory hook lands.
-      render: (s) => <span className="font-mono font-semibold text-slate-900">{s.customer_id}</span>,
+      render: (s) => <span className="font-semibold text-slate-900">{getCustomerName(s.customer_id)}</span>,
     },
     {
       key: 'plan_id',
@@ -143,7 +148,7 @@ export const SubscriptionsListPage: React.FC = () => {
     {
       key: 'customer_id',
       header: 'Customer',
-      render: (c) => <span className="font-mono font-semibold text-slate-900">{c.customer_id}</span>,
+      render: (c) => <span className="font-semibold text-slate-900">{getCustomerName(c.customer_id)}</span>,
     },
     {
       key: 'subscription_id',
@@ -340,6 +345,8 @@ export const SubscriptionsListPage: React.FC = () => {
 export const SubscriptionDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { subscription: sub, loading, error, refetch } = useSubscription(id);
+  const { customers } = useCustomers();
+  const customerName = (sub && customers.find((c) => c.id === sub.customer_id)?.name) || sub?.customer_id || '—';
 
   const [creditNotes, setCreditNotes] = useState<ApiCreditNote[]>([]);
   const [creditNotesLoading, setCreditNotesLoading] = useState(false);
@@ -441,7 +448,7 @@ export const SubscriptionDetailPage: React.FC = () => {
     <div className="space-y-6">
       <PageHeader
         title={`Subscription: ${sub.id}`}
-        description={`Recurring contract for customer ${sub.customer_id}. TODO: resolve customer display name once a customers directory hook lands.`}
+        description={`Recurring contract for customer ${customerName}.`}
         breadcrumbs={[{ label: 'Workspace' }, { label: 'Subscriptions', href: '/subscriptions' }, { label: sub.id }]}
         badge={<StatusBadge status={sub.status} />}
         actions={
@@ -489,7 +496,7 @@ export const SubscriptionDetailPage: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 text-xs">
           <div>
             <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">Customer</span>
-            <div className="font-mono font-bold text-slate-900 text-sm">{sub.customer_id}</div>
+            <div className="font-bold text-slate-900 text-sm">{customerName}</div>
           </div>
 
           <div>

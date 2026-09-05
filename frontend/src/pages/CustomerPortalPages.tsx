@@ -308,8 +308,12 @@ export const PortalQuotationPage: React.FC = () => {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    {/* TODO: resolve product display name — this line only carries product_id. */}
-                    <span className="text-sm font-bold text-gray-900 font-mono">{line.product_id}</span>
+                    {/* Product listing is ADMIN-gated (no portal-accessible directory
+                        endpoint), so fall back to the line's own description snapshot
+                        rather than the raw product_id. */}
+                    <span className="text-sm font-bold text-gray-900">
+                      {line.description || line.product_id}
+                    </span>
                     {line.billing_type === 'RECURRING' && (
                       <span className="text-[10px] font-semibold px-2 py-0.5 rounded border bg-purple-50 text-purple-700 border-purple-200">
                         Subscription

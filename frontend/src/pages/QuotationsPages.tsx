@@ -193,13 +193,20 @@ export const QuotationsListPage: React.FC = () => {
     return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
   }, [customers, quotations]);
 
-  // Stage counts for quick filter tabs — keyed by the real status enum.
+  // Stage counts for quick filter tabs — QuotationToolbar's STAGES tabs are
+  // keyed by the legacy mock-store label (e.g. 'Draft'), not the real status
+  // enum, so translate through STAGE_LABEL_TO_STATUS to keep the keys the
+  // toolbar actually looks up in sync with what's counted here.
   const stageCounts = useMemo(() => {
     const counts: Record<string, number> = { all: quotations.length };
     quotations.forEach((q) => {
       counts[q.status] = (counts[q.status] || 0) + 1;
     });
-    return counts;
+    const labeled: Record<string, number> = { all: quotations.length };
+    Object.entries(STAGE_LABEL_TO_STATUS).forEach(([label, status]) => {
+      labeled[label] = counts[status] || 0;
+    });
+    return labeled;
   }, [quotations]);
 
   // Check if current user is sales rep

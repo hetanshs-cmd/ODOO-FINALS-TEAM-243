@@ -50,6 +50,7 @@ import { canUserPerformAction } from '../domain/permissions';
 import { useApprovals } from '../hooks/useApprovals';
 import { useQuotations, useQuotation } from '../hooks/useQuotations';
 import { useUsers } from '../hooks/useUsers';
+import { useCustomers } from '../hooks/useCustomers';
 import { approvalService, quotationService } from '../services';
 import { ApiApprovalRequest, ApiQuotation, ApiApprovalAction, ApiTimelineEvent } from '../services/apiTypes';
 import { ApiError } from '../services/httpClient';
@@ -69,11 +70,14 @@ export const ApprovalsListPage: React.FC = () => {
   const { approvals, loading, refetch } = useApprovals();
   const { quotations } = useQuotations();
   const { users } = useUsers();
+  const { customers } = useCustomers();
   const navigate = useNavigate();
 
   const quotationsById = useMemo(() => new Map(quotations.map((q) => [q.id, q])), [quotations]);
   const usersById = useMemo(() => new Map(users.map((u) => [u.id, u])), [users]);
+  const customersById = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
   const getUserName = (id: string | null | undefined) => (id && usersById.get(id)?.name) || 'Unassigned';
+  const getCustomerName = (id: string | null | undefined) => (id && customersById.get(id)?.name) || 'Unknown Customer';
 
   // Approximate risk from discount-to-subtotal ratio — the real API has no
   // per-line risk score (see the same approximation in QuotationsListPage).
@@ -129,9 +133,10 @@ export const ApprovalsListPage: React.FC = () => {
         if (searchQuery.trim()) {
           const query = searchQuery.toLowerCase().trim();
           const matchCode = (q?.quotation_number || '').toLowerCase().includes(query);
+          const matchCustomer = getCustomerName(q?.customer_id).toLowerCase().includes(query);
           const matchReviewer = getUserName(a.assigned_to).toLowerCase().includes(query);
           const matchRequester = getUserName(a.requested_by).toLowerCase().includes(query);
-          if (!matchCode && !matchReviewer && !matchRequester) return false;
+          if (!matchCode && !matchCustomer && !matchReviewer && !matchRequester) return false;
         }
 
         // Risk filter dropdown
@@ -159,12 +164,12 @@ export const ApprovalsListPage: React.FC = () => {
           const valB = parseFloat(qB?.grand_total || '0') || 0;
           comparison = valB - valA;
         } else if (sortKey === 'customer') {
-          comparison = (qA?.customer_id || '').localeCompare(qB?.customer_id || '');
+          comparison = getCustomerName(qA?.customer_id).localeCompare(getCustomerName(qB?.customer_id));
         }
 
         return sortOrder === 'desc' ? comparison : -comparison;
       });
-  }, [approvals, quotationsById, usersById, quickFilter, searchQuery, riskFilter, sortKey, sortOrder]);
+  }, [approvals, quotationsById, usersById, customersById, quickFilter, searchQuery, riskFilter, sortKey, sortOrder]);
 
   return (
     <div className="space-y-5 pb-12">
@@ -394,11 +399,10 @@ export const ApprovalsListPage: React.FC = () => {
                         </div>
                       </td>
 
-                      {/* 2. Customer — no customer-directory lookup on this
-                          list page's scope; shown by id. */}
+                      {/* 2. Customer */}
                       <td className="px-3 py-3 align-middle">
-                        <div className="font-mono text-[11px] text-slate-600 max-w-[170px] truncate" title={q?.customer_id}>
-                          {q?.customer_id || '—'}
+                        <div className="text-[13px] font-medium text-slate-800 max-w-[170px] truncate" title={getCustomerName(q?.customer_id)}>
+                          {getCustomerName(q?.customer_id)}
                         </div>
                       </td>
 
@@ -494,6 +498,9 @@ export const ApprovalDetailPage: React.FC = () => {
   const { approvals, loading: approvalsLoading, refetch: refetchApprovals } = useApprovals(
     quotation ? { quotation_id: quotation.id } : undefined
   );
+  const { customers } = useCustomers();
+  const customerName =
+    (quotation && customers.find((c) => c.id === quotation.customer_id)?.name) || quotation?.customer_id || '—';
 
   const [timeline, setTimeline] = useState<ApiTimelineEvent[]>([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
@@ -643,7 +650,7 @@ export const ApprovalDetailPage: React.FC = () => {
       {/* 1. Header & Navigation */}
       <PageHeader
         title={`Approval Review: ${quotation.quotation_number}`}
-        description={`Commercial governance review for customer ${quotation.customer_id}. TODO: resolve customer display name once a customers directory hook lands.`}
+        description={`Commercial governance review for customer ${customerName}.`}
         breadcrumbs={[
           { label: 'Workspace' },
           { label: 'Approvals', href: '/approvals' },
@@ -670,10 +677,9 @@ export const ApprovalDetailPage: React.FC = () => {
       <div className="bg-white rounded-lg border border-slate-200 shadow-2xs overflow-hidden">
         <div className="p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
           <div>
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Customer ID</span>
-            {/* TODO: enrich with customer name once useCustomers()/directoryService is reconciled in. */}
-            <div className="font-semibold text-slate-900 mt-0.5 truncate font-mono" title={quotation.customer_id}>
-              {quotation.customer_id}
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Customer</span>
+            <div className="font-semibold text-slate-900 mt-0.5 truncate" title={quotation.customer_id}>
+              {customerName}
             </div>
           </div>
           <div>

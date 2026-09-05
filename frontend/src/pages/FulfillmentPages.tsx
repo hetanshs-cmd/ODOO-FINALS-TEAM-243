@@ -429,6 +429,11 @@ export const FulfillmentDetailPage: React.FC = () => {
   }, [id]);
 
   const { salesOrder, loading: soLoading, error: soError, refetch: refetchSalesOrder } = useSalesOrder(salesOrderId);
+  const { customers: detailCustomers } = useCustomers();
+  const customerName =
+    (salesOrder && detailCustomers.find((c) => c.id === salesOrder.customer_id)?.name) ||
+    salesOrder?.customer_id ||
+    '—';
   const { backorders, loading: boLoading, refetch: refetchBackorders } = useBackorders(
     salesOrder ? { sales_order_id: salesOrder.id } : undefined
   );
@@ -590,8 +595,7 @@ export const FulfillmentDetailPage: React.FC = () => {
               <div className="flex items-center gap-2">
                 <span className="font-mono text-base font-bold text-slate-900">{salesOrder.order_number}</span>
                 <span className="text-slate-400">/</span>
-                {/* TODO: resolve customer display name once a customers directory hook lands. */}
-                <span className="text-sm font-semibold text-slate-800 font-mono">{salesOrder.customer_id}</span>
+                <span className="text-sm font-semibold text-slate-800">{customerName}</span>
               </div>
               <div className="text-xs text-slate-500 mt-0.5">
                 Order Date: <strong className="text-slate-700">{new Date(salesOrder.order_date).toLocaleDateString()}</strong>
@@ -758,8 +762,8 @@ export const FulfillmentDetailPage: React.FC = () => {
             </h4>
             <div className="space-y-2 text-xs">
               <div className="flex justify-between">
-                <span className="text-slate-500">Customer ID:</span>
-                <span className="font-mono font-semibold text-slate-900">{salesOrder.customer_id}</span>
+                <span className="text-slate-500">Customer:</span>
+                <span className="font-semibold text-slate-900">{customerName}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Quotation ID:</span>
