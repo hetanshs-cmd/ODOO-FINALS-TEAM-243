@@ -17,6 +17,7 @@ CREATE TABLE negotiations (
     )
 );
 CREATE INDEX idx_negotiations_quotation_id ON negotiations(quotation_id);
+CREATE INDEX idx_negotiations_initiated_by ON negotiations(initiated_by);
 CREATE INDEX idx_negotiations_status ON negotiations(status);
 
 CREATE TABLE negotiation_messages (

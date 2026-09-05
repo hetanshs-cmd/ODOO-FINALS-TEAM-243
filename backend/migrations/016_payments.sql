@@ -11,8 +11,6 @@ CREATE TABLE payments (
     transaction_reference  VARCHAR(100),
     status                 VARCHAR(20) NOT NULL DEFAULT 'PENDING',
     paid_at                TIMESTAMPTZ,
-    created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT chk_payments_amount CHECK (amount > 0),
     CONSTRAINT chk_payments_status CHECK (status IN ('PENDING', 'SUCCESS', 'FAILED', 'REFUNDED'))
 );
@@ -24,6 +22,3 @@ CREATE INDEX idx_payments_status ON payments(status);
 CREATE UNIQUE INDEX uq_payments_transaction_reference
     ON payments(transaction_reference)
     WHERE transaction_reference IS NOT NULL;
-CREATE TRIGGER trg_payments_updated_at
-    BEFORE UPDATE ON payments
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
