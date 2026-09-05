@@ -4,7 +4,6 @@ export const idParamSchema = z.object({ id: z.string().uuid('id must be a valid 
 
 export const createQuotationSchema = z.object({
   customer_id: z.string().uuid(),
-  sales_rep_id: z.string().uuid(),
   price_list_id: z.string().uuid().optional().nullable(),
   currency: z.string().trim().length(3).toUpperCase(),
   valid_until: z

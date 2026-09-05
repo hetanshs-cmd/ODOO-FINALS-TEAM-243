@@ -1,26 +1,55 @@
 import { PoolClient } from 'pg';
 import { db } from '../../config/database';
-import { ApprovalAction, ApprovalActionRow, ApprovalRequest, ApprovalRequestStatus } from './approvals.model';
+import {
+  ApprovalAction,
+  ApprovalActionRow,
+  ApprovalRequest,
+  ApprovalRequestStatus,
+} from './approvals.model';
 
 export const approvalsRepository = {
-  async list(status: string | undefined, limit: number, offset: number): Promise<ApprovalRequest[]> {
-    const { rows } = status
-      ? await db.query(
-          `SELECT * FROM approval_requests WHERE status = $1
-           ORDER BY requested_at DESC LIMIT $2 OFFSET $3`,
-          [status, limit, offset]
-        )
-      : await db.query(
-          `SELECT * FROM approval_requests ORDER BY requested_at DESC LIMIT $1 OFFSET $2`,
-          [limit, offset]
-        );
+  async list(
+    status: string | undefined,
+    requestedBy: string | undefined,
+    limit: number,
+    offset: number,
+  ): Promise<ApprovalRequest[]> {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (status) {
+      params.push(status);
+      conditions.push(`status = $${params.length}`);
+    }
+    if (requestedBy) {
+      params.push(requestedBy);
+      conditions.push(`requested_by = $${params.length}`);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    params.push(limit, offset);
+    const { rows } = await db.query(
+      `SELECT * FROM approval_requests ${where}
+       ORDER BY requested_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params,
+    );
     return rows as ApprovalRequest[];
   },
 
-  async count(status: string | undefined): Promise<number> {
-    const { rows } = status
-      ? await db.query('SELECT COUNT(*) AS count FROM approval_requests WHERE status = $1', [status])
-      : await db.query('SELECT COUNT(*) AS count FROM approval_requests');
+  async count(status: string | undefined, requestedBy: string | undefined): Promise<number> {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (status) {
+      params.push(status);
+      conditions.push(`status = $${params.length}`);
+    }
+    if (requestedBy) {
+      params.push(requestedBy);
+      conditions.push(`requested_by = $${params.length}`);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const { rows } = await db.query(
+      `SELECT COUNT(*) AS count FROM approval_requests ${where}`,
+      params,
+    );
     return parseInt((rows[0] as { count: string }).count, 10);
   },
 
@@ -32,20 +61,25 @@ export const approvalsRepository = {
   async listActions(approvalRequestId: string): Promise<ApprovalActionRow[]> {
     const { rows } = await db.query(
       'SELECT * FROM approval_actions WHERE approval_request_id = $1 ORDER BY created_at ASC',
-      [approvalRequestId]
+      [approvalRequestId],
     );
     return rows as ApprovalActionRow[];
   },
 
   async insertAction(
     client: PoolClient,
-    input: { approvalRequestId: string; userId: string; action: ApprovalAction; comment: string | null }
+    input: {
+      approvalRequestId: string;
+      userId: string;
+      action: ApprovalAction;
+      comment: string | null;
+    },
   ): Promise<ApprovalActionRow> {
     const { rows } = await client.query(
       `INSERT INTO approval_actions (approval_request_id, user_id, action, comment)
        VALUES ($1, $2, $3, $4)
        RETURNING *`,
-      [input.approvalRequestId, input.userId, input.action, input.comment]
+      [input.approvalRequestId, input.userId, input.action, input.comment],
     );
     return rows[0] as ApprovalActionRow;
   },
@@ -53,42 +87,54 @@ export const approvalsRepository = {
   async updateStatus(
     client: PoolClient,
     id: string,
-    status: ApprovalRequestStatus
+    status: ApprovalRequestStatus,
   ): Promise<ApprovalRequest> {
     const { rows } = await client.query(
       `UPDATE approval_requests SET status = $2, responded_at = now() WHERE id = $1 RETURNING *`,
-      [id, status]
+      [id, status],
     );
     return rows[0] as ApprovalRequest;
   },
 
   async createEscalatedRequest(
     client: PoolClient,
-    input: { quotationId: string; requestedBy: string; approvalLevelId: string; reason: string }
+    input: { quotationId: string; requestedBy: string; approvalLevelId: string; reason: string },
   ): Promise<string> {
     const { rows } = await client.query(
       `INSERT INTO approval_requests (quotation_id, requested_by, approval_level, reason)
        VALUES ($1, $2, $3, $4)
        RETURNING id`,
-      [input.quotationId, input.requestedBy, input.approvalLevelId, input.reason]
+      [input.quotationId, input.requestedBy, input.approvalLevelId, input.reason],
     );
     return (rows[0] as { id: string }).id;
   },
 
-  async updateQuotationStatus(client: PoolClient, quotationId: string, status: string): Promise<void> {
+  async updateQuotationStatus(
+    client: PoolClient,
+    quotationId: string,
+    status: string,
+  ): Promise<void> {
     await client.query('UPDATE quotations SET status = $2 WHERE id = $1', [quotationId, status]);
   },
 
   /** For the approval-detail screen's risk breakdown (docs/architecture.md). */
   async findLatestEvaluationsForQuotation(
-    quotationId: string
-  ): Promise<{ quotation_item_id: string | null; requested_discount: string; allowed_discount: string; risk_level: string; decision: string }[]> {
+    quotationId: string,
+  ): Promise<
+    {
+      quotation_item_id: string | null;
+      requested_discount: string;
+      allowed_discount: string;
+      risk_level: string;
+      decision: string;
+    }[]
+  > {
     const { rows } = await db.query(
       `SELECT DISTINCT ON (quotation_item_id) quotation_item_id, requested_discount, allowed_discount, risk_level, decision
        FROM discount_evaluations
        WHERE quotation_id = $1
        ORDER BY quotation_item_id, evaluated_at DESC`,
-      [quotationId]
+      [quotationId],
     );
     return rows;
   },

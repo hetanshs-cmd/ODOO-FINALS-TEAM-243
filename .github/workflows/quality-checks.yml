@@ -70,6 +70,7 @@ jobs:
           BCRYPT_ROUNDS: 10
           FRONTEND_URL: http://localhost:5173
           PORT: 4000
+          TEST_USER_PASSWORD: ci-test-fixture-password
 
   # ── Frontend Quality Checks ─────────────────────────────────────────────────
   frontend:

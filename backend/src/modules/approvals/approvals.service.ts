@@ -4,6 +4,7 @@ import { findApprovalLevelsAscending } from '../../shared/approvalLevels';
 import { getPaginationParams, buildPaginatedResult, PaginatedResult } from '../../utils/pagination';
 import { approvalsRepository } from './approvals.repository';
 import { ApprovalAction, ApprovalActionRow, ApprovalRequest } from './approvals.model';
+import { AuthenticatedUser } from '../auth/auth.types';
 
 interface ActOnApprovalDto {
   action: ApprovalAction;
@@ -18,22 +19,32 @@ interface ActOnApprovalResult {
 }
 
 export const approvalsService = {
-  async list(query: {
-    status?: string;
-    page?: unknown;
-    limit?: unknown;
-  }): Promise<PaginatedResult<ApprovalRequest>> {
+  async list(
+    query: {
+      status?: string;
+      page?: unknown;
+      limit?: unknown;
+    },
+    requester: AuthenticatedUser,
+  ): Promise<PaginatedResult<ApprovalRequest>> {
+    // A sales rep only sees approval requests raised on their own
+    // quotations; managers/admins see everything (matches the route
+    // comment's stated intent, now actually enforced at the query level).
+    const requestedBy = requester.role === 'SALES_REP' ? requester.id : undefined;
     const pagination = getPaginationParams(query);
     const [items, total] = await Promise.all([
-      approvalsRepository.list(query.status, pagination.limit, pagination.offset),
-      approvalsRepository.count(query.status),
+      approvalsRepository.list(query.status, requestedBy, pagination.limit, pagination.offset),
+      approvalsRepository.count(query.status, requestedBy),
     ]);
     return buildPaginatedResult(items, total, pagination);
   },
 
-  async getDetail(id: string) {
+  async getDetail(id: string, requester: AuthenticatedUser) {
     const request = await approvalsRepository.findById(id);
     if (!request) throw Errors.notFound('Approval request');
+    if (requester.role === 'SALES_REP' && request.requested_by !== requester.id) {
+      throw Errors.forbidden();
+    }
 
     const [actions, riskBreakdown] = await Promise.all([
       approvalsRepository.listActions(id),
@@ -57,7 +68,7 @@ export const approvalsService = {
 
     if (dto.action !== 'COMMENTED' && request.status !== 'PENDING') {
       throw Errors.businessRuleViolation(
-        `This approval request has already been resolved (status: ${request.status})`
+        `This approval request has already been resolved (status: ${request.status})`,
       );
     }
 
@@ -73,25 +84,41 @@ export const approvalsService = {
       let escalatedRequestId: string | null = null;
 
       if (dto.action === 'APPROVED') {
-        updatedRequest = await approvalsRepository.updateStatus(client, approvalRequestId, 'APPROVED');
+        updatedRequest = await approvalsRepository.updateStatus(
+          client,
+          approvalRequestId,
+          'APPROVED',
+        );
         await approvalsRepository.updateQuotationStatus(client, request.quotation_id, 'APPROVED');
       } else if (dto.action === 'REJECTED') {
-        updatedRequest = await approvalsRepository.updateStatus(client, approvalRequestId, 'REJECTED');
+        updatedRequest = await approvalsRepository.updateStatus(
+          client,
+          approvalRequestId,
+          'REJECTED',
+        );
         await approvalsRepository.updateQuotationStatus(client, request.quotation_id, 'REJECTED');
       } else if (dto.action === 'CANCELLED') {
-        updatedRequest = await approvalsRepository.updateStatus(client, approvalRequestId, 'CANCELLED');
+        updatedRequest = await approvalsRepository.updateStatus(
+          client,
+          approvalRequestId,
+          'CANCELLED',
+        );
         // Returned to the rep for rework — matches docs/architecture.md's
         // approval-workflow "return" outcome.
         await approvalsRepository.updateQuotationStatus(client, request.quotation_id, 'DRAFT');
       } else if (dto.action === 'ESCALATED') {
-        updatedRequest = await approvalsRepository.updateStatus(client, approvalRequestId, 'ESCALATED');
+        updatedRequest = await approvalsRepository.updateStatus(
+          client,
+          approvalRequestId,
+          'ESCALATED',
+        );
 
         const levels = await findApprovalLevelsAscending();
         const currentIndex = levels.findIndex((l) => l.id === request.approval_level);
         const nextLevel = currentIndex >= 0 ? levels[currentIndex + 1] : undefined;
         if (!nextLevel) {
           throw Errors.businessRuleViolation(
-            'Cannot escalate: no higher approval level is configured'
+            'Cannot escalate: no higher approval level is configured',
           );
         }
 

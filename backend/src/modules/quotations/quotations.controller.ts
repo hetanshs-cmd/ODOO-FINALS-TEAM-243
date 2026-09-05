@@ -5,7 +5,7 @@ import { quotationsService } from './quotations.service';
 export const quotationsController = {
   async create(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const quotation = await quotationsService.create(req.body);
+      const quotation = await quotationsService.create(req.body, req.user!.id);
       sendCreated({ res, data: quotation, message: 'Quotation created successfully' });
     } catch (err) {
       next(err);
@@ -14,7 +14,7 @@ export const quotationsController = {
 
   async getById(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const quotation = await quotationsService.getWithItems(req.params['id'] as string);
+      const quotation = await quotationsService.getWithItems(req.params['id'] as string, req.user!);
       sendSuccess({ res, data: quotation, message: 'Quotation retrieved successfully' });
     } catch (err) {
       next(err);
@@ -23,7 +23,7 @@ export const quotationsController = {
 
   async addItem(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const item = await quotationsService.addItem(req.params['id'] as string, req.body);
+      const item = await quotationsService.addItem(req.params['id'] as string, req.body, req.user!);
       sendCreated({ res, data: item, message: 'Quotation item added successfully' });
     } catch (err) {
       next(err);
