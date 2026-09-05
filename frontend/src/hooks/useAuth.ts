@@ -21,7 +21,6 @@ export interface AuthContextValue {
   signup: (credentials: SignupCredentials) => Promise<AuthResult>;
   quickLogin: (role: UserRole, specificEmailOrId?: string) => Promise<AuthResult>;
   logout: () => void;
-  switchRole: (role: UserRole) => void;
   hasRole: (role: UserRole | UserRole[]) => boolean;
   can: (permission: Permission) => boolean;
   setSessionUser: (user: User) => void;
@@ -127,15 +126,6 @@ export function useAuth(): AuthContextValue {
     setIsAuthenticated(false);
   }, []);
 
-  const switchRole = useCallback((_role: UserRole) => {
-    // There is no server-side "switch role" concept against the real
-    // backend — a role is fixed by the authenticated account. Kept as a
-    // no-op (rather than removed) so existing call sites don't crash;
-    // logging out and signing in as a different seeded account is the
-    // real equivalent.
-    console.warn('switchRole is not supported against the live backend — log in as a different account instead.');
-  }, []);
-
   const hasRole = useCallback(
     (role: UserRole | UserRole[]) => {
       const currentRole = (currentUser?.role || '').toLowerCase().replace(/_/g, '');
@@ -167,7 +157,6 @@ export function useAuth(): AuthContextValue {
     signup,
     quickLogin,
     logout,
-    switchRole,
     hasRole,
     can,
     setSessionUser,

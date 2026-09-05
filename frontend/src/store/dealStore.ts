@@ -28,7 +28,6 @@ import {
   DealHealthFlag,
   UpsellSuggestion,
   TimelineEvent,
-  UserRole,
   CreditNote,
   ProrationEvent,
   SubscriptionBillingConfig,
@@ -412,23 +411,6 @@ class DealStore {
       ...this.state,
       lastRefreshedAt: new Date().toISOString(),
     };
-    this.notify();
-  }
-
-  public switchRole(role: UserRole): void {
-    const normalized = role.toLowerCase().replace('_', '');
-    const matchedUser =
-      this.state.users.find(
-        (u) =>
-          u.role.toLowerCase().replace('_', '') === normalized ||
-          u.role === role
-      ) || this.state.users[0];
-
-    this.state = {
-      ...this.state,
-      currentUser: matchedUser,
-    };
-    persistState(this.state);
     this.notify();
   }
 
