@@ -289,3 +289,115 @@ export interface ApiSalesSummary {
 export interface ApiDiscountExceptions {
   [key: string]: unknown;
 }
+
+// ── Customers (read-only directory) ─────────────────────────────────────────
+// GET /api/v1/customers — separate from the ADMIN-only /admin/customers CRUD
+// (adminService.customers). Available to SALES_REP/SALES_MANAGER/ADMIN for
+// display/lookup purposes (name, tier) rather than full record management.
+export interface ApiCustomer {
+  id: string;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  customer_tier_id?: string | null;
+  tier?: string | null;
+  assigned_rep_id?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  [key: string]: unknown;
+}
+
+// ── Users (id/name/role directory) ──────────────────────────────────────────
+// GET /api/v1/users — used for approver/assignee/sales-rep display names.
+export interface ApiUser {
+  id: string;
+  name: string;
+  email?: string;
+  role: string;
+  active?: boolean;
+  [key: string]: unknown;
+}
+
+// ── Quotation timeline (audit-log-backed activity feed) ─────────────────────
+export interface ApiTimelineEvent {
+  id: string;
+  quotation_id: string;
+  actor_id?: string | null;
+  event_type: string;
+  note?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_at: string;
+  [key: string]: unknown;
+}
+
+// ── Admin: Warehouses ────────────────────────────────────────────────────────
+// Exact backend column set unverified from this branch (backend/admin
+// warehouses model lives on the `backend` branch) — kept loose via the index
+// signature so unexpected/extra fields don't break the CRUD wiring.
+export interface ApiWarehouse {
+  id: string;
+  name: string;
+  code?: string | null;
+  location?: string | null;
+  shipping_cost_weight?: number | string;
+  active: boolean;
+  created_at?: string;
+  updated_at?: string;
+  [key: string]: unknown;
+}
+
+// ── Admin: Products (minimal, for lookups in upsell/warehouse admin pages) ──
+export interface ApiProduct {
+  id: string;
+  name: string;
+  sku?: string | null;
+  category_id?: string | null;
+  base_price?: string | number;
+  price?: string | number;
+  status?: string;
+  [key: string]: unknown;
+}
+
+// ── Admin: Recommendation Rules (= "Upsell rules" in the mock UI) ───────────
+export interface ApiRecommendationRule {
+  id: string;
+  source_product_id: string;
+  recommended_product_id: string;
+  recommendation_type: string;
+  priority: number;
+  reason: string | null;
+  status: string;
+  [key: string]: unknown;
+}
+
+// ── Admin: Discount Rules (= "Discount tiers" + "Category ceilings") ────────
+// Field names are a best-effort guess pending confirmation against the
+// `backend` branch model — kept loose via the index signature. Scope is
+// expressed via nullable product/category/customer_tier columns per
+// docs/references.md's Medusa pricing note (strictest-wins precedence).
+export interface ApiDiscountRule {
+  id: string;
+  product_id?: string | null;
+  category?: string | null;
+  customer_tier?: string | null;
+  max_discount_percent: number | string;
+  active?: boolean;
+  status?: string;
+  priority?: number;
+  [key: string]: unknown;
+}
+
+// ── Admin: Approval Levels (= "Approval rule config") ────────────────────────
+export interface ApiApprovalLevel {
+  id: string;
+  name?: string;
+  min_discount_percent?: number | string;
+  max_discount_percent?: number | string;
+  required_role?: string;
+  required_roles?: string[];
+  risk_level?: string;
+  priority?: number;
+  active?: boolean;
+  status?: string;
+  [key: string]: unknown;
+}

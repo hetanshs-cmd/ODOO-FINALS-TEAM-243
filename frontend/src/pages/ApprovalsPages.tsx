@@ -48,17 +48,41 @@ import {
 } from '../utils/formatters';
 import { computeBlendedRiskScore, getEffectiveDiscountLimit } from '../domain/discounts';
 import { canUserPerformAction } from '../domain/permissions';
+import { useApprovals } from '../hooks/useApprovals';
+import { useQuotations } from '../hooks/useQuotations';
+import { useUsers } from '../hooks/useUsers';
+import { ApiApprovalRequest, ApiQuotation } from '../services/apiTypes';
 
 // --------------------------------------------------------------------------------------
 // SCREEN 5: Approvals List Page
 // --------------------------------------------------------------------------------------
 
-type ApprovalQuickFilter = 'pending' | 'high_risk' | 'finance' | 'returned' | 'all';
+// Real ApiApprovalStatus has no "Returned for Revision" status like the mock
+// store did — the closest real equivalent to a stalled/kicked-back approval
+// is ESCALATED, so the "Returned" quick filter/tab is repointed to it below.
+type ApprovalQuickFilter = 'pending' | 'high_risk' | 'finance' | 'escalated' | 'all';
 type ApprovalSortKey = 'waiting_time' | 'submitted' | 'risk' | 'value' | 'customer';
 
 export const ApprovalsListPage: React.FC = () => {
-  const { quotations, approvalSteps, users } = useDealStore();
+  const { approvals, loading, refetch } = useApprovals();
+  const { quotations } = useQuotations();
+  const { users } = useUsers();
   const navigate = useNavigate();
+
+  const quotationsById = useMemo(() => new Map(quotations.map((q) => [q.id, q])), [quotations]);
+  const usersById = useMemo(() => new Map(users.map((u) => [u.id, u])), [users]);
+  const getUserName = (id: string | null | undefined) => (id && usersById.get(id)?.name) || 'Unassigned';
+
+  // Approximate risk from discount-to-subtotal ratio — the real API has no
+  // per-line risk score (see the same approximation in QuotationsListPage).
+  const getApproxRisk = (q?: ApiQuotation): { level: RiskLevel; discountPct: number } => {
+    if (!q) return { level: 'LOW', discountPct: 0 };
+    const subtotal = parseFloat(q.subtotal) || 0;
+    const discount = parseFloat(q.discount_total) || 0;
+    const discountPct = subtotal > 0 ? (discount / subtotal) * 100 : 0;
+    const level: RiskLevel = discountPct > 15 ? 'HIGH' : discountPct > 7 ? 'MEDIUM' : 'LOW';
+    return { level, discountPct };
+  };
 
   // Filter States
   const [quickFilter, setQuickFilter] = useState<ApprovalQuickFilter>('pending');
@@ -67,145 +91,78 @@ export const ApprovalsListPage: React.FC = () => {
   const [sortKey, setSortKey] = useState<ApprovalSortKey>('waiting_time');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
-  // Compute metric pills across all governance deals
+  // Compute metric pills across all governance approval requests
   const metrics = useMemo(() => {
     let pendingCount = 0;
     let highRiskCount = 0;
-    let returnedCount = 0;
+    let escalatedCount = 0;
     let approvedCount = 0;
 
-    for (const q of quotations) {
-      if (q.stage === 'PendingApproval' || q.stage === 'Pending Approval') {
-        pendingCount++;
-      }
-      if (q.blendedRiskLevel === 'HIGH' || q.blendedRiskValue === 'HIGH' || q.blendedRiskScore >= 70) {
-        highRiskCount++;
-      }
-      if (q.stage === 'Returned for Revision' || q.stage === 'ReturnedForRevision') {
-        returnedCount++;
-      }
-      if (q.stage === 'Approved') {
-        approvedCount++;
-      }
+    for (const a of approvals) {
+      if (a.status === 'PENDING') pendingCount++;
+      if (a.status === 'ESCALATED') escalatedCount++;
+      if (a.status === 'APPROVED') approvedCount++;
+      if (getApproxRisk(quotationsById.get(a.quotation_id)).level === 'HIGH') highRiskCount++;
     }
 
-    return { pendingCount, highRiskCount, returnedCount, approvedCount };
-  }, [quotations]);
+    return { pendingCount, highRiskCount, returnedCount: escalatedCount, approvedCount };
+  }, [approvals, quotationsById]);
 
-  // Helper to find latest/active approval step for a quotation
-  const getQuotationApprovalInfo = (q: Quotation) => {
-    const quoteSteps = approvalSteps.filter(
-      (s) => s.quotationId === q.id || s.quotationId === q.code
-    );
-
-    // Sort by pass desc, date asc
-    quoteSteps.sort((a, b) => {
-      const passDiff = (b.pass || 1) - (a.pass || 1);
-      if (passDiff !== 0) return passDiff;
-      return new Date(a.date).getTime() - new Date(b.date).getTime();
-    });
-
-    const pendingStep = quoteSteps.find((s) => s.status === 'Pending');
-    const waitingStep = quoteSteps.find((s) => s.status === 'Waiting');
-    const lastCompletedStep = quoteSteps.find((s) => s.status === 'Approved');
-
-    let currentRole: string = q.currentApprovalRole || q.assignedApproverRole || '';
-    if (pendingStep?.approverRole) {
-      currentRole = pendingStep.approverRole;
-    }
-
-    const assignedReviewerName = pendingStep?.actorName || pendingStep?.user ||
-      (currentRole.toLowerCase().includes('finance') ? 'Elena Rostova' : 'David Vance');
-
-    const submittedDate = q.createdAt;
-    const waitingFromDate = pendingStep?.date || q.lastActivityAt || submittedDate;
-
-    return {
-      quoteSteps,
-      pendingStep,
-      waitingStep,
-      lastCompletedStep,
-      currentRole,
-      assignedReviewerName,
-      submittedDate,
-      waitingFromDate,
-    };
-  };
-
-  // Filter and sort items
-  const filteredQuotations = useMemo(() => {
-    return quotations
-      .filter((q) => {
-        // Base scope: Deals with approval workflow or governance flags
-        const hasApprovalContext =
-          q.approvalRequired ||
-          q.stage === 'PendingApproval' ||
-          q.stage === 'Pending Approval' ||
-          q.stage === 'Returned for Revision' ||
-          q.stage === 'ReturnedForRevision' ||
-          (q.blendedRiskScore && q.blendedRiskScore > 25);
-
-        if (!hasApprovalContext) return false;
-
-        const info = getQuotationApprovalInfo(q);
-        const isPending = q.stage === 'PendingApproval' || q.stage === 'Pending Approval';
-        const isHighRisk = q.blendedRiskLevel === 'HIGH' || q.blendedRiskScore >= 70;
-        const isFinanceRequired =
-          q.requiredApprovers?.some((r) => r.toLowerCase().includes('finance')) ||
-          info.currentRole.toLowerCase().includes('finance') ||
-          q.blendedRiskScore >= 65;
-        const isReturned = q.stage === 'Returned for Revision' || q.stage === 'ReturnedForRevision';
+  // Filter and sort approval requests
+  const filteredApprovals = useMemo(() => {
+    return approvals
+      .filter((a) => {
+        const q = quotationsById.get(a.quotation_id);
+        const { level: riskLevel } = getApproxRisk(q);
+        const isHighRisk = riskLevel === 'HIGH';
+        const isFinanceRequired = (a.approval_level || '').toLowerCase().includes('finance');
 
         // Quick filter tabs
-        if (quickFilter === 'pending' && !isPending) return false;
+        if (quickFilter === 'pending' && a.status !== 'PENDING') return false;
         if (quickFilter === 'high_risk' && !isHighRisk) return false;
         if (quickFilter === 'finance' && !isFinanceRequired) return false;
-        if (quickFilter === 'returned' && !isReturned) return false;
+        if (quickFilter === 'escalated' && a.status !== 'ESCALATED') return false;
 
         // Search filter
         if (searchQuery.trim()) {
           const query = searchQuery.toLowerCase().trim();
-          const matchCode = q.code.toLowerCase().includes(query);
-          const matchCust = q.customerName.toLowerCase().includes(query);
-          const matchRep = (q.repName || '').toLowerCase().includes(query);
-          const matchReviewer = info.assignedReviewerName.toLowerCase().includes(query);
-          if (!matchCode && !matchCust && !matchRep && !matchReviewer) return false;
+          const matchCode = (q?.quotation_number || '').toLowerCase().includes(query);
+          const matchReviewer = getUserName(a.assigned_to).toLowerCase().includes(query);
+          const matchRequester = getUserName(a.requested_by).toLowerCase().includes(query);
+          if (!matchCode && !matchReviewer && !matchRequester) return false;
         }
 
         // Risk filter dropdown
-        if (riskFilter !== 'ALL') {
-          const level = q.blendedRiskLevel || q.blendedRiskValue || 'LOW';
-          if (level !== riskFilter) return false;
-        }
+        if (riskFilter !== 'ALL' && riskLevel !== riskFilter) return false;
 
         return true;
       })
       .sort((a, b) => {
-        const infoA = getQuotationApprovalInfo(a);
-        const infoB = getQuotationApprovalInfo(b);
+        const qA = quotationsById.get(a.quotation_id);
+        const qB = quotationsById.get(b.quotation_id);
 
         let comparison = 0;
         if (sortKey === 'waiting_time') {
-          const timeA = new Date(infoA.waitingFromDate).getTime() || 0;
-          const timeB = new Date(infoB.waitingFromDate).getTime() || 0;
+          const timeA = new Date(a.requested_at).getTime() || 0;
+          const timeB = new Date(b.requested_at).getTime() || 0;
           comparison = timeA - timeB; // Older time means longer waiting time
         } else if (sortKey === 'submitted') {
-          const timeA = new Date(infoA.submittedDate).getTime() || 0;
-          const timeB = new Date(infoB.submittedDate).getTime() || 0;
+          const timeA = new Date(a.requested_at).getTime() || 0;
+          const timeB = new Date(b.requested_at).getTime() || 0;
           comparison = timeB - timeA;
         } else if (sortKey === 'risk') {
-          comparison = (b.blendedRiskScore || 0) - (a.blendedRiskScore || 0);
+          comparison = getApproxRisk(qB).discountPct - getApproxRisk(qA).discountPct;
         } else if (sortKey === 'value') {
-          const valA = a.grandTotal ?? a.netAmount ?? 0;
-          const valB = b.grandTotal ?? b.netAmount ?? 0;
+          const valA = parseFloat(qA?.grand_total || '0') || 0;
+          const valB = parseFloat(qB?.grand_total || '0') || 0;
           comparison = valB - valA;
         } else if (sortKey === 'customer') {
-          comparison = a.customerName.localeCompare(b.customerName);
+          comparison = (qA?.customer_id || '').localeCompare(qB?.customer_id || '');
         }
 
         return sortOrder === 'desc' ? comparison : -comparison;
       });
-  }, [quotations, approvalSteps, quickFilter, searchQuery, riskFilter, sortKey, sortOrder]);
+  }, [approvals, quotationsById, usersById, quickFilter, searchQuery, riskFilter, sortKey, sortOrder]);
 
   return (
     <div className="space-y-5 pb-12">
@@ -268,14 +225,14 @@ export const ApprovalsListPage: React.FC = () => {
             </button>
             <button
               type="button"
-              onClick={() => setQuickFilter('returned')}
+              onClick={() => setQuickFilter('escalated')}
               className={`px-3 py-1.5 rounded font-medium transition-all whitespace-nowrap ${
-                quickFilter === 'returned'
+                quickFilter === 'escalated'
                   ? 'bg-white text-amber-900 shadow-2xs font-bold'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Returned ({metrics.returnedCount})
+              Escalated ({metrics.returnedCount})
             </button>
             <button
               type="button"
@@ -294,7 +251,7 @@ export const ApprovalsListPage: React.FC = () => {
           <div className="hidden lg:flex items-center gap-3 text-xs text-slate-500 font-medium">
             <span>Approved: <strong className="text-emerald-700">{metrics.approvedCount}</strong></span>
             <span>•</span>
-            <span>Returned for Revision: <strong className="text-amber-700">{metrics.returnedCount}</strong></span>
+            <span>Escalated: <strong className="text-amber-700">{metrics.returnedCount}</strong></span>
           </div>
         </div>
 
@@ -360,26 +317,31 @@ export const ApprovalsListPage: React.FC = () => {
               <tr className="bg-[#F8F9FA] border-b border-slate-200 text-[11px] font-bold text-slate-600 uppercase tracking-wider">
                 <th className="px-3.5 py-2.5">Quotation</th>
                 <th className="px-3 py-2.5">Customer</th>
-                <th className="px-3 py-2.5">Sales Rep</th>
-                <th className="px-3 py-2.5">Customer Tier</th>
+                <th className="px-3 py-2.5">Requested By</th>
                 <th className="px-3 py-2.5">Blended Risk</th>
                 <th className="px-3 py-2.5">Approval Status</th>
-                <th className="px-3 py-2.5">Current Step</th>
+                <th className="px-3 py-2.5">Approval Level</th>
                 <th className="px-3 py-2.5">Assigned Reviewer</th>
                 <th className="px-3 py-2.5">Submitted</th>
                 <th className="px-3.5 py-2.5 text-right">Waiting Time</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
-              {filteredQuotations.length === 0 ? (
+              {loading ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-12 text-center text-slate-500">
+                  <td colSpan={9} className="px-4 py-12 text-center text-slate-400 text-xs">
+                    Loading approvals…
+                  </td>
+                </tr>
+              ) : filteredApprovals.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="px-4 py-12 text-center text-slate-500">
                     <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3 text-slate-400">
                       <Clock className="w-6 h-6" />
                     </div>
-                    <div className="font-semibold text-slate-800 text-sm">No quotations found</div>
+                    <div className="font-semibold text-slate-800 text-sm">No approvals found</div>
                     <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                      No quotations match the active governance filters. Adjust your search criteria or switch to &quot;All Approvals&quot;.
+                      No approval requests match the active governance filters. Adjust your search criteria or switch to &quot;All Approvals&quot;.
                     </p>
                     <button
                       type="button"
@@ -395,43 +357,33 @@ export const ApprovalsListPage: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredQuotations.map((q) => {
-                  const info = getQuotationApprovalInfo(q);
-                  const isHighRisk = q.blendedRiskLevel === 'HIGH' || (q.blendedRiskScore && q.blendedRiskScore >= 70);
-                  const isPending = q.stage === 'PendingApproval' || q.stage === 'Pending Approval';
-                  const isReturned = q.stage === 'Returned for Revision' || q.stage === 'ReturnedForRevision';
-
-                  // Format current step label cleanly
-                  let stepLabel = 'Step 1: Sales Manager';
-                  if (info.currentRole.toLowerCase().includes('finance')) {
-                    stepLabel = 'Step 2: Finance Review';
-                  } else if (q.stage === 'Approved') {
-                    stepLabel = 'Sign-Off Complete';
-                  } else if (isReturned) {
-                    stepLabel = 'Returned to Rep';
-                  }
-
-                  const quoteAmount = q.grandTotal ?? q.netAmount ?? q.revenue ?? 0;
+                filteredApprovals.map((a) => {
+                  const q = quotationsById.get(a.quotation_id);
+                  const { level: riskLevel, discountPct } = getApproxRisk(q);
+                  const isHighRisk = riskLevel === 'HIGH';
+                  const isPending = a.status === 'PENDING';
+                  const isEscalated = a.status === 'ESCALATED';
+                  const quoteAmount = parseFloat(q?.grand_total || '0') || 0;
 
                   return (
                     <tr
-                      key={q.id}
-                      onClick={() => navigate(`/approvals/${q.id}`)}
+                      key={a.id}
+                      onClick={() => navigate(`/approvals/${a.quotation_id}`)}
                       className={`cursor-pointer transition-colors hover:bg-purple-50/40 ${
                         isHighRisk && isPending
                           ? 'bg-rose-50/20'
                           : isPending
                           ? 'bg-amber-50/15'
-                          : isReturned
+                          : isEscalated
                           ? 'bg-amber-50/30'
                           : 'bg-white'
                       }`}
                     >
-                      {/* 1. Quotation: Code in bold monospace + net amount */}
+                      {/* 1. Quotation: number in bold monospace + net amount */}
                       <td className="px-3.5 py-3 whitespace-nowrap align-middle">
                         <div className="flex flex-col">
                           <span className="font-mono font-bold text-[#714B67] hover:underline flex items-center gap-1">
-                            <span>{q.code}</span>
+                            <span>{q?.quotation_number || a.quotation_id}</span>
                             <ExternalLink className="w-3 h-3 text-slate-400 opacity-60" />
                           </span>
                           <span className="font-mono font-semibold text-slate-900 text-[11px] mt-0.5">
@@ -440,94 +392,73 @@ export const ApprovalsListPage: React.FC = () => {
                         </div>
                       </td>
 
-                      {/* 2. Customer: Name + Company Tier */}
+                      {/* 2. Customer — no customer-directory lookup on this
+                          list page's scope; shown by id. */}
                       <td className="px-3 py-3 align-middle">
-                        <div className="font-semibold text-slate-900 max-w-[170px] truncate" title={q.customerName}>
-                          {q.customerName}
+                        <div className="font-mono text-[11px] text-slate-600 max-w-[170px] truncate" title={q?.customer_id}>
+                          {q?.customer_id || '—'}
                         </div>
-                        <span className="text-[10px] text-slate-500 font-medium">
-                          {q.customerTier} Pricing Tier
-                        </span>
                       </td>
 
-                      {/* 3. Sales Rep */}
+                      {/* 3. Requested By */}
                       <td className="px-3 py-3 whitespace-nowrap align-middle text-slate-700 font-medium">
-                        {q.repName || 'Sarah Chen'}
+                        {getUserName(a.requested_by)}
                       </td>
 
-                      {/* 4. Customer Tier: Tier name + Limit */}
+                      {/* 4. Blended Risk (approximated — see getApproxRisk) */}
                       <td className="px-3 py-3 whitespace-nowrap align-middle">
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${
-                            q.customerTier === 'Gold'
-                              ? 'bg-amber-50 text-amber-900 border-amber-200'
-                              : q.customerTier === 'Silver'
-                              ? 'bg-slate-100 text-slate-800 border-slate-300'
-                              : 'bg-amber-700/10 text-amber-800 border-amber-300/40'
-                          }`}
-                        >
-                          {q.customerTier} ({q.customerTier === 'Gold' ? '15%' : q.customerTier === 'Silver' ? '10%' : '5%'} max)
-                        </span>
+                        <RiskBadge level={riskLevel} score={Math.round(discountPct)} size="sm" />
                       </td>
 
-                      {/* 5. Blended Risk */}
+                      {/* 5. Approval Status */}
                       <td className="px-3 py-3 whitespace-nowrap align-middle">
-                        <RiskBadge
-                          level={q.blendedRiskLevel || q.blendedRiskValue || (q.blendedRiskScore >= 70 ? 'HIGH' : q.blendedRiskScore > 30 ? 'MEDIUM' : 'LOW')}
-                          score={q.blendedRiskScore}
-                          size="sm"
-                        />
+                        <StatusBadge status={a.status} size="sm" />
                       </td>
 
-                      {/* 6. Approval Status */}
-                      <td className="px-3 py-3 whitespace-nowrap align-middle">
-                        <StatusBadge status={q.stage} size="sm" />
-                      </td>
-
-                      {/* 7. Current Step */}
+                      {/* 6. Approval Level */}
                       <td className="px-3 py-3 whitespace-nowrap align-middle">
                         <span
                           className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border ${
-                            q.stage === 'Approved'
+                            a.status === 'APPROVED'
                               ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                              : isReturned
+                              : isEscalated
                               ? 'bg-amber-50 text-amber-800 border-amber-200'
-                              : info.currentRole.toLowerCase().includes('finance')
+                              : (a.approval_level || '').toLowerCase().includes('finance')
                               ? 'bg-blue-50 text-blue-900 border-blue-200 font-semibold'
                               : 'bg-slate-100 text-slate-800 border-slate-200'
                           }`}
                         >
-                          {stepLabel}
+                          {a.approval_level || '—'}
                         </span>
                       </td>
 
-                      {/* 8. Assigned Reviewer */}
+                      {/* 7. Assigned Reviewer */}
                       <td className="px-3 py-3 whitespace-nowrap align-middle text-slate-800 font-medium">
                         <div className="flex items-center gap-1.5">
                           <UserCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span className="truncate max-w-[140px]">{info.assignedReviewerName}</span>
+                          <span className="truncate max-w-[140px]">{getUserName(a.assigned_to)}</span>
                         </div>
                       </td>
 
-                      {/* 9. Submitted */}
+                      {/* 8. Submitted */}
                       <td className="px-3 py-3 whitespace-nowrap align-middle text-slate-500 font-mono text-[11px]">
-                        {formatExactDateTime(info.submittedDate)}
+                        {formatExactDateTime(a.requested_at)}
                       </td>
 
-                      {/* 10. Waiting Time: dynamic calculated time */}
+                      {/* 9. Waiting Time: dynamic calculated time */}
                       <td className="px-3.5 py-3 whitespace-nowrap align-middle text-right">
                         {isPending ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded font-mono font-bold text-amber-900 bg-amber-50 border border-amber-200 text-[11px]">
                             <Clock className="w-3 h-3 text-amber-600 animate-pulse" />
-                            {formatWaitingTime(info.waitingFromDate)}
+                            {formatWaitingTime(a.requested_at)}
                           </span>
-                        ) : isReturned ? (
+                        ) : isEscalated ? (
                           <span className="text-[11px] text-amber-700 font-mono italic">
-                            Returned ({formatRelativeTime(q.lastActivityAt)})
+                            Escalated ({formatRelativeTime(a.responded_at || a.requested_at)})
                           </span>
                         ) : (
                           <span className="text-[11px] text-slate-400 font-mono">
-                            {formatRelativeTime(q.lastActivityAt)}
+                            {formatRelativeTime(a.responded_at || a.requested_at)}
                           </span>
                         )}
                       </td>
