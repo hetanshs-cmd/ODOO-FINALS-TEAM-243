@@ -35,7 +35,7 @@ import { AuditTrail } from '../components/domain/AuditTrail';
 import { aiService } from '../services/ai/aiService';
 import { AIInsightPanel } from '../components/ai/AIInsightPanel';
 import { AIDraftEditorModal } from '../components/ai/AIDraftEditorModal';
-import { AIResult, AIAction } from '../services/ai/types';
+import { AIResult } from '../services/ai/types';
 import { useAuth } from '../hooks/useAuth';
 import { Quotation, QuotationLine, RiskLevel, ApprovalRole, User } from '../types';
 import {
@@ -535,6 +535,13 @@ export const ApprovalDetailPage: React.FC = () => {
   const [successToast, setSuccessToast] = useState<string | null>(null);
   const [isActing, setIsActing] = useState(false);
 
+  // AI Insights — real local-model-backed calls, grounded in this approval
+  // request's live DB record via backend/src/modules/ai.
+  const [aiResult, setAiResult] = useState<AIResult | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [showDraftModal, setShowDraftModal] = useState(false);
+
   if (quoteLoading || approvalsLoading) {
     return (
       <div className="max-w-3xl mx-auto py-16 text-center text-xs text-slate-500">
@@ -627,6 +634,35 @@ export const ApprovalDetailPage: React.FC = () => {
       `Quotation ${quotation.quotation_number} flagged for revision (escalated).`,
       () => setIsReturnModalOpen(false)
     );
+  };
+
+  const handleExplainApproval = async () => {
+    if (!approval) return;
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const result = await aiService.getInsight('explain_approval', approval.id);
+      setAiResult(result);
+    } catch (err) {
+      setAiError(err instanceof ApiError ? err.message : 'The local AI model is unavailable. It may not be running.');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleDraftNote = async () => {
+    if (!approval) return;
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const result = await aiService.getInsight('draft_approval_note', approval.id);
+      setAiResult(result);
+      setShowDraftModal(true);
+    } catch (err) {
+      setAiError(err instanceof ApiError ? err.message : 'The local AI model is unavailable. It may not be running.');
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   const auditEvents: DealEvent[] = timeline.map((e) => ({
@@ -847,7 +883,6 @@ export const ApprovalDetailPage: React.FC = () => {
                   disabled={!canAct}
                   onClick={() => {
                     setErrorMessage(null);
-                    setActionNote('');
                     setIsReturnModalOpen(true);
                   }}
                   className="border-amber-300 text-amber-900 hover:bg-amber-50 disabled:opacity-40"
@@ -862,7 +897,6 @@ export const ApprovalDetailPage: React.FC = () => {
                   disabled={!canAct}
                   onClick={() => {
                     setErrorMessage(null);
-                    setActionNote('');
                     setIsRejectModalOpen(true);
                   }}
                   className="disabled:opacity-40"
@@ -877,7 +911,6 @@ export const ApprovalDetailPage: React.FC = () => {
                   disabled={!canAct}
                   onClick={() => {
                     setErrorMessage(null);
-                    setActionNote('');
                     setIsApproveModalOpen(true);
                   }}
                   className="bg-emerald-600 hover:bg-emerald-700 border-emerald-600 disabled:opacity-40"
@@ -890,6 +923,52 @@ export const ApprovalDetailPage: React.FC = () => {
           )}
         </div>
       </Card>
+
+      {/* AI Insights — real local-model-backed calls */}
+      {approval && (
+        <Card
+          title="AI Insights"
+          subtitle="Grounded in this approval request's live record via the local AI model."
+          padding="md"
+          className="border-slate-200"
+        >
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" icon={<Sparkles className="w-3.5 h-3.5" />} isLoading={aiLoading} onClick={handleExplainApproval}>
+                Explain Approval
+              </Button>
+              <Button variant="outline" size="sm" icon={<Sparkles className="w-3.5 h-3.5" />} isLoading={aiLoading} disabled={!canAct} onClick={handleDraftNote}>
+                Draft Note
+              </Button>
+            </div>
+            {(aiResult || aiLoading || aiError) && (
+              <AIInsightPanel
+                result={aiResult}
+                isLoading={aiLoading}
+                loadingMessage="Consulting the local AI model…"
+                errorMessage={aiError}
+                onRetry={handleExplainApproval}
+                compact
+              />
+            )}
+          </div>
+        </Card>
+      )}
+
+      {showDraftModal && aiResult?.summary && (
+        <AIDraftEditorModal
+          isOpen={showDraftModal}
+          onClose={() => setShowDraftModal(false)}
+          title="Draft Approval Note"
+          initialBody={aiResult.summary}
+          actionButtonLabel="Use This Note"
+          onApplyOrSend={(body) => {
+            setActionNote(body);
+            setShowDraftModal(false);
+            setErrorMessage(null);
+          }}
+        />
+      )}
 
       {/* 5. Live Audit Trail (real quotation timeline endpoint) */}
       <div id="audit-section">

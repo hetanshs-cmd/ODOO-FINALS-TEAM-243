@@ -11,13 +11,17 @@
  * POST /negotiations/:id/messages.
  */
 import React, { useState } from 'react';
-import { MessageSquare, Send } from 'lucide-react';
+import { MessageSquare, Send, Sparkles } from 'lucide-react';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Card } from '../components/ui/Card';
 import { toast } from '../components/ui/Toast';
 import { negotiationService } from '../services';
+import { ApiError } from '../services/httpClient';
 import { ApiNegotiation, ApiNegotiationMessage } from '../services/apiTypes';
 import { useAuth } from '../hooks/useAuth';
+import { aiService } from '../services/ai/aiService';
+import { AIResult } from '../services/ai/types';
+import { AIDraftEditorModal } from '../components/ai/AIDraftEditorModal';
 
 type ThreadSummary = ApiNegotiation & { quotation_number: string; customer_id: string };
 type ThreadDetail = ApiNegotiation & { messages?: ApiNegotiationMessage[] };
@@ -31,6 +35,12 @@ export const NegotiationsInboxPage: React.FC = () => {
   const [detailLoading, setDetailLoading] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
+
+  // AI Insights — real local-model-backed reply draft, grounded in this
+  // negotiation thread's live record via backend/src/modules/ai.
+  const [aiDrafting, setAiDrafting] = useState(false);
+  const [draftResult, setDraftResult] = useState<AIResult | null>(null);
+  const [showDraftModal, setShowDraftModal] = useState(false);
 
   const loadThreads = React.useCallback(async () => {
     setLoading(true);
@@ -77,6 +87,20 @@ export const NegotiationsInboxPage: React.FC = () => {
       toast.error('Failed to send', 'Your reply could not be delivered. Please try again.');
     } finally {
       setSending(false);
+    }
+  };
+
+  const handleDraftReply = async () => {
+    if (!selectedId) return;
+    setAiDrafting(true);
+    try {
+      const result = await aiService.getInsight('draft_negotiation_reply', selectedId);
+      setDraftResult(result);
+      setShowDraftModal(true);
+    } catch (err) {
+      toast.error('AI unavailable', err instanceof ApiError ? err.message : 'The local AI model is unavailable.');
+    } finally {
+      setAiDrafting(false);
     }
   };
 
@@ -168,6 +192,14 @@ export const NegotiationsInboxPage: React.FC = () => {
                   className="flex-1 text-xs bg-white border border-gray-300 rounded px-3 py-1.5 text-gray-800 focus:outline-none focus:border-[#714B67]"
                 />
                 <button
+                  type="button"
+                  onClick={handleDraftReply}
+                  disabled={aiDrafting}
+                  className="border border-[#EADEE7] text-[#714B67] hover:bg-[#F9F7F9] px-3 py-1.5 rounded text-xs font-semibold transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  <Sparkles className="w-3.5 h-3.5" /> {aiDrafting ? 'Drafting…' : 'AI Draft'}
+                </button>
+                <button
                   type="submit"
                   disabled={sending || !replyText.trim()}
                   className="bg-[#714B67] hover:bg-[#5A3A52] text-white px-3 py-1.5 rounded text-xs font-semibold transition-colors disabled:opacity-50 flex items-center gap-1.5"
@@ -179,6 +211,20 @@ export const NegotiationsInboxPage: React.FC = () => {
           )}
         </Card>
       </div>
+
+      {showDraftModal && draftResult?.summary && (
+        <AIDraftEditorModal
+          isOpen={showDraftModal}
+          onClose={() => setShowDraftModal(false)}
+          title="Draft Negotiation Reply"
+          initialBody={draftResult.summary}
+          actionButtonLabel="Use This Reply"
+          onApplyOrSend={(body) => {
+            setReplyText(body);
+            setShowDraftModal(false);
+          }}
+        />
+      )}
     </div>
   );
 };

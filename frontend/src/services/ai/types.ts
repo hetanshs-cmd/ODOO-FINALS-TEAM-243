@@ -48,6 +48,8 @@ export interface QuotationAIContext {
 }
 
 export interface ApprovalAIContext {
+  /** Approval request id — used as the grounding key for the real backend AI call. */
+  approvalRequestId?: string;
   quotation: Quotation;
   customerName: string;
   customerTier: string;
@@ -86,6 +88,8 @@ export interface DealHealthNudgeContext {
 }
 
 export interface FollowUpAIContext {
+  /** Quotation id — used as the grounding key for the real backend AI call. */
+  quotationId?: string;
   quotationCode: string;
   customerName: string;
   repName: string;
@@ -96,6 +100,8 @@ export interface FollowUpAIContext {
 }
 
 export interface NegotiationAIContext {
+  /** Negotiation id — used as the grounding key for the real backend AI call. */
+  negotiationId?: string;
   quotationCode: string;
   customerName: string;
   requestedDiscount?: number;
@@ -133,6 +139,11 @@ export interface WorkspaceAIContext {
   userRole: UserRole;
 }
 
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export interface AIService {
   summarizeQuotation(context: QuotationAIContext): Promise<AIResult>;
   explainRisk(context: QuotationAIContext): Promise<AIResult>;
@@ -145,4 +156,5 @@ export interface AIService {
   draftNegotiationReply(context: NegotiationAIContext): Promise<AIResult>;
   summarizeReport(context: ReportAIContext): Promise<AIResult>;
   answerWorkspaceQuestion(context: WorkspaceAIContext, query: string): Promise<AIResult>;
+  chat(messages: ChatMessage[]): Promise<AIResult>;
 }
