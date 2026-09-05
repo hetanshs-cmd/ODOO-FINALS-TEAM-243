@@ -1,10 +1,10 @@
 import { Errors } from '../../errors/AppError';
-import { db } from '../../config/database';
 import { roundMoney } from '../../shared/money';
 import { generateDocumentNumber } from '../../shared/documentNumber';
 import { mapDbError } from '../../shared/crud/dbErrors';
 import { withTransaction } from '../../shared/db/withTransaction';
 import { insertAuditLog } from '../../shared/auditLog';
+import { runPostCommit } from '../../shared/postCommit';
 import { getPaginationParams, buildPaginatedResult, PaginatedResult } from '../../utils/pagination';
 import { quotationsRepository } from './quotations.repository';
 import { Quotation, QuotationItem, QuotationWithItems } from './quotations.model';
@@ -41,24 +41,31 @@ interface AddQuotationItemDto {
 export const quotationsService = {
   async create(dto: CreateQuotationDto, salesRepId: string): Promise<Quotation> {
     try {
-      const quotation = await quotationsRepository.create({
-        quotation_number: generateDocumentNumber('Q'),
-        customer_id: dto.customer_id,
-        // Always the authenticated caller — never client-supplied — so a
-        // quotation can't be created under someone else's name.
-        sales_rep_id: salesRepId,
-        price_list_id: dto.price_list_id ?? null,
-        currency: dto.currency,
-        valid_until: dto.valid_until ?? null,
+      // The insert and its audit row go in one transaction, per
+      // shared/auditLog.ts's own contract ("always call this from inside the
+      // same withTransaction block as the mutation it records"). Previously
+      // the audit write used the pool, so a failed audit left an unaudited
+      // quotation behind.
+      return await withTransaction(async (client) => {
+        const quotation = await quotationsRepository.create(client, {
+          quotation_number: generateDocumentNumber('Q'),
+          customer_id: dto.customer_id,
+          // Always the authenticated caller — never client-supplied — so a
+          // quotation can't be created under someone else's name.
+          sales_rep_id: salesRepId,
+          price_list_id: dto.price_list_id ?? null,
+          currency: dto.currency,
+          valid_until: dto.valid_until ?? null,
+        });
+        await insertAuditLog(client, {
+          entityType: 'quotation',
+          entityId: quotation.id,
+          action: 'QUOTATION_CREATED',
+          actorId: salesRepId,
+          newValue: { customer_id: dto.customer_id, currency: dto.currency },
+        });
+        return quotation;
       });
-      await insertAuditLog(db, {
-        entityType: 'quotation',
-        entityId: quotation.id,
-        action: 'QUOTATION_CREATED',
-        actorId: salesRepId,
-        newValue: { customer_id: dto.customer_id, currency: dto.currency },
-      });
-      return quotation;
     } catch (err) {
       throw mapDbError(err, 'Quotation');
     }
@@ -110,10 +117,12 @@ export const quotationsService = {
   },
 
   /**
-   * Adds a line item and recomputes quotation totals. Discount/tax amounts
-   * are always computed server-side from quantity/unit_price/percentages —
-   * a client-supplied line_total is never trusted (docs/security.md: backend
-   * validation/computation is authoritative).
+   * Adds a line item. Discount/tax amounts are never computed here (or
+   * stored) — `quotation_item_amounts`/`quotation_totals` (006_quotations.sql)
+   * are the single canonical formula, so this only inserts the raw inputs
+   * (quantity/unit_price/percentages) and reads the computed figures back
+   * from that view — never trusting a client-supplied total either way
+   * (docs/security.md: backend validation/computation is authoritative).
    */
   async addItem(
     quotationId: string,
@@ -131,12 +140,6 @@ export const quotationsService = {
 
     const discountPercent = dto.discount_percent ?? 0;
     const taxPercent = dto.tax_percent ?? 0;
-
-    const lineSubtotal = roundMoney(dto.quantity * dto.unit_price);
-    const discountAmount = roundMoney(lineSubtotal * (discountPercent / 100));
-    const taxableAmount = roundMoney(lineSubtotal - discountAmount);
-    const taxAmount = roundMoney(taxableAmount * (taxPercent / 100));
-    const lineTotal = roundMoney(taxableAmount + taxAmount);
 
     // margin_percent is computed from the product's cost_price when one is
     // on record — null-safe, since cost_price is nullable on older/manual
@@ -156,12 +159,9 @@ export const quotationsService = {
         quantity: dto.quantity,
         unit_price: dto.unit_price,
         discount_percent: discountPercent,
-        discount_amount: discountAmount,
         tax_percent: taxPercent,
-        line_total: lineTotal,
         billing_type: dto.billing_type,
       });
-      await quotationsRepository.recalculateTotals(quotationId);
     } catch (err) {
       throw mapDbError(err, 'Quotation item');
     }
@@ -170,7 +170,11 @@ export const quotationsService = {
     // Deal-health score depends on the quotation's current discount/negotiation
     // signals, so refresh it whenever a line item changes them — keeps the
     // score from going stale between explicit submit/negotiation events.
-    await dealHealthService.recalculate(quotationId);
+    // The item is already committed, so a scoring failure must not 500 the
+    // request and invite a retry that adds the line a second time.
+    await runPostCommit('quotations.addItem', () =>
+      dealHealthService.recalculate(quotationId).then(() => undefined)
+    );
 
     return item;
   },
@@ -220,7 +224,27 @@ export const quotationsService = {
     // this itself moves status on to APPROVED or PENDING_APPROVAL, may
     // create an approval_requests row, and (per discountEngineService)
     // refreshes the deal-health score as part of its own post-commit step.
-    await discountEngineService.checkDiscounts(id);
+    //
+    // The check runs in its own transaction, so a failure here (e.g. no
+    // approval levels configured) would otherwise leave the quotation
+    // stranded in SUBMITTED while the caller sees an error. Roll the status
+    // back to DRAFT so submit stays all-or-nothing from the caller's side.
+    try {
+      await discountEngineService.checkDiscounts(id);
+    } catch (err) {
+      await withTransaction(async (client) => {
+        await quotationsRepository.updateStatus(client, id, quotation.status);
+        await insertAuditLog(client, {
+          entityType: 'quotation',
+          entityId: id,
+          action: 'QUOTATION_SUBMIT_ROLLED_BACK',
+          actorId: requester.id,
+          oldValue: { status: 'SUBMITTED' },
+          newValue: { status: quotation.status },
+        });
+      });
+      throw err;
+    }
 
     const updated = await quotationsRepository.findById(id);
     const updatedItems = await quotationsRepository.listItems(id);

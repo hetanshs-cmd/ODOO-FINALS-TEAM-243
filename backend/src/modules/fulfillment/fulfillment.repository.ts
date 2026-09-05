@@ -29,6 +29,18 @@ export const fulfillmentRepository = {
     return (rows[0] as SalesOrderForAllocation | undefined) ?? null;
   },
 
+  /** Same read under a row lock, so allocate's status check can't be raced. */
+  async findSalesOrderForAllocationForUpdate(
+    client: PoolClient,
+    salesOrderId: string
+  ): Promise<SalesOrderForAllocation | null> {
+    const { rows } = await client.query(
+      'SELECT id, status, sales_rep_id FROM sales_orders WHERE id = $1 FOR UPDATE',
+      [salesOrderId]
+    );
+    return (rows[0] as SalesOrderForAllocation | undefined) ?? null;
+  },
+
   async listOrderItemsForAllocation(salesOrderId: string): Promise<SalesOrderItemForAllocation[]> {
     const { rows } = await db.query(
       'SELECT id, product_id, quantity FROM sales_order_items WHERE sales_order_id = $1',
@@ -56,6 +68,30 @@ export const fulfillmentRepository = {
       [productIds]
     );
     return rows as InventoryForUpdateRow[];
+  },
+
+  /**
+   * Locks and returns the inventory row for ONE product at ONE warehouse.
+   *
+   * override-split previously took `lockInventoryForProducts(...)[0]`, which
+   * is an arbitrary warehouse's row (the query spans every active warehouse
+   * and has no ORDER BY) — so it validated availability against one warehouse
+   * while reserving stock from another, driving quantity_available negative
+   * until the CHECK constraint rejected it with a raw 500.
+   */
+  async lockInventoryAtWarehouse(
+    client: PoolClient,
+    warehouseId: string,
+    productId: string
+  ): Promise<InventoryForUpdateRow | null> {
+    const { rows } = await client.query(
+      `SELECT i.warehouse_id, i.product_id, i.quantity_available
+       FROM inventory i
+       WHERE i.warehouse_id = $1 AND i.product_id = $2
+       FOR UPDATE`,
+      [warehouseId, productId]
+    );
+    return (rows[0] as InventoryForUpdateRow | undefined) ?? null;
   },
 
   async reserveInventory(
@@ -135,17 +171,6 @@ export const fulfillmentRepository = {
       `INSERT INTO backorders (sales_order_id, sales_order_item_id, product_id, quantity)
        VALUES ($1, $2, $3, $4)`,
       [input.salesOrderId, input.salesOrderItemId, input.productId, input.quantity]
-    );
-  },
-
-  async addBackorderedQuantity(
-    client: PoolClient,
-    salesOrderItemId: string,
-    quantity: number
-  ): Promise<void> {
-    await client.query(
-      `UPDATE sales_order_items SET backordered_quantity = backordered_quantity + $2 WHERE id = $1`,
-      [salesOrderItemId, quantity]
     );
   },
 

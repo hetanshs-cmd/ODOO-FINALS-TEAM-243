@@ -109,7 +109,7 @@ cd backend && npm run migrate
 | `roles` | 6 roles: `SALES_REP`, `SALES_MANAGER`, `FINANCE`, `OPERATIONS`, `CUSTOMER`, `ADMIN` |
 | `permissions` | Individual permission records |
 | `role_permissions` | Many-to-many junction |
-| `users` | All internal and portal users. Email is `CITEXT` (case-insensitive unique). `password_hash` never plaintext. |
+| `users` | All internal and portal users. Email is `CITEXT` (case-insensitive unique). `password_hash` never plaintext. `customer_id` (nullable FK to `customers`) is the portal-tenant link — NULL for internal staff, set for CUSTOMER-role portal users. |
 
 ### Customers (Migration 004)
 
@@ -117,7 +117,7 @@ cd backend && npm run migrate
 |-------|-------------|
 | `customers` | Company accounts with `customer_tier_id` |
 | `customer_tiers` | e.g. Gold, Silver, Bronze — drives discount ceiling lookup |
-| `customer_users` | Links a `users` row to a `customers` row for portal access |
+| _(portal link)_ | Portal access is `users.customer_id` (FK to `customers`) directly — the earlier standalone `customer_users` junction table was folded into that column by the 2026-09-05 schema refactor |
 | `price_lists` | Named price lists |
 | `price_list_items` | Per-product price overrides within a price list |
 

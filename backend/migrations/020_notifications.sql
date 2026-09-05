@@ -14,12 +14,8 @@ CREATE TABLE notifications (
     reference_type   VARCHAR(50),
     reference_id     UUID,
     is_read          BOOLEAN NOT NULL DEFAULT false,
-    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_notifications_user_id ON notifications(user_id);
 CREATE INDEX idx_notifications_is_read ON notifications(is_read);
 CREATE INDEX idx_notifications_created_at ON notifications(created_at);
-CREATE TRIGGER trg_notifications_updated_at
-    BEFORE UPDATE ON notifications
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();

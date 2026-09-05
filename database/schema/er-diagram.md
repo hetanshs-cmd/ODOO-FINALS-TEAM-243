@@ -7,6 +7,22 @@ This project follows the principle: **design the database before writing backend
 > This is the definitive DealFlow360 schema (41 tables). It supersedes the earlier
 > draft schema (customer_portal_users / discount_ceilings / quotation_lines naming) —
 > that draft is retired in favor of the table names and structure below.
+>
+> **2026-09-05 schema-minimization refactor:** `customer_users` was folded into
+> `users.customer_id`; `approval_requests.approval_level` was renamed to
+> `approval_level_id`; `tax_percent` was added to `sales_order_items`/`invoice_items`;
+> and every stored money total (`subtotal`/`discount_total`/`tax_total`/`grand_total`/
+> `total`/`line_total`/`discount_amount`/`tax` on quotations, sales_orders, invoices and
+> their line items) was **removed** in favor of six read-only views
+> (`quotation_item_amounts`, `quotation_totals`, `sales_order_item_amounts`,
+> `sales_order_totals`, `invoice_item_amounts`, `invoice_totals`) that derive them from
+> the underlying line items — see each migration file for the exact view definitions.
+> `sales_order_items.backordered_quantity` was also removed (the `backorders` table is
+> the sole record of that quantity). Most tables that lost their stored totals also lost
+> their `updated_at` trigger in the same pass; a later additive migration
+> (`025_restore_app_compatible_timestamps.sql`) restored `created_at` (not `updated_at`)
+> on the specific tables the application still orders by it. The per-table entries below
+> are updated to match; when in doubt, the migration files are the source of truth.
 
 ---
 
@@ -25,7 +41,8 @@ Grouped by dependency order (see Migration Files below for the numbered-file map
 created_at · `UNIQUE(role_id, permission_id)`
 
 **`users`** — id PK, name, email unique, password_hash, phone, status, role_id FK → roles.id,
-created_at, updated_at, last_login_at · indexed on `role_id`, `status`
+customer_id FK → customers.id (nullable — NULL for internal staff, set for CUSTOMER-role portal
+users), created_at, updated_at, last_login_at · indexed on `role_id`, `status`, `customer_id`
 
 ### Customers
 
@@ -36,11 +53,12 @@ created_at, updated_at, last_login_at · indexed on `role_id`, `status`
 customer_tiers.id, industry, tax_id, email, phone, website, status, created_at, updated_at ·
 indexed on `customer_tier_id`, `status`
 
-**`customer_users`** — id PK, customer_id FK → customers.id, user_id FK → users.id,
-designation, status, created_at, updated_at · `UNIQUE(customer_id, user_id)`. This is the
-**tenant-isolation table for the customer portal** — a customer user must only access data
-belonging to its associated `customer_id`; the backend authorization layer enforces this on
-every query, never the frontend alone.
+**Portal tenant link** — the 2026-09-05 schema refactor folded the earlier standalone
+`customer_users` junction table into `users.customer_id` directly (one customer per portal
+user; no DB support for more than one, same as before). This is the
+**tenant-isolation column for the customer portal** — a customer user must only access data
+belonging to its `customer_id`; the backend authorization layer enforces this on every query,
+never the frontend alone.
 
 **`addresses`** — id PK, customer_id FK → customers.id, type (`BILLING`/`SHIPPING`/`OFFICE`),
 address_line_1, address_line_2, city, state, country, postal_code, is_default, created_at,
@@ -67,23 +85,26 @@ created_at, updated_at · `UNIQUE(price_list_id, product_id)`
 
 **`quotations`** — id PK, quotation_number unique, customer_id FK → customers.id,
 sales_rep_id FK → users.id, price_list_id FK → price_lists.id (nullable), status, currency,
-subtotal/discount_total/tax_total/grand_total (all `>= 0`), valid_until, created_at,
-updated_at · indexed on `customer_id`, `sales_rep_id`, `price_list_id`, `status`, `created_at`
+valid_until, created_at, updated_at · indexed on `customer_id`, `sales_rep_id`,
+`price_list_id`, `status`, `created_at`. No stored totals — read `quotation_totals`
+(subtotal/discount_total/tax_total/grand_total, one row per quotation).
 
 Statuses: `DRAFT`, `SUBMITTED`, `PENDING_APPROVAL`, `APPROVED`, `REJECTED`,
 `SENT_TO_CUSTOMER`, `NEGOTIATION`, `ACCEPTED`, `DECLINED`, `EXPIRED`, `CANCELLED`, `CONVERTED`
 
 **`quotation_items`** — id PK, quotation_id FK → quotations.id, product_id FK → products.id,
 description, quantity (`> 0`), unit_price (`>= 0`), discount_percent (`0-100`),
-discount_amount (`>= 0`), tax_percent (`0-100`), line_total (`>= 0`), billing_type
-(`ONE_TIME`/`RECURRING`), created_at, updated_at · indexed on `quotation_id`, `product_id`
+tax_percent (`0-100`), billing_type (`ONE_TIME`/`RECURRING`), created_at · indexed on
+`quotation_id`, `product_id`. No stored discount_amount/line_total — read
+`quotation_item_amounts` (adds line_subtotal/discount_amount/taxable_amount/tax_amount/
+line_total, derived from the raw columns above).
 
 ### Discount Engine
 
 **`discount_rules`** — id PK, name, priority (`>= 0`), product_id / category_id /
 customer_tier_id FK (all nullable — a rule may apply at any combination of scopes), sales_role,
 min_discount / max_discount (`0-100`, `max >= min`), approval_required, approval_level,
-active, created_at, updated_at
+active, created_at
 
 **`discount_evaluations`** — id PK, quotation_id FK → quotations.id, quotation_item_id FK →
 quotation_items.id (nullable), requested_discount / allowed_discount (`0-100`), risk_score
@@ -93,13 +114,14 @@ evaluations are never overwritten.**
 
 ### Approval Engine
 
-**`approval_levels`** — id PK, name unique, level unique (`> 0`), description, created_at,
-updated_at
+**`approval_levels`** — id PK, name unique, level unique (`> 0`), description, created_at
 
 **`approval_requests`** — id PK, quotation_id FK → quotations.id, requested_by FK → users.id,
-assigned_to FK → users.id (nullable), approval_level FK → approval_levels.id, status
-(`PENDING`/`APPROVED`/`REJECTED`/`ESCALATED`/`CANCELLED`), reason, requested_at, responded_at,
-created_at, updated_at
+assigned_to FK → users.id (nullable), approval_level_id FK → approval_levels.id (renamed from
+`approval_level`), status (`PENDING`/`APPROVED`/`REJECTED`/`ESCALATED`/`CANCELLED`), reason,
+requested_at, responded_at — no separate created_at/updated_at (requested_at/responded_at
+already cover the lifecycle) · partial unique index `(quotation_id) WHERE status = 'PENDING'`
+(migration 026) enforces at most one PENDING request per quotation
 
 **`approval_actions`** — id PK, approval_request_id FK → approval_requests.id, user_id FK →
 users.id, action, comment, created_at. Stores full approval **history**, not just the latest
@@ -129,11 +151,13 @@ recommendation_type)`
 
 **`sales_orders`** — id PK, order_number unique, quotation_id FK → quotations.id (**unique** —
 one order per quotation), customer_id FK → customers.id, sales_rep_id FK → users.id, status,
-subtotal/discount_total/tax_total/grand_total (`>= 0`), order_date, created_at, updated_at
+order_date, created_at. No stored totals — read `sales_order_totals`.
 
 **`sales_order_items`** — id PK, sales_order_id FK → sales_orders.id, product_id FK →
-products.id, quantity (`> 0`), unit_price (`>= 0`), discount (`>= 0`), total (`>= 0`),
-fulfilled_quantity / backordered_quantity (`>= 0`, each `<= quantity`), created_at, updated_at
+products.id, quantity (`> 0`), unit_price (`>= 0`), discount (`>= 0`, absolute amount frozen
+at conversion time), tax_percent (`0-100`), fulfilled_quantity (`>= 0`, `<= quantity`),
+created_at. No stored total (read `sales_order_item_amounts`) and no backordered_quantity
+column — the `backorders` table is the sole record of that quantity, per line.
 
 ### Warehouses & Inventory
 
@@ -164,12 +188,14 @@ sales_order_items.id, product_id FK → products.id, quantity (`> 0`), status (`
 **`invoices`** — id PK, invoice_number unique, customer_id FK → customers.id, sales_order_id
 FK → sales_orders.id (nullable), quotation_id FK → quotations.id (nullable — recurring
 invoices come from `billing_schedules` instead), invoice_type (`ONE_TIME`/`RECURRING`),
-status, subtotal/discount_total/tax_total/total (`>= 0`), due_date, issued_at, paid_at,
-created_at, updated_at
+status, due_date, issued_at, paid_at, created_at. No stored totals — read `invoice_totals`
+(subtotal/tax_total/total; there is no invoice-level discount_total — a quotation-line
+discount is already netted into `invoice_items.unit_price` by the time it's billed).
 
 **`invoice_items`** — id PK, invoice_id FK → invoices.id, product_id FK → products.id
-(nullable), description, quantity (`> 0`), unit_price (`>= 0`), tax (`>= 0`), total (`>= 0`),
-created_at, updated_at
+(nullable), description, quantity (`> 0`), unit_price (`>= 0`), tax_percent (`0-100`),
+created_at. No stored tax/total — read `invoice_item_amounts` (adds line_subtotal/
+tax_amount/total).
 
 ### Payments
 
@@ -300,8 +326,8 @@ that match a line (product / category / customer tier) — see `requirements.md`
   approval levels) — `RESTRICT`: prevent deleting a row that's still referenced.
 - **Dependent transactional records** — `CASCADE` only when deleting the parent should
   logically delete the child without destroying required business history (e.g. line items
-  under their parent quotation/order/invoice; junction tables like `role_permissions`,
-  `customer_users`). Business-critical top-level records (quotations, approval requests,
+  under their parent quotation/order/invoice; junction tables like `role_permissions`).
+  Business-critical top-level records (quotations, approval requests,
   negotiations) use `RESTRICT` on their own FKs so they're never silently cascaded away.
 - **Optional relationships** — `SET NULL` (e.g. `approval_requests.assigned_to`,
   `warehouses.manager_id`, `invoices.quotation_id`, `invoices.sales_order_id`,
@@ -311,7 +337,7 @@ that match a line (product / category / customer tier) — see `requirements.md`
 
 ## Customer Portal Data Isolation
 
-Tenant isolation flows through `customer_users.customer_id`. Every customer-owned business
+Tenant isolation flows through `users.customer_id`. Every customer-owned business
 record must be traceable to `customers.id`. Customer users must **not** be able to access
 other customers' data, internal approval comments, internal discount rules, internal
 deal-health calculations, internal audit logs, or other reps' data — enforced by the backend
