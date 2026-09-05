@@ -40,6 +40,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useNegotiation } from '../hooks/useNegotiation';
+import { usePortalProfile } from '../hooks/usePortal';
 import { toast } from '../components/ui/Toast';
 import { portalService, negotiationService } from '../services';
 import { ApiQuotationWithItems } from '../services/apiTypes';
@@ -57,13 +58,18 @@ export const PortalQuotationPage: React.FC = () => {
   const [quotesLoading, setQuotesLoading] = useState(true);
   const [quotesError, setQuotesError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const fetchQuotes = () => {
     setQuotesLoading(true);
-    portalService
+    return portalService
       .getQuotations()
       .then((data) => setQuotes(data as ApiQuotationWithItems[]))
       .catch((err) => setQuotesError(err instanceof ApiError ? err.message : 'Failed to load your quotations.'))
       .finally(() => setQuotesLoading(false));
+  };
+
+  useEffect(() => {
+    fetchQuotes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const selectedQuoteId = searchParams.get('id') || quotes[0]?.id;
@@ -104,8 +110,14 @@ export const PortalQuotationPage: React.FC = () => {
     );
   }
 
-  const canNegotiate = quote.status === 'SENT_TO_CUSTOMER' || quote.status === 'NEGOTIATION';
-  const canConfirm = quote.status === 'SENT_TO_CUSTOMER';
+  // Mirrors portal.service.ts::CONFIRMABLE_STATUSES on the backend (the
+  // actual authority on what a customer may act on) — the quotation
+  // lifecycle here never sets 'SENT_TO_CUSTOMER' (DRAFT -> SUBMITTED ->
+  // APPROVED, or -> PENDING_APPROVAL -> APPROVED), so gating solely on that
+  // status left Confirm permanently disabled for every real quotation.
+  const CUSTOMER_ACTIONABLE_STATUSES = ['SENT_TO_CUSTOMER', 'SUBMITTED', 'NEGOTIATION', 'APPROVED'];
+  const canNegotiate = CUSTOMER_ACTIONABLE_STATUSES.includes(quote.status);
+  const canConfirm = CUSTOMER_ACTIONABLE_STATUSES.includes(quote.status);
   const isConfirmed = quote.status === 'ACCEPTED' || quote.status === 'CONVERTED';
   const isUnderReview = quote.status === 'NEGOTIATION';
 
@@ -138,21 +150,23 @@ export const PortalQuotationPage: React.FC = () => {
     setIsConfirming(true);
     setConfirmError(null);
     try {
-      // NOTE: there is no dedicated "customer accepts" portal endpoint
-      // documented yet; quotationService.convert (POST /quotations/:id/convert)
-      // is the closest real transition (quotation -> sales order) and is
-      // attempted here. If the portal token isn't authorized for it, the
-      // backend will 403 and that's surfaced below rather than faked.
-      const { quotationService } = await import('../services');
-      await quotationService.convert(quote.id);
+      // The portal-scoped confirm endpoint (POST /portal/quotations/:id/confirm,
+      // portal.service.ts::confirmQuotation) re-runs discount governance before
+      // accepting and is the one a portal token is actually authorized for —
+      // POST /quotations/:id/convert is internal-only and always 401s here.
+      const result = await portalService.confirmQuotation(quote.id);
       setShowConfirmModal(false);
-      toast.success('Quotation Confirmed!', `Thank you, ${user.name}. Quotation ${quote.quotation_number} is confirmed.`);
+      await fetchQuotes();
+      if (result.requiresApproval) {
+        toast.info(
+          'Submitted for Review',
+          'Your requested terms exceed what can be auto-confirmed, so this has been routed to our commercial team for approval.'
+        );
+      } else {
+        toast.success('Quotation Confirmed!', `Thank you, ${user.name}. Quotation ${quote.quotation_number} is confirmed.`);
+      }
     } catch (err) {
-      setConfirmError(
-        err instanceof ApiError
-          ? `${err.message} (TODO: a dedicated portal-scoped confirm endpoint may be needed if convert is internal-only.)`
-          : 'Unable to confirm quotation at this time.'
-      );
+      setConfirmError(err instanceof ApiError ? err.message : 'Unable to confirm quotation at this time.');
     } finally {
       setIsConfirming(false);
     }
@@ -560,13 +574,10 @@ export const PortalMessagesPage: React.FC = () => {
 // =========================================================================
 // SCREEN 11: CUSTOMER PROFILE TAB (/portal/profile)
 // =========================================================================
-// No customer-profile-read endpoint is confirmed to exist yet. Rather than
-// fabricate company/contact/address fields (as the mock version did with
-// hardcoded fallbacks), show only what's genuinely available from the
-// portal auth token (customer_id) plus a clear TODO.
 
 export const PortalProfilePage: React.FC = () => {
   const { user } = useAuth();
+  const { profile, loading, error } = usePortalProfile();
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -587,17 +598,41 @@ export const PortalProfilePage: React.FC = () => {
           <Building2 className="w-4 h-4 text-[#714B67]" />
           <span>Account</span>
         </div>
-        <div className="space-y-2.5 text-xs">
+        {loading ? (
+          <p className="text-xs text-gray-500">Loading account details…</p>
+        ) : error || !profile ? (
           <div>
             <span className="text-gray-400 block text-[11px]">Customer ID:</span>
             <span className="font-mono font-semibold text-gray-800">{user.customerId || '—'}</span>
           </div>
-          <div className="p-2.5 bg-amber-50 border border-amber-200 rounded text-amber-900 text-[11px]">
-            TODO: no customer-profile-read endpoint is confirmed to exist yet. Company name, tier,
-            industry, and contact/shipping addresses will be shown here once one is added — they are
-            intentionally omitted rather than fabricated.
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2.5 text-xs">
+            <div>
+              <span className="text-gray-400 block text-[11px]">Company</span>
+              <span className="font-semibold text-gray-800">{profile.company_name}</span>
+            </div>
+            <div>
+              <span className="text-gray-400 block text-[11px]">Customer Code</span>
+              <span className="font-mono font-semibold text-gray-800">{profile.customer_code}</span>
+            </div>
+            <div>
+              <span className="text-gray-400 block text-[11px]">Tier</span>
+              <span className="font-semibold text-gray-800">{profile.tier}</span>
+            </div>
+            <div>
+              <span className="text-gray-400 block text-[11px]">Industry</span>
+              <span className="font-semibold text-gray-800">{profile.industry || '—'}</span>
+            </div>
+            <div>
+              <span className="text-gray-400 block text-[11px]">Email</span>
+              <span className="font-semibold text-gray-800">{profile.email || '—'}</span>
+            </div>
+            <div>
+              <span className="text-gray-400 block text-[11px]">Phone</span>
+              <span className="font-semibold text-gray-800">{profile.phone || '—'}</span>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-2xs space-y-3">
