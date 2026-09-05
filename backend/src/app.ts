@@ -9,6 +9,18 @@ import { notFoundHandler } from './middleware/notFoundHandler';
 import { healthRouter } from './routes/health.routes';
 import { authRouter } from './modules/auth/auth.routes';
 import { portalRouter } from './modules/auth/portal.routes';
+import { adminRouter } from './modules/admin/admin.routes';
+import { quotationsRouter } from './modules/quotations/quotations.routes';
+import { discountEngineRouter } from './modules/discount-engine/discount-engine.routes';
+import { approvalsRouter } from './modules/approvals/approvals.routes';
+import { salesOrdersRouter } from './modules/sales-orders/sales-orders.routes';
+import { salesOrderFulfillmentRouter, fulfillmentsRouter } from './modules/fulfillment/fulfillment.routes';
+import { salesOrderBillingRouter, invoicesRouter } from './modules/billing/billing.routes';
+import { negotiationsRouter } from './modules/negotiations/negotiations.routes';
+import { quotationDealHealthRouter, dealHealthAlertsRouter } from './modules/deal-health/deal-health.routes';
+import { notificationsRouter } from './modules/notifications/notifications.routes';
+import { upsellRouter } from './modules/upsell/upsell.routes';
+import { reportingRouter } from './modules/reporting/reporting.routes';
 
 const app = express();
 
@@ -49,8 +61,28 @@ app.use(requestLogger);
 app.use('/api/v1', healthRouter);
 app.use('/api/v1', authRouter);
 app.use('/api/v1', portalRouter);
-
-// TODO: Register remaining module routers as they're built (admin, quotations, ...)
+app.use('/api/v1/admin', adminRouter);
+app.use('/api/v1/quotations', quotationsRouter);
+// Mounted at the same base path as quotationsRouter — discount-engine owns
+// only the /:id/check-discounts route, kept as its own module per
+// docs/architecture.md's module boundaries.
+app.use('/api/v1/quotations', discountEngineRouter);
+app.use('/api/v1/approvals', approvalsRouter);
+app.use('/api/v1/sales-orders', salesOrdersRouter);
+// fulfillment, billing, and deal-health each contribute routes under both
+// /sales-orders/:id/* (order-scoped actions) and their own top-level base —
+// same "own its own routes but mount alongside quotations" pattern as
+// discount-engine above.
+app.use('/api/v1/sales-orders', salesOrderFulfillmentRouter);
+app.use('/api/v1/fulfillments', fulfillmentsRouter);
+app.use('/api/v1/sales-orders', salesOrderBillingRouter);
+app.use('/api/v1/invoices', invoicesRouter);
+app.use('/api/v1/negotiations', negotiationsRouter);
+app.use('/api/v1/quotations', quotationDealHealthRouter);
+app.use('/api/v1/deal-health', dealHealthAlertsRouter);
+app.use('/api/v1/notifications', notificationsRouter);
+app.use('/api/v1/products', upsellRouter);
+app.use('/api/v1/reports', reportingRouter);
 
 // ── Not Found Handler ─────────────────────────────────────────────────────────
 app.use(notFoundHandler);

@@ -1,0 +1,153 @@
+import { Errors } from '../../errors/AppError';
+import { withTransaction } from '../../shared/db/withTransaction';
+import { roundMoney } from '../../shared/money';
+import { generateDocumentNumber } from '../../shared/documentNumber';
+import { getPaginationParams, buildPaginatedResult, PaginatedResult } from '../../utils/pagination';
+import { computeNextBillingDate } from './billingDates';
+import { billingRepository } from './billing.repository';
+import { paymentsRepository } from './payments.repository';
+import { GenerateBillingResult, Invoice, InvoiceWithItems } from './billing.model';
+import { Payment as PaymentRow } from './payments.model';
+
+const INVOICE_DUE_NET_DAYS = 30;
+
+function addDays(date: Date, days: number): string {
+  const result = new Date(date);
+  result.setUTCDate(result.getUTCDate() + days);
+  return result.toISOString().slice(0, 10);
+}
+
+export const billingService = {
+  /**
+   * Billing split on confirm (docs/development-workflow.md Block 3): the
+   * quotation lines behind a sales order are split by `billing_type` —
+   * ONE_TIME lines become a single draft invoice, RECURRING lines become a
+   * subscription with its first billing_schedules row. Both halves (when
+   * both exist) are created in one transaction.
+   *
+   * Recurring lines have no direct link to the admin-configured
+   * `subscription_plans` catalog in the schema, so the caller must supply
+   * `planId` whenever the order contains recurring items — this is a
+   * documented assumption, not a guess baked silently into the code.
+   */
+  async generateBillingForOrder(salesOrderId: string, planId?: string): Promise<GenerateBillingResult> {
+    const order = await billingRepository.findSalesOrderForBilling(salesOrderId);
+    if (!order) throw Errors.notFound('Sales order');
+
+    const quotationItems = await billingRepository.listQuotationItemsWithProduct(order.quotation_id);
+    if (quotationItems.length === 0) {
+      throw Errors.businessRuleViolation('Sales order has no billable items');
+    }
+
+    const oneTimeItems = quotationItems.filter((item) => item.billing_type === 'ONE_TIME');
+    const recurringItems = quotationItems.filter((item) => item.billing_type === 'RECURRING');
+
+    if (recurringItems.length > 0 && !planId) {
+      throw Errors.businessRuleViolation(
+        'Order contains recurring items — plan_id is required to create the subscription'
+      );
+    }
+
+    const plan = planId ? await billingRepository.findSubscriptionPlan(planId) : null;
+    if (planId && !plan) throw Errors.notFound('Subscription plan');
+
+    return withTransaction(async (client) => {
+      let invoice: Invoice | null = null;
+      if (oneTimeItems.length > 0) {
+        const subtotal = roundMoney(
+          oneTimeItems.reduce((sum, item) => sum + Number(item.line_total), 0)
+        );
+        const taxTotal = roundMoney(
+          oneTimeItems.reduce(
+            (sum, item) => sum + Number(item.line_total) * (Number(item.tax_percent) / 100),
+            0
+          )
+        );
+
+        invoice = await billingRepository.insertInvoice(client, {
+          invoiceNumber: generateDocumentNumber('INV'),
+          customerId: order.customer_id,
+          salesOrderId,
+          quotationId: order.quotation_id,
+          subtotal,
+          taxTotal,
+          total: subtotal,
+          dueDate: addDays(new Date(), INVOICE_DUE_NET_DAYS),
+        });
+
+        for (const item of oneTimeItems) {
+          await billingRepository.insertInvoiceItem(client, {
+            invoiceId: invoice.id,
+            productId: item.product_id,
+            description: item.product_name,
+            quantity: item.quantity,
+            unitPrice: item.unit_price,
+            tax: roundMoney(Number(item.line_total) * (Number(item.tax_percent) / 100)),
+            total: item.line_total,
+          });
+        }
+      }
+
+      let subscription = null;
+      if (recurringItems.length > 0 && plan) {
+        const startDate = new Date().toISOString().slice(0, 10);
+        const nextBillingDate = computeNextBillingDate(new Date(), plan.billing_frequency);
+        const currentPrice = roundMoney(
+          recurringItems.reduce((sum, item) => sum + Number(item.line_total), 0)
+        );
+
+        subscription = await billingRepository.insertSubscription(client, {
+          customerId: order.customer_id,
+          salesOrderId,
+          quotationId: order.quotation_id,
+          planId: plan.id,
+          startDate,
+          nextBillingDate,
+          currentPrice,
+        });
+
+        for (const item of recurringItems) {
+          await billingRepository.insertSubscriptionItem(client, {
+            subscriptionId: subscription.id,
+            productId: item.product_id,
+            quantity: item.quantity,
+            unitPrice: item.unit_price,
+          });
+        }
+
+        await billingRepository.insertBillingSchedule(client, {
+          subscriptionId: subscription.id,
+          billingDate: nextBillingDate,
+          amount: currentPrice,
+        });
+      }
+
+      return { invoice, subscription };
+    });
+  },
+
+  async getInvoiceDetail(id: string): Promise<InvoiceWithItems & { payments: PaymentRow[] }> {
+    const invoice = await billingRepository.findInvoiceById(id);
+    if (!invoice) throw Errors.notFound('Invoice');
+    const [items, payments] = await Promise.all([
+      billingRepository.listInvoiceItems(id),
+      paymentsRepository.listForInvoice(id),
+    ]);
+    return { ...invoice, items, payments };
+  },
+
+  async listInvoices(query: {
+    status?: string;
+    customer_id?: string;
+    page?: unknown;
+    limit?: unknown;
+  }): Promise<PaginatedResult<Invoice>> {
+    const pagination = getPaginationParams(query);
+    const filters = { status: query.status, customerId: query.customer_id };
+    const [items, total] = await Promise.all([
+      billingRepository.listInvoices(filters, pagination.limit, pagination.offset),
+      billingRepository.countInvoices(filters),
+    ]);
+    return buildPaginatedResult(items, total, pagination);
+  },
+};
