@@ -51,7 +51,10 @@ export const creditNotesRepository = {
       conditions.push(`subscription_id = $${params.length}`);
     }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    const { rows } = await db.query(`SELECT COUNT(*)::int AS count FROM credit_notes ${where}`, params);
+    const { rows } = await db.query(
+      `SELECT COUNT(*)::int AS count FROM credit_notes ${where}`,
+      params,
+    );
     return (rows[0] as { count: number }).count;
   },
 

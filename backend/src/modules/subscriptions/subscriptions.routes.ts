@@ -24,10 +24,6 @@ router.patch(
   validate({ params: idParamSchema, body: modifySubscriptionSchema }),
   subscriptionsController.modify,
 );
-router.post(
-  '/:id/cancel',
-  validate({ params: idParamSchema }),
-  subscriptionsController.cancel,
-);
+router.post('/:id/cancel', validate({ params: idParamSchema }), subscriptionsController.cancel);
 
 export { router as subscriptionsRouter };

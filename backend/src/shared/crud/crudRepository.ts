@@ -39,7 +39,7 @@ export function createCrudRepository<T>(config: CrudRepositoryConfig): CrudRepos
     async list(limit, offset) {
       const { rows } = await db.query(
         `SELECT * FROM ${table} ORDER BY ${defaultOrderBy} LIMIT $1 OFFSET $2`,
-        [limit, offset]
+        [limit, offset],
       );
       return rows as T[];
     },
@@ -63,7 +63,7 @@ export function createCrudRepository<T>(config: CrudRepositoryConfig): CrudRepos
         `INSERT INTO ${table} (${keys.join(', ')})
          VALUES (${placeholders.join(', ')})
          RETURNING *`,
-        values
+        values,
       );
       const row = rows[0] as T | undefined;
       if (!row) throw new Error(`INSERT into ${table} did not return a row`);
@@ -81,7 +81,7 @@ export function createCrudRepository<T>(config: CrudRepositoryConfig): CrudRepos
 
       const { rows } = await db.query(
         `UPDATE ${table} SET ${setClause} WHERE id = $1 RETURNING *`,
-        [id, ...values]
+        [id, ...values],
       );
       return (rows[0] as T | undefined) ?? null;
     },

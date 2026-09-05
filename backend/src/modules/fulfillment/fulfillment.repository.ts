@@ -24,7 +24,7 @@ export const fulfillmentRepository = {
   async findSalesOrderForAllocation(salesOrderId: string): Promise<SalesOrderForAllocation | null> {
     const { rows } = await db.query(
       'SELECT id, status, sales_rep_id FROM sales_orders WHERE id = $1',
-      [salesOrderId]
+      [salesOrderId],
     );
     return (rows[0] as SalesOrderForAllocation | undefined) ?? null;
   },
@@ -32,11 +32,11 @@ export const fulfillmentRepository = {
   /** Same read under a row lock, so allocate's status check can't be raced. */
   async findSalesOrderForAllocationForUpdate(
     client: PoolClient,
-    salesOrderId: string
+    salesOrderId: string,
   ): Promise<SalesOrderForAllocation | null> {
     const { rows } = await client.query(
       'SELECT id, status, sales_rep_id FROM sales_orders WHERE id = $1 FOR UPDATE',
-      [salesOrderId]
+      [salesOrderId],
     );
     return (rows[0] as SalesOrderForAllocation | undefined) ?? null;
   },
@@ -44,7 +44,7 @@ export const fulfillmentRepository = {
   async listOrderItemsForAllocation(salesOrderId: string): Promise<SalesOrderItemForAllocation[]> {
     const { rows } = await db.query(
       'SELECT id, product_id, quantity FROM sales_order_items WHERE sales_order_id = $1',
-      [salesOrderId]
+      [salesOrderId],
     );
     return rows as SalesOrderItemForAllocation[];
   },
@@ -56,7 +56,7 @@ export const fulfillmentRepository = {
    */
   async lockInventoryForProducts(
     client: PoolClient,
-    productIds: string[]
+    productIds: string[],
   ): Promise<InventoryForUpdateRow[]> {
     if (productIds.length === 0) return [];
     const { rows } = await client.query(
@@ -65,7 +65,7 @@ export const fulfillmentRepository = {
        JOIN warehouses w ON w.id = i.warehouse_id AND w.status = 'ACTIVE'
        WHERE i.product_id = ANY($1::uuid[])
        FOR UPDATE`,
-      [productIds]
+      [productIds],
     );
     return rows as InventoryForUpdateRow[];
   },
@@ -82,14 +82,14 @@ export const fulfillmentRepository = {
   async lockInventoryAtWarehouse(
     client: PoolClient,
     warehouseId: string,
-    productId: string
+    productId: string,
   ): Promise<InventoryForUpdateRow | null> {
     const { rows } = await client.query(
       `SELECT i.warehouse_id, i.product_id, i.quantity_on_hand - i.quantity_reserved AS quantity_available
        FROM inventory i
        WHERE i.warehouse_id = $1 AND i.product_id = $2
        FOR UPDATE`,
-      [warehouseId, productId]
+      [warehouseId, productId],
     );
     return (rows[0] as InventoryForUpdateRow | undefined) ?? null;
   },
@@ -98,13 +98,13 @@ export const fulfillmentRepository = {
     client: PoolClient,
     warehouseId: string,
     productId: string,
-    quantity: number
+    quantity: number,
   ): Promise<void> {
     await client.query(
       `UPDATE inventory
        SET quantity_reserved = quantity_reserved + $3
        WHERE warehouse_id = $1 AND product_id = $2`,
-      [warehouseId, productId, quantity]
+      [warehouseId, productId, quantity],
     );
   },
 
@@ -113,13 +113,13 @@ export const fulfillmentRepository = {
     client: PoolClient,
     warehouseId: string,
     productId: string,
-    quantity: number
+    quantity: number,
   ): Promise<void> {
     await client.query(
       `UPDATE inventory
        SET quantity_reserved = quantity_reserved - $3
        WHERE warehouse_id = $1 AND product_id = $2`,
-      [warehouseId, productId, quantity]
+      [warehouseId, productId, quantity],
     );
   },
 
@@ -127,63 +127,67 @@ export const fulfillmentRepository = {
     client: PoolClient,
     warehouseId: string,
     productId: string,
-    quantity: number
+    quantity: number,
   ): Promise<void> {
     await client.query(
       `UPDATE inventory
        SET quantity_on_hand = quantity_on_hand - $3,
            quantity_reserved = quantity_reserved - $3
        WHERE warehouse_id = $1 AND product_id = $2`,
-      [warehouseId, productId, quantity]
+      [warehouseId, productId, quantity],
     );
   },
 
   async insertFulfillment(
     client: PoolClient,
-    input: { salesOrderId: string; warehouseId: string }
+    input: { salesOrderId: string; warehouseId: string },
   ): Promise<Fulfillment> {
     const { rows } = await client.query(
       `INSERT INTO fulfillments (sales_order_id, warehouse_id) VALUES ($1, $2) RETURNING *`,
-      [input.salesOrderId, input.warehouseId]
+      [input.salesOrderId, input.warehouseId],
     );
     return rows[0] as Fulfillment;
   },
 
   async insertFulfillmentItem(
     client: PoolClient,
-    input: { fulfillmentId: string; salesOrderItemId: string; quantity: number }
+    input: { fulfillmentId: string; salesOrderItemId: string; quantity: number },
   ): Promise<FulfillmentItem> {
     const { rows } = await client.query(
       `INSERT INTO fulfillment_items (fulfillment_id, sales_order_item_id, quantity)
        VALUES ($1, $2, $3) RETURNING *`,
-      [input.fulfillmentId, input.salesOrderItemId, input.quantity]
+      [input.fulfillmentId, input.salesOrderItemId, input.quantity],
     );
     return rows[0] as FulfillmentItem;
   },
 
   async insertBackorder(
     client: PoolClient,
-    input: { salesOrderId: string; salesOrderItemId: string; productId: string; quantity: number }
+    input: { salesOrderId: string; salesOrderItemId: string; productId: string; quantity: number },
   ): Promise<void> {
     await client.query(
       `INSERT INTO backorders (sales_order_id, sales_order_item_id, product_id, quantity)
        VALUES ($1, $2, $3, $4)`,
-      [input.salesOrderId, input.salesOrderItemId, input.productId, input.quantity]
+      [input.salesOrderId, input.salesOrderItemId, input.productId, input.quantity],
     );
   },
 
   async addFulfilledQuantity(
     client: PoolClient,
     salesOrderItemId: string,
-    quantity: number
+    quantity: number,
   ): Promise<void> {
     await client.query(
       `UPDATE sales_order_items SET fulfilled_quantity = fulfilled_quantity + $2 WHERE id = $1`,
-      [salesOrderItemId, quantity]
+      [salesOrderItemId, quantity],
     );
   },
 
-  async updateSalesOrderStatus(client: PoolClient, salesOrderId: string, status: string): Promise<void> {
+  async updateSalesOrderStatus(
+    client: PoolClient,
+    salesOrderId: string,
+    status: string,
+  ): Promise<void> {
     await client.query('UPDATE sales_orders SET status = $2 WHERE id = $1', [salesOrderId, status]);
   },
 
@@ -201,7 +205,9 @@ export const fulfillmentRepository = {
   },
 
   async findByIdForUpdate(client: PoolClient, id: string): Promise<Fulfillment | null> {
-    const { rows } = await client.query('SELECT * FROM fulfillments WHERE id = $1 FOR UPDATE', [id]);
+    const { rows } = await client.query('SELECT * FROM fulfillments WHERE id = $1 FOR UPDATE', [
+      id,
+    ]);
     return (rows[0] as Fulfillment | undefined) ?? null;
   },
 
@@ -230,7 +236,11 @@ export const fulfillmentRepository = {
     return (rows[0] as (FulfillmentItem & { product_id: string }) | undefined) ?? null;
   },
 
-  async updateItemQuantity(client: PoolClient, id: string, quantity: number): Promise<FulfillmentItem> {
+  async updateItemQuantity(
+    client: PoolClient,
+    id: string,
+    quantity: number,
+  ): Promise<FulfillmentItem> {
     const { rows } = await client.query(
       'UPDATE fulfillment_items SET quantity = $2 WHERE id = $1 RETURNING *',
       [id, quantity],
@@ -248,20 +258,20 @@ export const fulfillmentRepository = {
   async listBySalesOrder(salesOrderId: string): Promise<Fulfillment[]> {
     const { rows } = await db.query(
       'SELECT * FROM fulfillments WHERE sales_order_id = $1 ORDER BY created_at ASC',
-      [salesOrderId]
+      [salesOrderId],
     );
     return rows as Fulfillment[];
   },
 
   async findFulfillmentItemsForShip(
-    fulfillmentId: string
+    fulfillmentId: string,
   ): Promise<(FulfillmentItem & { product_id: string })[]> {
     const { rows } = await db.query(
       `SELECT fi.*, soi.product_id
        FROM fulfillment_items fi
        JOIN sales_order_items soi ON soi.id = fi.sales_order_item_id
        WHERE fi.fulfillment_id = $1`,
-      [fulfillmentId]
+      [fulfillmentId],
     );
     return rows as (FulfillmentItem & { product_id: string })[];
   },
@@ -269,22 +279,23 @@ export const fulfillmentRepository = {
   async markFulfillmentShipped(client: PoolClient, fulfillmentId: string): Promise<Fulfillment> {
     const { rows } = await client.query(
       `UPDATE fulfillments SET status = 'SHIPPED', fulfilled_date = CURRENT_DATE WHERE id = $1 RETURNING *`,
-      [fulfillmentId]
+      [fulfillmentId],
     );
     return rows[0] as Fulfillment;
   },
 
   async markFulfillmentItemsShipped(client: PoolClient, fulfillmentId: string): Promise<void> {
-    await client.query(`UPDATE fulfillment_items SET status = 'SHIPPED' WHERE fulfillment_id = $1`, [
-      fulfillmentId,
-    ]);
+    await client.query(
+      `UPDATE fulfillment_items SET status = 'SHIPPED' WHERE fulfillment_id = $1`,
+      [fulfillmentId],
+    );
   },
 
   async allItemsFulfilled(client: PoolClient, salesOrderId: string): Promise<boolean> {
     const { rows } = await client.query(
       `SELECT COUNT(*)::int AS unfulfilled FROM sales_order_items
        WHERE sales_order_id = $1 AND fulfilled_quantity < quantity`,
-      [salesOrderId]
+      [salesOrderId],
     );
     return (rows[0] as { unfulfilled: number }).unfulfilled === 0;
   },

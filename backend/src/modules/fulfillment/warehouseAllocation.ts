@@ -57,7 +57,7 @@ function availabilityByWarehouse(inventory: InventoryRow[]): Map<string, Map<str
 
 function findSingleWarehouseCoveringAll(
   items: OrderItemToAllocate[],
-  byWarehouse: Map<string, Map<string, number>>
+  byWarehouse: Map<string, Map<string, number>>,
 ): string | null {
   for (const [warehouseId, stock] of byWarehouse) {
     const coversAll = items.every((item) => (stock.get(item.productId) ?? 0) >= item.quantity);
@@ -68,7 +68,7 @@ function findSingleWarehouseCoveringAll(
 
 export function allocateAcrossWarehouses(
   items: OrderItemToAllocate[],
-  inventory: InventoryRow[]
+  inventory: InventoryRow[],
 ): AllocationResult {
   const byWarehouse = availabilityByWarehouse(inventory);
 
@@ -127,7 +127,7 @@ export function allocateAcrossWarehouses(
   }
 
   const allocations: WarehouseAllocation[] = [...perWarehouseLines.entries()].map(
-    ([warehouseId, lines]) => ({ warehouseId, items: lines })
+    ([warehouseId, lines]) => ({ warehouseId, items: lines }),
   );
 
   return { allocations, backorders };

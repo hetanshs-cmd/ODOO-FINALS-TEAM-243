@@ -46,7 +46,7 @@ export const reportingRepository = {
        ${where}
        GROUP BY q.status
        ORDER BY q.status`,
-      params
+      params,
     );
     return rows as SalesSummaryRow[];
   },
@@ -76,7 +76,7 @@ export const reportingRepository = {
        WHERE risk_level = 'HIGH'
        ORDER BY evaluated_at DESC
        LIMIT $1 OFFSET $2`,
-      [limit, offset]
+      [limit, offset],
     );
     return rows as DiscountExceptionRow[];
   },

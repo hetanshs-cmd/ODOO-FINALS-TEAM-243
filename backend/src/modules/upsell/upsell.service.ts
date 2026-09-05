@@ -4,7 +4,7 @@ export const upsellService = {
   async getRecommendations(
     productId: string,
     type?: 'UPSELL' | 'CROSS_SELL',
-    minMarginPercent?: number
+    minMarginPercent?: number,
   ) {
     return upsellRepository.findRecommendations(productId, type, minMarginPercent);
   },

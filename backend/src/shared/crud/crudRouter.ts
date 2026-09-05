@@ -18,17 +18,17 @@ export interface CrudRouterConfig {
  * resource, using its own create/update Zod schemas. This is the single
  * route shape every /admin/* resource shares.
  */
-export function createCrudRouter({ controller, createSchema, updateSchema }: CrudRouterConfig): Router {
+export function createCrudRouter({
+  controller,
+  createSchema,
+  updateSchema,
+}: CrudRouterConfig): Router {
   const router = Router();
 
   router.get('/', controller.list);
   router.get('/:id', validate({ params: idParamSchema }), controller.getById);
   router.post('/', validate({ body: createSchema }), controller.create);
-  router.patch(
-    '/:id',
-    validate({ params: idParamSchema, body: updateSchema }),
-    controller.update
-  );
+  router.patch('/:id', validate({ params: idParamSchema, body: updateSchema }), controller.update);
   router.delete('/:id', validate({ params: idParamSchema }), controller.remove);
 
   return router;

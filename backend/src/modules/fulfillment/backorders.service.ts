@@ -15,7 +15,11 @@ export interface ConsolidateResult {
 }
 
 export const backordersService = {
-  async list(query: { status?: string; page?: unknown; limit?: unknown }): Promise<PaginatedResult<Backorder>> {
+  async list(query: {
+    status?: string;
+    page?: unknown;
+    limit?: unknown;
+  }): Promise<PaginatedResult<Backorder>> {
     const pagination = getPaginationParams(query);
     const filters = { status: query.status };
     const [items, total] = await Promise.all([

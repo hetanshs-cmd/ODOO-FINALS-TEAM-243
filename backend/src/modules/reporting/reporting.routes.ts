@@ -8,11 +8,15 @@ import { discountExceptionsQuerySchema, salesSummaryQuerySchema } from './report
 const router = Router();
 
 router.use(authenticate, requireRole('FINANCE', 'SALES_MANAGER', 'ADMIN'));
-router.get('/sales-summary', validate({ query: salesSummaryQuerySchema }), reportingController.salesSummary);
+router.get(
+  '/sales-summary',
+  validate({ query: salesSummaryQuerySchema }),
+  reportingController.salesSummary,
+);
 router.get(
   '/discount-exceptions',
   validate({ query: discountExceptionsQuerySchema }),
-  reportingController.discountExceptions
+  reportingController.discountExceptions,
 );
 
 export { router as reportingRouter };

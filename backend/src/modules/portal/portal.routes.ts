@@ -21,17 +21,9 @@ const router = Router();
 router.use(authenticatePortal);
 
 router.get('/quotations', portalController.listQuotations);
-router.get(
-  '/quotations/:id',
-  validate({ params: idParamSchema }),
-  portalController.getQuotation,
-);
+router.get('/quotations/:id', validate({ params: idParamSchema }), portalController.getQuotation);
 router.get('/invoices', portalController.listInvoices);
-router.get(
-  '/invoices/:id',
-  validate({ params: idParamSchema }),
-  portalController.getInvoice,
-);
+router.get('/invoices/:id', validate({ params: idParamSchema }), portalController.getInvoice);
 
 // FR9 — customer confirmation. Re-runs the discount engine before accepting,
 // so confirming a negotiated quotation can silently re-enter approval rather

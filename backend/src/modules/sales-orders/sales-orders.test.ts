@@ -76,7 +76,9 @@ describe('salesOrdersService.convertFromQuotation', () => {
   });
 
   it('rejects an unknown quotation', async () => {
-    vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([makeItem()]);
+    vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([
+      makeItem(),
+    ]);
     vi.mocked(salesOrdersRepository.findQuotationForConversionForUpdate).mockResolvedValue(null);
 
     await expect(salesOrdersService.convertFromQuotation('missing')).rejects.toMatchObject({
@@ -85,7 +87,9 @@ describe('salesOrdersService.convertFromQuotation', () => {
   });
 
   it('converts an APPROVED quotation (the documented, previously-unreachable path)', async () => {
-    vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([makeItem()]);
+    vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([
+      makeItem(),
+    ]);
     vi.mocked(salesOrdersRepository.findQuotationForConversionForUpdate).mockResolvedValue(
       makeQuotation({ status: 'APPROVED' }),
     );
@@ -101,7 +105,9 @@ describe('salesOrdersService.convertFromQuotation', () => {
   });
 
   it('converts an ACCEPTED quotation (the portal-confirm path)', async () => {
-    vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([makeItem()]);
+    vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([
+      makeItem(),
+    ]);
     vi.mocked(salesOrdersRepository.findQuotationForConversionForUpdate).mockResolvedValue(
       makeQuotation({ status: 'ACCEPTED' }),
     );
@@ -112,7 +118,9 @@ describe('salesOrdersService.convertFromQuotation', () => {
   });
 
   it('rejects a quotation that has not cleared governance yet', async () => {
-    vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([makeItem()]);
+    vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([
+      makeItem(),
+    ]);
     vi.mocked(salesOrdersRepository.findQuotationForConversionForUpdate).mockResolvedValue(
       makeQuotation({ status: 'PENDING_APPROVAL' }),
     );
@@ -123,7 +131,9 @@ describe('salesOrdersService.convertFromQuotation', () => {
   });
 
   it('rejects a quotation that was already converted (re-checked under the lock)', async () => {
-    vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([makeItem()]);
+    vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([
+      makeItem(),
+    ]);
     vi.mocked(salesOrdersRepository.findQuotationForConversionForUpdate).mockResolvedValue(
       makeQuotation({ status: 'CONVERTED' }),
     );
@@ -135,7 +145,9 @@ describe('salesOrdersService.convertFromQuotation', () => {
   });
 
   it('reads the quotation under a row lock, not the unlocked read', async () => {
-    vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([makeItem()]);
+    vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([
+      makeItem(),
+    ]);
     vi.mocked(salesOrdersRepository.findQuotationForConversionForUpdate).mockResolvedValue(
       makeQuotation(),
     );

@@ -60,7 +60,11 @@ describe('approvalsService.act', () => {
     vi.mocked(approvalsRepository.findByIdForUpdate).mockResolvedValue(null);
 
     await expect(
-      approvalsService.act('missing', { action: 'APPROVED', userId: 'manager-1', actorRole: 'SALES_MANAGER' }),
+      approvalsService.act('missing', {
+        action: 'APPROVED',
+        userId: 'manager-1',
+        actorRole: 'SALES_MANAGER',
+      }),
     ).rejects.toMatchObject({ statusCode: 404 });
   });
 
@@ -70,15 +74,25 @@ describe('approvalsService.act', () => {
     );
 
     await expect(
-      approvalsService.act('req-1', { action: 'APPROVED', userId: 'manager-1', actorRole: 'SALES_MANAGER' }),
+      approvalsService.act('req-1', {
+        action: 'APPROVED',
+        userId: 'manager-1',
+        actorRole: 'SALES_MANAGER',
+      }),
     ).rejects.toMatchObject({ statusCode: 422 });
   });
 
   it('reads the request under a row lock (findByIdForUpdate), not the unlocked read', async () => {
     vi.mocked(approvalsRepository.findByIdForUpdate).mockResolvedValue(makeRequest());
-    vi.mocked(approvalsRepository.updateStatus).mockResolvedValue(makeRequest({ status: 'APPROVED' }));
+    vi.mocked(approvalsRepository.updateStatus).mockResolvedValue(
+      makeRequest({ status: 'APPROVED' }),
+    );
 
-    await approvalsService.act('req-1', { action: 'APPROVED', userId: 'manager-1', actorRole: 'SALES_MANAGER' });
+    await approvalsService.act('req-1', {
+      action: 'APPROVED',
+      userId: 'manager-1',
+      actorRole: 'SALES_MANAGER',
+    });
 
     expect(approvalsRepository.findByIdForUpdate).toHaveBeenCalledWith(FAKE_CLIENT, 'req-1');
     expect(approvalsRepository.findById).not.toHaveBeenCalled();
@@ -104,7 +118,9 @@ describe('approvalsService.act', () => {
     vi.mocked(approvalsRepository.findByIdForUpdate).mockResolvedValue(
       makeRequest({ assigned_to: 'manager-A' }),
     );
-    vi.mocked(approvalsRepository.updateStatus).mockResolvedValue(makeRequest({ status: 'APPROVED' }));
+    vi.mocked(approvalsRepository.updateStatus).mockResolvedValue(
+      makeRequest({ status: 'APPROVED' }),
+    );
 
     await expect(
       approvalsService.act('req-1', {
@@ -119,7 +135,9 @@ describe('approvalsService.act', () => {
     vi.mocked(approvalsRepository.findByIdForUpdate).mockResolvedValue(
       makeRequest({ assigned_to: 'manager-A' }),
     );
-    vi.mocked(approvalsRepository.updateStatus).mockResolvedValue(makeRequest({ status: 'APPROVED' }));
+    vi.mocked(approvalsRepository.updateStatus).mockResolvedValue(
+      makeRequest({ status: 'APPROVED' }),
+    );
 
     await expect(
       approvalsService.act('req-1', { action: 'APPROVED', userId: 'admin-1', actorRole: 'ADMIN' }),
@@ -132,7 +150,11 @@ describe('approvalsService.act', () => {
     );
 
     await expect(
-      approvalsService.act('req-1', { action: 'APPROVED', userId: 'manager-1', actorRole: 'SALES_MANAGER' }),
+      approvalsService.act('req-1', {
+        action: 'APPROVED',
+        userId: 'manager-1',
+        actorRole: 'SALES_MANAGER',
+      }),
     ).rejects.toMatchObject({ statusCode: 422 });
 
     expect(approvalsRepository.insertAction).not.toHaveBeenCalled();
@@ -163,9 +185,15 @@ describe('approvalsService.act', () => {
 
   it('rejects on APPROVED: sets status and moves the quotation to APPROVED', async () => {
     vi.mocked(approvalsRepository.findByIdForUpdate).mockResolvedValue(makeRequest());
-    vi.mocked(approvalsRepository.updateStatus).mockResolvedValue(makeRequest({ status: 'REJECTED' }));
+    vi.mocked(approvalsRepository.updateStatus).mockResolvedValue(
+      makeRequest({ status: 'REJECTED' }),
+    );
 
-    await approvalsService.act('req-1', { action: 'REJECTED', userId: 'manager-1', actorRole: 'SALES_MANAGER' });
+    await approvalsService.act('req-1', {
+      action: 'REJECTED',
+      userId: 'manager-1',
+      actorRole: 'SALES_MANAGER',
+    });
 
     expect(approvalsRepository.updateQuotationStatus).toHaveBeenCalledWith(
       FAKE_CLIENT,
@@ -178,7 +206,9 @@ describe('approvalsService.act', () => {
     vi.mocked(approvalsRepository.findByIdForUpdate).mockResolvedValue(
       makeRequest({ approval_level_id: 'level-1' }),
     );
-    vi.mocked(approvalsRepository.updateStatus).mockResolvedValue(makeRequest({ status: 'ESCALATED' }));
+    vi.mocked(approvalsRepository.updateStatus).mockResolvedValue(
+      makeRequest({ status: 'ESCALATED' }),
+    );
     vi.mocked(findApprovalLevelsAscending).mockResolvedValue([
       { id: 'level-1', level: 1 },
       { id: 'level-2', level: 2 },
@@ -202,14 +232,20 @@ describe('approvalsService.act', () => {
     vi.mocked(approvalsRepository.findByIdForUpdate).mockResolvedValue(
       makeRequest({ approval_level_id: 'level-2' }),
     );
-    vi.mocked(approvalsRepository.updateStatus).mockResolvedValue(makeRequest({ status: 'ESCALATED' }));
+    vi.mocked(approvalsRepository.updateStatus).mockResolvedValue(
+      makeRequest({ status: 'ESCALATED' }),
+    );
     vi.mocked(findApprovalLevelsAscending).mockResolvedValue([
       { id: 'level-1', level: 1 },
       { id: 'level-2', level: 2 },
     ]);
 
     await expect(
-      approvalsService.act('req-1', { action: 'ESCALATED', userId: 'manager-1', actorRole: 'SALES_MANAGER' }),
+      approvalsService.act('req-1', {
+        action: 'ESCALATED',
+        userId: 'manager-1',
+        actorRole: 'SALES_MANAGER',
+      }),
     ).rejects.toMatchObject({ statusCode: 422 });
 
     expect(approvalsRepository.createEscalatedRequest).not.toHaveBeenCalled();
