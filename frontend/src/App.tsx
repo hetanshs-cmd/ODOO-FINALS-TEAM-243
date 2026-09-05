@@ -40,18 +40,13 @@ function PlaceholderHome() {
         gap: '1rem',
       }}
     >
-      <h1 style={{ fontSize: '2rem', color: '#7c3aed' }}>
-        🚀 Odoo Hackathon
-      </h1>
+      <h1 style={{ fontSize: '2rem', color: '#7c3aed' }}>🚀 Odoo Hackathon</h1>
       <p style={{ color: '#6b7280', maxWidth: '400px', textAlign: 'center' }}>
         Scaffold ready. Awaiting official problem statement.
         <br />
         Complete Phase 0 analysis before building features.
       </p>
-      <a
-        href="/api/v1/health"
-        style={{ color: '#7c3aed', textDecoration: 'underline' }}
-      >
+      <a href="/api/v1/health" style={{ color: '#7c3aed', textDecoration: 'underline' }}>
         Check API health →
       </a>
     </main>
