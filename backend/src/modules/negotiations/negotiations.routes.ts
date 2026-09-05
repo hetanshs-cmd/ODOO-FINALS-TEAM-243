@@ -26,6 +26,11 @@ function authenticateInternalOrPortal(req: Request, res: Response, next: NextFun
 // Mounted at /api/v1/quotations — opening a negotiation is an action on a quotation.
 const quotationNegotiationsRouter = Router();
 quotationNegotiationsRouter.use(authenticateInternalOrPortal);
+quotationNegotiationsRouter.get(
+  '/:id/negotiations',
+  validate({ params: idParamSchema }),
+  negotiationsController.listForQuotation,
+);
 quotationNegotiationsRouter.post(
   '/:id/negotiations',
   validate({ params: idParamSchema }),

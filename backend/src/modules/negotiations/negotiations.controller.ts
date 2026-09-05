@@ -18,6 +18,18 @@ export const negotiationsController = {
     }
   },
 
+  async listForQuotation(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const negotiations = await negotiationsService.listForQuotation(
+        req.params['id'] as string,
+        req.portalUser?.customerId,
+      );
+      sendSuccess({ res, data: negotiations, message: 'Negotiations retrieved successfully' });
+    } catch (err) {
+      next(err);
+    }
+  },
+
   async getById(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const detail = await negotiationsService.getDetail(

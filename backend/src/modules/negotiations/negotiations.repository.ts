@@ -48,6 +48,23 @@ export const negotiationsRepository = {
     return (rows[0] as Negotiation | undefined) ?? null;
   },
 
+  /**
+   * Both the customer portal and the internal sales-rep view need to find
+   * an *existing* negotiation thread for a quotation without already
+   * knowing its id (only `open`/`findById` existed before) — otherwise the
+   * only entry point is always-create, which would spawn a new thread on
+   * every page load instead of resuming the existing conversation. Most
+   * recent first: a quotation could in principle have more than one
+   * negotiation row over its lifetime (e.g. a prior one closed).
+   */
+  async listByQuotationId(quotationId: string): Promise<Negotiation[]> {
+    const { rows } = await db.query(
+      'SELECT * FROM negotiations WHERE quotation_id = $1 ORDER BY created_at DESC',
+      [quotationId],
+    );
+    return rows as Negotiation[];
+  },
+
   async findByIdWithCustomer(id: string): Promise<(Negotiation & { customer_id: string }) | null> {
     const { rows } = await db.query(
       `SELECT n.*, q.customer_id

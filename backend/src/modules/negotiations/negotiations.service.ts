@@ -37,6 +37,28 @@ export const negotiationsService = {
     return negotiationsRepository.insertNegotiation({ quotationId, initiatedBy });
   },
 
+  /**
+   * Lets either side (sales rep or portal customer) find the existing
+   * negotiation thread for a quotation without already knowing its id, so
+   * a page load can resume a conversation instead of always creating a new
+   * thread via `open`. Most recent first; each thread's messages are
+   * included so the caller doesn't need a second round-trip per thread.
+   */
+  async listForQuotation(quotationId: string, portalCustomerId?: string) {
+    const quotation = await negotiationsRepository.findQuotationForNegotiation(quotationId);
+    if (!quotation) throw Errors.notFound('Quotation');
+    if (portalCustomerId && quotation.customer_id !== portalCustomerId) {
+      throw Errors.forbidden();
+    }
+    const negotiations = await negotiationsRepository.listByQuotationId(quotationId);
+    return Promise.all(
+      negotiations.map(async (negotiation) => ({
+        ...negotiation,
+        messages: await negotiationsRepository.listMessages(negotiation.id),
+      })),
+    );
+  },
+
   async getDetail(id: string, portalCustomerId?: string) {
     const negotiation = await negotiationsRepository.findByIdWithCustomer(id);
     if (!negotiation) throw Errors.notFound('Negotiation');
