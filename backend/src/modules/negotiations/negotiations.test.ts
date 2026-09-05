@@ -6,6 +6,34 @@ vi.mock('./negotiations.repository');
 vi.mock('../discount-engine/discount-engine.service');
 vi.mock('../notifications/notifications.service');
 
+describe('negotiationsService.listAll', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('scopes a sales rep to their own quotations only', async () => {
+    vi.mocked(negotiationsRepository.listAll).mockResolvedValue([]);
+    vi.mocked(negotiationsRepository.countAll).mockResolvedValue(0);
+
+    await negotiationsService.listAll({}, { id: 'rep-1', role: 'SALES_REP' } as never);
+
+    expect(negotiationsRepository.listAll).toHaveBeenCalledWith(
+      { salesRepId: 'rep-1' },
+      20,
+      0,
+    );
+  });
+
+  it('does not scope a sales manager', async () => {
+    vi.mocked(negotiationsRepository.listAll).mockResolvedValue([]);
+    vi.mocked(negotiationsRepository.countAll).mockResolvedValue(0);
+
+    await negotiationsService.listAll({}, { id: 'mgr-1', role: 'SALES_MANAGER' } as never);
+
+    expect(negotiationsRepository.listAll).toHaveBeenCalledWith({ salesRepId: undefined }, 20, 0);
+  });
+});
+
 describe('negotiationsService.listForQuotation', () => {
   beforeEach(() => {
     vi.clearAllMocks();

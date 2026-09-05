@@ -24,6 +24,53 @@ export interface QuotationItemForChange {
 }
 
 export const negotiationsRepository = {
+  /**
+   * Inbox listing across all quotations — the sales-rep-facing counterpart
+   * to listByQuotationId (which only helps once you already know which
+   * quotation to look at). A rep sees only threads on their own quotations;
+   * managers/admins see everything, matching the access rule used
+   * elsewhere in this codebase (e.g. quotations.service.ts).
+   */
+  async listAll(
+    filters: { salesRepId?: string },
+    limit: number,
+    offset: number,
+  ): Promise<(Negotiation & { quotation_number: string; customer_id: string })[]> {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (filters.salesRepId) {
+      params.push(filters.salesRepId);
+      conditions.push(`q.sales_rep_id = $${params.length}`);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    params.push(limit, offset);
+    const { rows } = await db.query(
+      `SELECT n.*, q.quotation_number, q.customer_id
+       FROM negotiations n
+       JOIN quotations q ON q.id = n.quotation_id
+       ${where}
+       ORDER BY n.created_at DESC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params,
+    );
+    return rows as (Negotiation & { quotation_number: string; customer_id: string })[];
+  },
+
+  async countAll(filters: { salesRepId?: string }): Promise<number> {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (filters.salesRepId) {
+      params.push(filters.salesRepId);
+      conditions.push(`q.sales_rep_id = $${params.length}`);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const { rows } = await db.query(
+      `SELECT COUNT(*)::int AS count FROM negotiations n JOIN quotations q ON q.id = n.quotation_id ${where}`,
+      params,
+    );
+    return (rows[0] as { count: number }).count;
+  },
+
   async findQuotationForNegotiation(quotationId: string): Promise<QuotationForNegotiation | null> {
     const { rows } = await db.query(
       'SELECT id, status, sales_rep_id, customer_id FROM quotations WHERE id = $1',

@@ -1,8 +1,9 @@
 import { NextFunction, Request, Response, Router } from 'express';
 import { authenticate, authenticatePortal } from '../../middleware/authenticate';
+import { requireRole } from '../../middleware/authorize';
 import { validate } from '../../middleware/validate';
 import { negotiationsController } from './negotiations.controller';
-import { addMessageSchema, idParamSchema } from './negotiations.validator';
+import { addMessageSchema, idParamSchema, listNegotiationsQuerySchema } from './negotiations.validator';
 
 /**
  * Negotiations are the one resource both internal sales reps AND portal
@@ -40,6 +41,14 @@ quotationNegotiationsRouter.post(
 // Mounted at /api/v1/negotiations — inspect + post messages on an existing negotiation.
 const negotiationsRouter = Router();
 negotiationsRouter.use(authenticateInternalOrPortal);
+// Sales-rep inbox — internal roles only (requireRole 401s a portal-only
+// caller here since it never sets req.user), not exposed to the portal.
+negotiationsRouter.get(
+  '/',
+  requireRole('SALES_REP', 'SALES_MANAGER', 'ADMIN'),
+  validate({ query: listNegotiationsQuerySchema }),
+  negotiationsController.listAll,
+);
 negotiationsRouter.get('/:id', validate({ params: idParamSchema }), negotiationsController.getById);
 negotiationsRouter.post(
   '/:id/messages',
