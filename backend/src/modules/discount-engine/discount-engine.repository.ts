@@ -40,7 +40,7 @@ export const discountEngineRepository = {
     const { rows } = await db.query(
       `SELECT product_id AS "productId", category_id AS "categoryId",
               customer_tier_id AS "customerTierId", max_discount::float8 AS "maxDiscount",
-              active
+              priority, active
        FROM discount_rules
        WHERE active = true`
     );
@@ -79,12 +79,40 @@ export const discountEngineRepository = {
     await client.query('UPDATE quotations SET status = $2 WHERE id = $1', [quotationId, status]);
   },
 
+  /** Locks the quotation row so the status re-check and write are atomic. */
+  async lockQuotationStatus(client: PoolClient, quotationId: string): Promise<string | null> {
+    const { rows } = await client.query(
+      'SELECT status FROM quotations WHERE id = $1 FOR UPDATE',
+      [quotationId]
+    );
+    return (rows[0] as { status: string } | undefined)?.status ?? null;
+  },
+
+  /**
+   * Cancels any still-PENDING approval request on this quotation before a new
+   * one is raised. Re-running the discount check (which every counter-offer
+   * does) previously stacked a fresh PENDING request on top of the old one,
+   * so one quotation could occupy several slots in the approval queue.
+   */
+  async supersedePendingApprovalRequests(
+    client: PoolClient,
+    quotationId: string
+  ): Promise<number> {
+    const { rowCount } = await client.query(
+      `UPDATE approval_requests
+       SET status = 'CANCELLED', responded_at = now()
+       WHERE quotation_id = $1 AND status = 'PENDING'`,
+      [quotationId]
+    );
+    return rowCount ?? 0;
+  },
+
   async createApprovalRequest(
     client: PoolClient,
     input: { quotationId: string; requestedBy: string; approvalLevelId: string; reason: string }
   ): Promise<string> {
     const { rows } = await client.query(
-      `INSERT INTO approval_requests (quotation_id, requested_by, approval_level, reason)
+      `INSERT INTO approval_requests (quotation_id, requested_by, approval_level_id, reason)
        VALUES ($1, $2, $3, $4)
        RETURNING id`,
       [input.quotationId, input.requestedBy, input.approvalLevelId, input.reason]

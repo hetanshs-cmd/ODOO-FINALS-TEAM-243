@@ -33,6 +33,7 @@ export const approvalsController = {
       const result = await approvalsService.act(req.params['id'] as string, {
         action,
         userId: req.user!.id,
+        actorRole: req.user!.role,
         comment,
       });
       sendSuccess({ res, data: result, message: `Approval request ${action.toLowerCase()}` });

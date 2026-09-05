@@ -35,6 +35,13 @@ describe('audit: initial order billing safety', () => {
       },
     ]);
     vi.mocked(repo.insertInvoice).mockResolvedValue({ id: 'invoice' } as never);
+    // invoices/invoice_items store no totals (015_billing_invoices.sql) —
+    // billingService reads them back from invoice_totals after inserting items.
+    vi.mocked(repo.findInvoiceTotals).mockResolvedValue({
+      subtotal: '900.00',
+      tax_total: '90.00',
+      total: '990.00',
+    });
   });
 
   it('does not write any billing records when goods remain unshipped', async () => {
@@ -63,14 +70,15 @@ describe('audit: initial order billing safety', () => {
   });
 
   it('preserves tax-inclusive total and reports net subtotal and tax once', async () => {
-    await billingService.generateBillingForOrder('order');
-    expect(repo.insertInvoice).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ subtotal: 900, taxTotal: 90, total: 990 }),
-    );
+    const result = await billingService.generateBillingForOrder('order');
+
+    // Discount is netted into invoice_items.unit_price (invoice_items has no
+    // discount column — 015_billing_invoices.sql): 10 * 100 - 100 discount =
+    // 900 net, / 10 units = 90/unit; tax_percent carries over unchanged.
     expect(repo.insertInvoiceItem).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ tax: 90, total: '990', quantity: '10' }),
+      expect.objectContaining({ unitPrice: '90', taxPercent: '10', quantity: '10' }),
     );
+    expect(result.invoice).toMatchObject({ subtotal: '900.00', tax_total: '90.00', total: '990.00' });
   });
 });

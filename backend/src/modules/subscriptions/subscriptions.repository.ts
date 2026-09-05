@@ -61,6 +61,26 @@ export const subscriptionsRepository = {
     return (rows[0] as Subscription | undefined) ?? null;
   },
 
+  /**
+   * Total quantity currently on the subscription, summed from its items.
+   *
+   * `subscriptions` has no top-level quantity column, so a PATCH that omits
+   * `quantity` used to silently fall back to 1 — collapsing a 5-seat
+   * subscription's price on a plan-only change. Deriving it from the items
+   * keeps an omitted `quantity` meaning "unchanged". Returns null when the
+   * subscription has no items, so the caller can refuse rather than guess.
+   */
+  async sumItemQuantity(client: PoolClient, subscriptionId: string): Promise<number | null> {
+    const { rows } = await client.query(
+      `SELECT COALESCE(SUM(quantity), 0)::float8 AS total, COUNT(*)::int AS item_count
+       FROM subscription_items WHERE subscription_id = $1`,
+      [subscriptionId],
+    );
+    const row = rows[0] as { total: number; item_count: number } | undefined;
+    if (!row || row.item_count === 0) return null;
+    return row.total;
+  },
+
   async findPlanById(
     client: PoolClient,
     planId: string,
@@ -82,14 +102,20 @@ export const subscriptionsRepository = {
   async applyModification(
     client: PoolClient,
     id: string,
-    input: { planId: string; currentPrice: number },
+    input: { planId: string; currentPrice: number; nextBillingDate: string | null },
   ): Promise<Subscription> {
     const { rows } = await client.query(
       `UPDATE subscriptions
-       SET plan_id = $2, current_price = $3, status = 'MODIFIED'
+       SET plan_id = $2,
+           current_price = $3,
+           -- Recomputed by the service whenever the billing frequency
+           -- changes; COALESCE keeps the existing schedule otherwise, so a
+           -- plain quantity change doesn't move the billing date.
+           next_billing_date = COALESCE($4, next_billing_date),
+           status = 'MODIFIED'
        WHERE id = $1
        RETURNING *`,
-      [id, input.planId, input.currentPrice],
+      [id, input.planId, input.currentPrice, input.nextBillingDate],
     );
     return rows[0] as Subscription;
   },
