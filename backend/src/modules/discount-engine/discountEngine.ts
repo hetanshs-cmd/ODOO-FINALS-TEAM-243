@@ -16,6 +16,11 @@
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
 export type ItemDecision = 'AUTO_APPROVED' | 'REQUIRES_APPROVAL';
 
+// Note: discount_rules also has min_discount, approval_required,
+// approval_level, sales_role, and priority columns — these are reserved for
+// future use and deliberately not read by this evaluation engine (a
+// decision, not an oversight). Ceilings/risk routing are driven entirely by
+// maxDiscount + scope + the blended-score heuristic below.
 export interface DiscountRuleInput {
   productId: string | null;
   categoryId: string | null;
