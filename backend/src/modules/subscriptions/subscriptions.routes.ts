@@ -3,7 +3,11 @@ import { authenticate } from '../../middleware/authenticate';
 import { requireRole } from '../../middleware/authorize';
 import { validate } from '../../middleware/validate';
 import { subscriptionsController } from './subscriptions.controller';
-import { idParamSchema, modifySubscriptionSchema } from './subscriptions.validator';
+import {
+  idParamSchema,
+  listSubscriptionsQuerySchema,
+  modifySubscriptionSchema,
+} from './subscriptions.validator';
 
 // Same internal-role gate as billing (billing.routes.ts) — subscription
 // modify/cancel are billing-adjacent mutations, not self-serve customer
@@ -13,6 +17,8 @@ const SUBSCRIPTION_ROLES = ['FINANCE', 'SALES_MANAGER', 'ADMIN'];
 const router = Router();
 router.use(authenticate, requireRole(...SUBSCRIPTION_ROLES));
 
+router.get('/', validate({ query: listSubscriptionsQuerySchema }), subscriptionsController.list);
+router.get('/:id', validate({ params: idParamSchema }), subscriptionsController.getById);
 router.patch(
   '/:id',
   validate({ params: idParamSchema, body: modifySubscriptionSchema }),

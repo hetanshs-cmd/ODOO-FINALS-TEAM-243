@@ -138,6 +138,15 @@ export const quotationsService = {
     const taxAmount = roundMoney(taxableAmount * (taxPercent / 100));
     const lineTotal = roundMoney(taxableAmount + taxAmount);
 
+    // margin_percent is computed from the product's cost_price when one is
+    // on record — null-safe, since cost_price is nullable on older/manual
+    // product rows (docs/architecture.md: never guess a missing cost).
+    const costPrice = await quotationsRepository.findProductCostPrice(dto.product_id);
+    const marginPercent =
+      costPrice !== null && dto.unit_price !== 0
+        ? roundMoney(((dto.unit_price - Number(costPrice)) / dto.unit_price) * 100)
+        : null;
+
     let item: QuotationItem;
     try {
       item = await quotationsRepository.addItem({
@@ -156,6 +165,7 @@ export const quotationsService = {
     } catch (err) {
       throw mapDbError(err, 'Quotation item');
     }
+    item.margin_percent = marginPercent;
 
     // Deal-health score depends on the quotation's current discount/negotiation
     // signals, so refresh it whenever a line item changes them — keeps the

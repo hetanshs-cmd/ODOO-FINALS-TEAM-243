@@ -1,7 +1,9 @@
 import { Errors } from '../../errors/AppError';
 import { withTransaction } from '../../shared/db/withTransaction';
 import { roundMoney } from '../../shared/money';
+import { getPaginationParams, buildPaginatedResult, PaginatedResult } from '../../utils/pagination';
 import { BillingFrequency } from '../billing/billingDates';
+import { calculateRefund } from './creditNoteCalculator';
 import { subscriptionsRepository } from './subscriptions.repository';
 import { Subscription } from './subscriptions.model';
 
@@ -40,6 +42,27 @@ function prorateForCycle(priceDelta: number, nextBillingDate: string, frequency:
 }
 
 export const subscriptionsService = {
+  async list(query: {
+    status?: string;
+    customer_id?: string;
+    page?: unknown;
+    limit?: unknown;
+  }): Promise<PaginatedResult<Subscription>> {
+    const pagination = getPaginationParams(query);
+    const filters = { status: query.status, customerId: query.customer_id };
+    const [items, total] = await Promise.all([
+      subscriptionsRepository.list(filters, pagination.limit, pagination.offset),
+      subscriptionsRepository.count(filters),
+    ]);
+    return buildPaginatedResult(items, total, pagination);
+  },
+
+  async getById(id: string): Promise<Subscription> {
+    const subscription = await subscriptionsRepository.findById(id);
+    if (!subscription) throw Errors.notFound('Subscription');
+    return subscription;
+  },
+
   /**
    * PATCH /subscriptions/:id
    *
@@ -86,6 +109,24 @@ export const subscriptionsService = {
             amount: prorated,
           });
         }
+      } else if (priceDelta < 0) {
+        // Downgrade: billing_schedules.amount has a >= 0 CHECK, so instead
+        // of the previous silent skip, refund the unused portion of the
+        // price delta for the remainder of the current cycle as a
+        // credit_notes row.
+        const refund = calculateRefund({
+          amount: Math.abs(priceDelta),
+          nextBillingDate: subscription.next_billing_date,
+          billingFrequency: plan.billing_frequency,
+        });
+        if (refund > 0) {
+          await subscriptionsRepository.insertCreditNote(client, {
+            subscriptionId: subscription.id,
+            customerId: subscription.customer_id,
+            amount: refund,
+            reason: `Prorated refund for plan downgrade on subscription ${subscription.id}`,
+          });
+        }
       }
 
       return subscriptionsRepository.applyModification(client, subscription.id, {
@@ -110,6 +151,25 @@ export const subscriptionsService = {
       if (!subscription) throw Errors.notFound('Subscription');
       if (subscription.status === 'CANCELLED') {
         throw Errors.businessRuleViolation('Subscription is already cancelled');
+      }
+
+      if (subscription.next_billing_date) {
+        const plan = await subscriptionsRepository.findPlanById(client, subscription.plan_id);
+        if (plan) {
+          const refund = calculateRefund({
+            amount: Number(subscription.current_price),
+            nextBillingDate: subscription.next_billing_date,
+            billingFrequency: plan.billing_frequency,
+          });
+          if (refund > 0) {
+            await subscriptionsRepository.insertCreditNote(client, {
+              subscriptionId: subscription.id,
+              customerId: subscription.customer_id,
+              amount: refund,
+              reason: `Prorated refund for cancellation of subscription ${subscription.id}`,
+            });
+          }
+        }
       }
 
       return subscriptionsRepository.cancel(client, subscription.id, { endDate: todayIso() });
