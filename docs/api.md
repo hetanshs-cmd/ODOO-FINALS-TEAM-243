@@ -589,6 +589,23 @@ Scoped strictly to the authenticated user's `users.customer_id` — every query 
 | GET | `/api/v1/reports` | Aggregates directly over `quotations`/`quotation_items`/`invoices` — filterable by period/team/status/product (FR11) |
 | GET | `/api/v1/reports/export` | PDF/XLS export (cut-list candidate — see `development-workflow.md`) |
 
+### AI (`/api/v1/ai/...`)
+
+Local-model-backed replacement for the frontend's deterministic `contextualAIAdapter`
+templates (`docs/technology-decisions.md` documents the Ollama/`qwen2.5:3b-instruct`
+choice). Grounding data is gathered through each domain module's existing
+role-scoped service function (`quotationsService`, `approvalsService`,
+`dealHealthService`, `negotiationsService`, `reportingService`) — this module never
+queries a repository directly, so it inherits existing authorization/tenant-scoping
+rather than re-implementing it. On any failure to reach or parse a response from the
+local model, both routes reject with `AI_UNAVAILABLE` (503); the frontend then falls
+back to its deterministic adapter rather than showing a broken state.
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/v1/ai/insight` | `{ type, entityId?, instructions? }` — one-shot structured insight for one of the 8 use-cases in `ai.validator.ts`'s `insightTypeSchema` (quotation summary/risk/improvements/draft, approval explain/draft-note, deal-health summary/nudge, negotiation reply draft, report summary). Returns `{ summary, bullets?, rationale?, confidence? }`. |
+| POST | `/api/v1/ai/chat` | `{ messages: {role,content}[] }` — multi-turn workspace chat, grounded on every call in the requester's own pending approvals and open deal-health alerts. Purely navigational questions ("where is X") are answered client-side and never reach this route. |
+
 ---
 
 ## API Design Rules
