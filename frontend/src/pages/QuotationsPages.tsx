@@ -21,21 +21,67 @@ import { Card } from '../components/ui/Card';
 import { StatusBadge, RiskBadge } from '../components/ui/Badge';
 import { QuotationToolbar, FilterState } from '../components/domain/QuotationToolbar';
 import { toast } from '../components/ui/Toast';
-import { useDealStore } from '../hooks/useDealStore';
+import { useQuotations } from '../hooks/useQuotations';
+import { useCustomers } from '../hooks/useCustomers';
+import { useUsers } from '../hooks/useUsers';
 import { useAuth } from '../hooks/useAuth';
-import { Quotation, RiskLevel } from '../types';
+import { quotationService } from '../services';
+import { ApiQuotation, ApiQuotationStatus } from '../services/apiTypes';
+import { RiskLevel } from '../types';
 import {
   formatCurrency,
   formatRelativeTime,
   formatExactDateTime,
-  formatPercent,
 } from '../utils/formatters';
 
+// The mock QuotationToolbar's stage filter/groupBy still speaks the legacy
+// mock-store stage labels ('Draft', 'Pending Approval', ...) — it is shared
+// UI outside this migration's scope, so we translate between its labels and
+// the real ApiQuotationStatus enum here rather than editing it.
+const STAGE_LABEL_TO_STATUS: Record<string, ApiQuotationStatus> = {
+  Draft: 'DRAFT',
+  'Pending Approval': 'PENDING_APPROVAL',
+  Approved: 'APPROVED',
+  Negotiation: 'NEGOTIATION',
+  Confirmed: 'CONVERTED',
+};
+
+function humanizeStatus(status: string): string {
+  return status
+    .toLowerCase()
+    .split('_')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
 export const QuotationsListPage: React.FC = () => {
-  const { quotations, customers, users, refreshData, createQuotation } = useDealStore();
+  const { quotations, loading, error, refetch } = useQuotations();
+  const { customers } = useCustomers();
+  const { users } = useUsers();
   const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // Lookup maps for display-name enrichment (real API rows only carry ids).
+  const customersById = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
+  const usersById = useMemo(() => new Map(users.map((u) => [u.id, u])), [users]);
+
+  const getCustomerName = (id: string) => customersById.get(id)?.name || 'Unnamed Customer';
+  const getCustomerTier = (id: string) => (customersById.get(id)?.tier as string | undefined) || undefined;
+  const getRepName = (id: string) => usersById.get(id)?.name || 'Unassigned';
+
+  // Real ApiQuotation has no per-line risk/margin data (that lived on the
+  // mock's rich QuotationLine[]). Approximate risk cheaply from the
+  // discount-to-subtotal ratio already present on the header row; margin has
+  // no cheap real-data proxy (no cost basis on the API), so it is hidden
+  // below rather than fabricated.
+  const getApproxRisk = (q: ApiQuotation): { level: RiskLevel; discountPct: number } => {
+    const subtotal = parseFloat(q.subtotal) || 0;
+    const discount = parseFloat(q.discount_total) || 0;
+    const discountPct = subtotal > 0 ? (discount / subtotal) * 100 : 0;
+    const level: RiskLevel = discountPct > 15 ? 'HIGH' : discountPct > 7 ? 'MEDIUM' : 'LOW';
+    return { level, discountPct };
+  };
 
   // Local state for refreshing indicator
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -117,22 +163,20 @@ export const QuotationsListPage: React.FC = () => {
   // Manual data reload action
   const handleReload = () => {
     setIsRefreshing(true);
-    refreshData();
+    refetch();
     setTimeout(() => setIsRefreshing(false), 500);
   };
 
-  // Sales reps list
+  // Sales reps list — derived from the real user directory (SALES_REP role).
   const salesReps = useMemo(() => {
-    const repUsers = users.filter(
-      (u) => u.role.toLowerCase() === 'sales_rep' || u.role.toLowerCase() === 'salesrep'
-    );
+    const repUsers = users.filter((u) => u.role.toUpperCase().replace(/[^A-Z]/g, '') === 'SALESREP');
     if (repUsers.length > 0) {
       return repUsers.map((u) => ({ id: u.id, name: u.name }));
     }
-    // Fallback: extract distinct reps from quotations
+    // Fallback: extract distinct reps from quotations themselves.
     const map = new Map<string, string>();
     quotations.forEach((q) => {
-      if (q.assignedRepId && q.repName) map.set(q.assignedRepId, q.repName);
+      if (q.sales_rep_id) map.set(q.sales_rep_id, getRepName(q.sales_rep_id));
     });
     return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
   }, [users, quotations]);
@@ -144,61 +188,61 @@ export const QuotationsListPage: React.FC = () => {
     }
     const map = new Map<string, string>();
     quotations.forEach((q) => {
-      if (q.customerId && q.customerName) map.set(q.customerId, q.customerName);
+      if (q.customer_id) map.set(q.customer_id, getCustomerName(q.customer_id));
     });
     return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
   }, [customers, quotations]);
 
-  // Stage counts for quick filter tabs
+  // Stage counts for quick filter tabs — keyed by the real status enum.
   const stageCounts = useMemo(() => {
     const counts: Record<string, number> = { all: quotations.length };
     quotations.forEach((q) => {
-      // Normalize 'PendingApproval' alias to 'Pending Approval'
-      const s = q.stage === 'PendingApproval' ? 'Pending Approval' : q.stage;
-      counts[s] = (counts[s] || 0) + 1;
+      counts[q.status] = (counts[q.status] || 0) + 1;
     });
     return counts;
   }, [quotations]);
 
   // Check if current user is sales rep
-  const isSalesRep = user.role.toLowerCase() === 'sales_rep' || user.role.toLowerCase() === 'salesrep';
+  const isSalesRep = user.role.toUpperCase().replace(/[^A-Z]/g, '') === 'SALESREP';
 
   // 1. FILTERING
   const filteredQuotations = useMemo(() => {
     return quotations.filter((q) => {
-      // Search across Quotation ID, Customer name, Rep name, Stage
+      const customerName = getCustomerName(q.customer_id);
+      const repName = getRepName(q.sales_rep_id);
+      const { level: riskLevel } = getApproxRisk(q);
+
+      // Search across Quotation number, Customer name, Rep name, Status
       if (filters.search.trim()) {
         const query = filters.search.toLowerCase().trim();
-        const codeMatch = q.code.toLowerCase().includes(query);
-        const custMatch = (q.customerName || '').toLowerCase().includes(query);
-        const repMatch = (q.repName || '').toLowerCase().includes(query);
-        const stageMatch = q.stage.toLowerCase().includes(query);
+        const codeMatch = q.quotation_number.toLowerCase().includes(query);
+        const custMatch = customerName.toLowerCase().includes(query);
+        const repMatch = repName.toLowerCase().includes(query);
+        const stageMatch = q.status.toLowerCase().includes(query);
         if (!codeMatch && !custMatch && !repMatch && !stageMatch) {
           return false;
         }
       }
 
-      // Stage filter (support both 'Pending Approval' and 'PendingApproval' alias)
+      // Stage filter — translate the toolbar's mock stage label to the real status.
       if (filters.stage) {
-        const targetStage = filters.stage.toLowerCase().replace(/\s+/g, '');
-        const currentStage = q.stage.toLowerCase().replace(/\s+/g, '');
-        if (targetStage !== currentStage) {
+        const targetStatus = STAGE_LABEL_TO_STATUS[filters.stage] || filters.stage.toUpperCase();
+        if (targetStatus !== q.status) {
           return false;
         }
       }
 
-      // Risk filter
+      // Risk filter (approximated — see getApproxRisk)
       if (filters.risk) {
-        const qRisk = (q.blendedRiskValue || q.blendedRiskLevel || 'LOW').toUpperCase();
-        if (qRisk !== filters.risk.toUpperCase()) {
+        if (riskLevel !== filters.risk.toUpperCase()) {
           return false;
         }
       }
 
       // Sales Rep filter
       if (filters.repId) {
-        const matchRepId = q.assignedRepId === filters.repId || q.repId === filters.repId;
-        const matchRepName = (q.repName || '').toLowerCase() === filters.repId.toLowerCase();
+        const matchRepId = q.sales_rep_id === filters.repId;
+        const matchRepName = repName.toLowerCase() === filters.repId.toLowerCase();
         if (!matchRepId && !matchRepName) {
           return false;
         }
@@ -206,8 +250,8 @@ export const QuotationsListPage: React.FC = () => {
 
       // Customer filter
       if (filters.customerId) {
-        const matchCustId = q.customerId === filters.customerId;
-        const matchCustName = (q.customerName || '').toLowerCase() === filters.customerId.toLowerCase();
+        const matchCustId = q.customer_id === filters.customerId;
+        const matchCustName = customerName.toLowerCase() === filters.customerId.toLowerCase();
         if (!matchCustId && !matchCustName) {
           return false;
         }
@@ -215,18 +259,14 @@ export const QuotationsListPage: React.FC = () => {
 
       // My Quotations filter
       if (filters.myQuotationsOnly) {
-        const isMine =
-          q.assignedRepId === user.id ||
-          q.repId === user.id ||
-          (q.repName && user.name && q.repName.toLowerCase() === user.name.toLowerCase());
-        if (!isMine) {
+        if (q.sales_rep_id !== user.id) {
           return false;
         }
       }
 
       return true;
     });
-  }, [quotations, filters, user]);
+  }, [quotations, filters, user, customersById, usersById]);
 
   // 2. SORTING (Non-mutating)
   const sortedQuotations = useMemo(() => {
@@ -234,52 +274,46 @@ export const QuotationsListPage: React.FC = () => {
       let comparison = 0;
       switch (sortColumn) {
         case 'code':
-          comparison = a.code.localeCompare(b.code);
+          comparison = a.quotation_number.localeCompare(b.quotation_number);
           break;
         case 'customerName':
-          comparison = (a.customerName || '').localeCompare(b.customerName || '');
+          comparison = getCustomerName(a.customer_id).localeCompare(getCustomerName(b.customer_id));
           break;
         case 'amount': {
-          const amtA = a.grandTotal ?? a.netAmount ?? a.totalAmount ?? 0;
-          const amtB = b.grandTotal ?? b.netAmount ?? b.totalAmount ?? 0;
+          const amtA = parseFloat(a.grand_total) || 0;
+          const amtB = parseFloat(b.grand_total) || 0;
           comparison = amtA - amtB;
           break;
         }
         case 'stage':
-          comparison = a.stage.localeCompare(b.stage);
+          comparison = a.status.localeCompare(b.status);
           break;
         case 'risk': {
-          const scoreA = a.blendedRiskScore ?? 0;
-          const scoreB = b.blendedRiskScore ?? 0;
+          const { discountPct: scoreA } = getApproxRisk(a);
+          const { discountPct: scoreB } = getApproxRisk(b);
           comparison = scoreA - scoreB;
           break;
         }
         case 'repName':
-          comparison = (a.repName || '').localeCompare(b.repName || '');
+          comparison = getRepName(a.sales_rep_id).localeCompare(getRepName(b.sales_rep_id));
           break;
-        case 'margin': {
-          const marginA = a.blendedMarginPercent ?? a.marginPercent ?? 0;
-          const marginB = b.blendedMarginPercent ?? b.marginPercent ?? 0;
-          comparison = marginA - marginB;
-          break;
-        }
         case 'lastActivityAt':
         default: {
-          const dateA = a.lastActivityAt ? new Date(a.lastActivityAt).getTime() : 0;
-          const dateB = b.lastActivityAt ? new Date(b.lastActivityAt).getTime() : 0;
+          const dateA = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+          const dateB = b.updated_at ? new Date(b.updated_at).getTime() : 0;
           comparison = dateA - dateB;
           break;
         }
       }
       return sortDirection === 'asc' ? comparison : -comparison;
     });
-  }, [filteredQuotations, sortColumn, sortDirection]);
+  }, [filteredQuotations, sortColumn, sortDirection, customersById, usersById]);
 
   // 3. GROUP BY
   const groupedData = useMemo(() => {
     if (filters.groupBy === 'none') return null;
 
-    const groups: Record<string, { label: string; items: Quotation[]; totalAmount: number }> = {};
+    const groups: Record<string, { label: string; items: ApiQuotation[]; totalAmount: number }> = {};
 
     sortedQuotations.forEach((q) => {
       let groupKey = 'Other';
@@ -287,19 +321,19 @@ export const QuotationsListPage: React.FC = () => {
 
       switch (filters.groupBy) {
         case 'stage':
-          groupKey = q.stage === 'PendingApproval' ? 'Pending Approval' : q.stage;
-          groupLabel = groupKey;
+          groupKey = q.status;
+          groupLabel = humanizeStatus(q.status);
           break;
         case 'customer':
-          groupKey = q.customerId || q.customerName || 'Unknown';
-          groupLabel = q.customerName || 'Unknown Customer';
+          groupKey = q.customer_id || 'Unknown';
+          groupLabel = getCustomerName(q.customer_id);
           break;
         case 'rep':
-          groupKey = q.assignedRepId || q.repName || 'Unassigned';
-          groupLabel = q.repName || 'Unassigned Rep';
+          groupKey = q.sales_rep_id || 'Unassigned';
+          groupLabel = getRepName(q.sales_rep_id);
           break;
         case 'risk':
-          groupKey = q.blendedRiskValue || q.blendedRiskLevel || 'LOW';
+          groupKey = getApproxRisk(q).level;
           groupLabel = `${groupKey} Risk`;
           break;
       }
@@ -308,14 +342,14 @@ export const QuotationsListPage: React.FC = () => {
         groups[groupKey] = { label: groupLabel, items: [], totalAmount: 0 };
       }
       groups[groupKey].items.push(q);
-      groups[groupKey].totalAmount += q.grandTotal ?? q.netAmount ?? q.totalAmount ?? 0;
+      groups[groupKey].totalAmount += parseFloat(q.grand_total) || 0;
     });
 
     return Object.entries(groups).map(([key, data]) => ({
       key,
       ...data,
     }));
-  }, [sortedQuotations, filters.groupBy]);
+  }, [sortedQuotations, filters.groupBy, customersById, usersById]);
 
   // 4. PAGINATION SLICE (Applied to ungrouped view)
   const totalPages = Math.max(1, Math.ceil(sortedQuotations.length / pageSize));
@@ -368,23 +402,44 @@ export const QuotationsListPage: React.FC = () => {
     );
   };
 
+  // Duplicate: create a new DRAFT quotation from this one's commercial terms.
+  // sales_rep_id is intentionally never sent — the server derives it from the
+  // auth token (see quotationService.create).
+  const handleDuplicate = async (q: ApiQuotation) => {
+    try {
+      const duplicated = await quotationService.create({
+        customer_id: q.customer_id,
+        price_list_id: q.price_list_id,
+        currency: q.currency,
+        valid_until: q.valid_until,
+      });
+      toast.success('Quotation Duplicated', `Created draft copy ${duplicated.quotation_number}`);
+      await refetch();
+      navigate(`/quotations/${duplicated.id}`);
+    } catch (err) {
+      toast.warning('Duplicate Failed', err instanceof Error ? err.message : 'Could not duplicate quotation.');
+    }
+  };
+
   // Render individual row (dense Odoo style 44-48px)
-  const renderRow = (q: Quotation) => {
-    const quoteAmount = q.grandTotal ?? q.netAmount ?? q.totalAmount ?? 0;
-    const quoteMargin = q.blendedMarginPercent ?? q.marginPercent;
-    const riskLevel: RiskLevel = (q.blendedRiskLevel || q.blendedRiskValue || 'LOW') as RiskLevel;
+  const renderRow = (q: ApiQuotation) => {
+    const quoteAmount = parseFloat(q.grand_total) || 0;
+    const { level: riskLevel, discountPct } = getApproxRisk(q);
+    const customerName = getCustomerName(q.customer_id);
+    const customerTier = getCustomerTier(q.customer_id);
+    const repName = getRepName(q.sales_rep_id);
 
     return (
       <tr
         key={q.id}
         tabIndex={0}
         role="button"
-        aria-label={`Open quotation ${q.code}`}
-        onClick={() => navigate(`/quotations/${q.code || q.id}`)}
+        aria-label={`Open quotation ${q.quotation_number}`}
+        onClick={() => navigate(`/quotations/${q.id}`)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
-            navigate(`/quotations/${q.code || q.id}`);
+            navigate(`/quotations/${q.id}`);
           }
         }}
         className="group transition-colors cursor-pointer hover:bg-[#FAF5F8] active:bg-[#F3EDF2] focus:outline-none focus:bg-[#FAF5F8]"
@@ -392,18 +447,18 @@ export const QuotationsListPage: React.FC = () => {
         {/* Quotation ID */}
         <td className="px-3.5 py-2.5 whitespace-nowrap align-middle">
           <span className="font-mono font-medium text-xs text-[#1F2937] group-hover:text-[#714B67] transition-colors">
-            {q.code}
+            {q.quotation_number}
           </span>
         </td>
 
         {/* Customer */}
         <td className="px-3.5 py-2.5 align-middle">
           <div className="leading-tight max-w-[220px]">
-            <span className="font-semibold text-xs text-[#111827] block truncate" title={q.customerName}>
-              {q.customerName || 'Unnamed Customer'}
+            <span className="font-semibold text-xs text-[#111827] block truncate" title={customerName}>
+              {customerName}
             </span>
-            {q.customerTier && (
-              <span className="text-[10px] text-[#6B7280] font-normal block">{q.customerTier} Tier</span>
+            {customerTier && (
+              <span className="text-[10px] text-[#6B7280] font-normal block">{customerTier} Tier</span>
             )}
           </div>
         </td>
@@ -417,30 +472,31 @@ export const QuotationsListPage: React.FC = () => {
 
         {/* Stage */}
         <td className="px-3.5 py-2.5 whitespace-nowrap align-middle">
-          <StatusBadge status={q.stage} size="sm" />
+          <StatusBadge status={humanizeStatus(q.status)} size="sm" />
         </td>
 
-        {/* Risk */}
+        {/* Risk — approximated from discount-to-subtotal ratio (no per-line
+            data on the real API; see getApproxRisk). */}
         <td className="px-3.5 py-2.5 whitespace-nowrap align-middle">
-          <RiskBadge level={riskLevel} score={q.blendedRiskScore} size="sm" />
+          <RiskBadge level={riskLevel} score={Math.round(discountPct)} size="sm" />
         </td>
 
         {/* Sales Rep */}
         <td className="px-3.5 py-2.5 whitespace-nowrap align-middle text-xs text-[#374151]">
-          {q.repName || 'Unassigned'}
+          {repName}
         </td>
 
         {/* Last Activity */}
         <td
           className="px-3.5 py-2.5 whitespace-nowrap align-middle text-xs text-[#6B7280]"
-          title={formatExactDateTime(q.lastActivityAt)}
+          title={formatExactDateTime(q.updated_at)}
         >
-          {formatRelativeTime(q.lastActivityAt)}
+          {formatRelativeTime(q.updated_at)}
         </td>
 
-        {/* Margin */}
+        {/* Margin — no cost-basis data on the real API; hidden rather than fabricated. */}
         <td className="px-3.5 py-2.5 text-right whitespace-nowrap align-middle font-mono text-xs text-[#4B5563]">
-          {quoteMargin !== undefined ? formatPercent(quoteMargin) : '—'}
+          —
         </td>
 
         {/* Row Action Menu */}
@@ -470,7 +526,7 @@ export const QuotationsListPage: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setActiveMenuRowId(null);
-                    navigate(`/quotations/${q.code || q.id}`);
+                    navigate(`/quotations/${q.id}`);
                   }}
                   className="w-full px-3 py-1.5 text-xs text-[#374151] hover:bg-[#FAF5F8] hover:text-[#714B67] flex items-center gap-1.5"
                 >
@@ -481,18 +537,7 @@ export const QuotationsListPage: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setActiveMenuRowId(null);
-                    const duplicateCode = `QT-2026-${1043 + quotations.length}`;
-                    const duplicated = createQuotation({
-                      ...q,
-                      id: `QT-${duplicateCode}`,
-                      code: duplicateCode,
-                      stage: 'Draft',
-                      createdAt: new Date().toISOString(),
-                      updatedAt: new Date().toISOString(),
-                      lastActivityAt: new Date().toISOString(),
-                    });
-                    toast.success('Quotation Duplicated', `Created draft copy ${duplicated.code}`);
-                    navigate(`/quotations/${duplicated.id}`);
+                    handleDuplicate(q);
                   }}
                   className="w-full px-3 py-1.5 text-xs text-[#374151] hover:bg-[#FAF5F8] hover:text-[#714B67] flex items-center gap-1.5"
                 >
@@ -575,7 +620,7 @@ export const QuotationsListPage: React.FC = () => {
             {/* Table Body */}
             <tbody className="divide-y divide-[#F3F4F6] text-xs text-[#1F2937]">
               {/* 37. Loading State */}
-              {isRefreshing ? (
+              {isRefreshing || loading ? (
                 Array.from({ length: 5 }).map((_, idx) => (
                   <tr key={idx} className="animate-pulse">
                     <td className="px-3.5 py-3"><div className="h-3.5 bg-slate-200 rounded w-20" /></td>
