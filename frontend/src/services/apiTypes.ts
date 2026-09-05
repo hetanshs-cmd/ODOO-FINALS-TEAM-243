@@ -289,3 +289,65 @@ export interface ApiSalesSummary {
 export interface ApiDiscountExceptions {
   [key: string]: unknown;
 }
+
+// ── Directories (customers/users) ───────────────────────────────────────────
+// Stopgap types for GET /customers, /users — a parallel workstream is adding
+// proper useCustomers/useUsers hooks + service methods; these are used only
+// as an inline fallback where a display name is needed (see call sites).
+export interface ApiCustomer {
+  id: string;
+  name: string;
+  email?: string | null;
+  [key: string]: unknown;
+}
+
+export interface ApiUser {
+  id: string;
+  name: string;
+  email?: string | null;
+  role?: string;
+  [key: string]: unknown;
+}
+
+// ── Quotation timeline (audit-log-backed) ───────────────────────────────────
+export interface ApiTimelineEvent {
+  id: string;
+  quotation_id: string;
+  event_type: string;
+  actor_user_id?: string | null;
+  note?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_at: string;
+}
+
+// ── Backorders ───────────────────────────────────────────────────────────────
+export type ApiBackorderStatus = 'OPEN' | 'CONSOLIDATED' | 'FULFILLED' | 'CANCELLED';
+
+export interface ApiBackorder {
+  id: string;
+  sales_order_id: string;
+  fulfillment_id?: string | null;
+  warehouse_id?: string | null;
+  status: ApiBackorderStatus;
+  quantity: string;
+  expected_date?: string | null;
+  created_at: string;
+  updated_at: string;
+  [key: string]: unknown;
+}
+
+// ── Credit Notes ─────────────────────────────────────────────────────────────
+export type ApiCreditNoteStatus = 'PENDING' | 'ISSUED' | 'APPLIED' | 'VOID';
+
+export interface ApiCreditNote {
+  id: string;
+  customer_id: string;
+  subscription_id?: string | null;
+  invoice_id?: string | null;
+  amount: string;
+  reason?: string | null;
+  status: ApiCreditNoteStatus;
+  created_at: string;
+  updated_at: string;
+  [key: string]: unknown;
+}
