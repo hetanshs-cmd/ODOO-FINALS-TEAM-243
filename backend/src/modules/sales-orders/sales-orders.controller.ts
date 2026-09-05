@@ -24,7 +24,7 @@ export const salesOrdersController = {
   async list(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const result = await salesOrdersService.list(
-        req.query as { status?: string; customer_id?: string },
+        req.query as { status?: string; customer_id?: string; quotation_id?: string },
       );
       sendSuccess({ res, data: result, message: 'Sales orders retrieved successfully' });
     } catch (err) {

@@ -89,11 +89,12 @@ export const salesOrdersService = {
   async list(query: {
     status?: string;
     customer_id?: string;
+    quotation_id?: string;
     page?: unknown;
     limit?: unknown;
   }): Promise<PaginatedResult<SalesOrder>> {
     const pagination = getPaginationParams(query);
-    const filters = { status: query.status, customerId: query.customer_id };
+    const filters = { status: query.status, customerId: query.customer_id, quotationId: query.quotation_id };
     const [items, total] = await Promise.all([
       salesOrdersRepository.list(filters, pagination.limit, pagination.offset),
       salesOrdersRepository.count(filters),
