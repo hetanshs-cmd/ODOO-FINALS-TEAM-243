@@ -47,6 +47,7 @@ import {
   ApiTimelineEvent,
   ApiBackorder,
   ApiCreditNote,
+  ApiProduct,
   ListQuery,
 } from './apiTypes';
 import { SalesOrder } from '../types';
@@ -350,10 +351,11 @@ export const notificationsService = {
 
 // 10. PRODUCT / UPSELL SERVICE
 export const productService = {
-  // /admin/products is the only product listing endpoint currently exposed
-  // (ADMIN-gated); non-admin roles get a clean 403 rather than a crash.
-  async getAll() {
-    return adminService.products.list();
+  // GET /products — read-only directory for every internal role (mirrors
+  // the /customers and /users directory pattern), distinct from the
+  // ADMIN-only /admin/products CRUD used by AdminProductsConfigPage.
+  async getAll(): Promise<ApiProduct[]> {
+    return httpClient.get<ApiProduct[]>('/products');
   },
   async getById(id: string) {
     return adminService.products.getById(id);

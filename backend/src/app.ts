@@ -33,6 +33,7 @@ import {
 } from './modules/deal-health/deal-health.routes';
 import { notificationsRouter } from './modules/notifications/notifications.routes';
 import { upsellRouter } from './modules/upsell/upsell.routes';
+import { productsRouter } from './modules/products/products.routes';
 import { reportingRouter } from './modules/reporting/reporting.routes';
 import { customersRouter } from './modules/customers/customers.routes';
 import { usersRouter } from './modules/users/users.routes';
@@ -119,6 +120,11 @@ app.use('/api/v1/negotiations', negotiationsRouter);
 app.use('/api/v1/quotations', quotationDealHealthRouter);
 app.use('/api/v1/deal-health', dealHealthAlertsRouter);
 app.use('/api/v1/notifications', notificationsRouter);
+// productsRouter (broader role gate) mounted before upsellRouter (narrower)
+// at the same base path — see products.routes.ts comment on why this order
+// matters (Finding 1: a router's blanket auth middleware fires for every
+// request reaching it, matched route or not).
+app.use('/api/v1/products', productsRouter);
 app.use('/api/v1/products', upsellRouter);
 app.use('/api/v1/reports', reportingRouter);
 app.use('/api/v1/customers', customersRouter);
