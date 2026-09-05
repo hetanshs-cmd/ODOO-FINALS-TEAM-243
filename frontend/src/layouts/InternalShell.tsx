@@ -23,6 +23,7 @@ import {
   ChevronDown,
   Sparkles,
   Command,
+  MessageSquare,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useQuotations } from '../hooks/useQuotations';
@@ -100,6 +101,11 @@ export const InternalShell: React.FC = () => {
       label: 'Invoices',
       path: '/invoices',
       icon: <Receipt className="w-4 h-4 shrink-0" />,
+    },
+    {
+      label: 'Negotiations',
+      path: '/negotiations',
+      icon: <MessageSquare className="w-4 h-4 shrink-0" />,
     },
     {
       label: 'Deal Health',

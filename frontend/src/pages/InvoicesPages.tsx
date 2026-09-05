@@ -33,26 +33,48 @@ import { useDealStore } from '../hooks/useDealStore';
 import { Invoice, PaymentRecord, User } from '../types';
 import { reconcileDeliveryAndBilling, calculateInvoiceTotals } from '../domain/billing';
 import { canUserPerformAction } from '../domain/permissions';
-// -- Real-backend imports used by InvoiceDetailPage below. The list view
-// above (InvoicesListPage) is not yet migrated by the owning agent and
-// still reads the mock store — left untouched per task scope.
-import { useInvoice } from '../hooks/useInvoices';
+import { useInvoices, useInvoice } from '../hooks/useInvoices';
+import { useQuotations } from '../hooks/useQuotations';
 import { billingService, quotationService } from '../services';
-import { ApiPayment, ApiTimelineEvent, RecordPaymentInput } from '../services/apiTypes';
+import {
+  ApiInvoice,
+  ApiInvoiceStatus,
+  ApiPayment,
+  ApiTimelineEvent,
+  RecordPaymentInput,
+} from '../services/apiTypes';
 import { ApiError } from '../services/httpClient';
 
 // ============================================================================
 // SCREEN 12: INVOICES LIST (FINANCIAL OPERATIONS REGISTER)
 // ============================================================================
 
+// The real ApiInvoiceStatus has no dedicated "Credit Note" concept (that was
+// a mock-only Invoice.isCreditNote flag) — the CREDIT_NOTES tab is dropped
+// in favor of VOID, the closest real status to a cancelled financial record.
+type InvoiceStatusFilter = 'ALL' | 'ISSUED' | 'PARTIALLY_PAID' | 'PAID' | 'OVERDUE' | 'VOID';
+
 export const InvoicesListPage: React.FC = () => {
-  const { invoices, quotations } = useDealStore();
+  const { invoices, loading, error } = useInvoices();
+  const { quotations } = useQuotations();
   const navigate = useNavigate();
+
+  const quotationsById = useMemo(() => new Map(quotations.map((q) => [q.id, q])), [quotations]);
 
   // Filter and search state
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'UNPAID' | 'PARTIALLY_PAID' | 'PAID' | 'OVERDUE' | 'CREDIT_NOTES'>('ALL');
-  const [typeFilter, setTypeFilter] = useState<'ALL' | 'ONE_TIME' | 'RECURRING' | 'CREDIT_NOTE'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<InvoiceStatusFilter>('ALL');
+  const [typeFilter, setTypeFilter] = useState<'ALL' | 'ONE_TIME' | 'RECURRING'>('ALL');
+
+  // The real API has no per-invoice paid-amount/balance-due field on the
+  // list response (that requires GET /invoices/:id/payments per invoice —
+  // too expensive for a list page). Approximate: PAID/VOID => no balance,
+  // everything else => full total outstanding.
+  const getApproxBalance = (inv: ApiInvoice) => {
+    const total = parseFloat(inv.total) || 0;
+    if (inv.status === 'PAID' || inv.status === 'VOID') return 0;
+    return total;
+  };
 
   // Compute list metrics
   const metrics = useMemo(() => {
@@ -60,29 +82,28 @@ export const InvoicesListPage: React.FC = () => {
     let totalUnpaid = 0;
     let totalPaid = 0;
     let overdueCount = 0;
-    let overdueAmount = 0;
-    let creditNotesCount = 0;
-    let creditNotesAmount = 0;
+    let voidCount = 0;
+    let voidAmount = 0;
 
     const todayStr = new Date().toISOString().split('T')[0];
 
     for (const inv of invoices) {
-      if (inv.isCreditNote || inv.type === 'Credit Note') {
-        creditNotesCount += 1;
-        creditNotesAmount += Math.abs(inv.amount);
+      const total = parseFloat(inv.total) || 0;
+      const balance = getApproxBalance(inv);
+
+      if (inv.status === 'VOID') {
+        voidCount += 1;
+        voidAmount += total;
         continue;
       }
 
-      totalInvoiced += inv.amount;
-      const paid = inv.paidAmount ?? (inv.status === 'Paid' ? inv.amount : 0);
-      const balance = inv.balanceDue ?? Math.max(0, inv.amount - paid);
-
-      totalPaid += paid;
+      totalInvoiced += total;
+      totalPaid += total - balance;
       totalUnpaid += balance;
 
-      if ((inv.status === 'Unpaid' || inv.status === 'Overdue') && inv.dueDate < todayStr && balance > 0) {
+      const isPastDue = !!inv.due_date && inv.due_date < todayStr && balance > 0;
+      if (inv.status === 'OVERDUE' || isPastDue) {
         overdueCount += 1;
-        overdueAmount += balance;
       }
     }
 
@@ -91,9 +112,8 @@ export const InvoicesListPage: React.FC = () => {
       totalUnpaid,
       totalPaid,
       overdueCount,
-      overdueAmount,
-      creditNotesCount,
-      creditNotesAmount,
+      voidCount,
+      voidAmount,
       totalCount: invoices.length,
     };
   }, [invoices]);
@@ -101,45 +121,40 @@ export const InvoicesListPage: React.FC = () => {
   // Filtered dataset
   const filteredInvoices = useMemo(() => {
     return invoices.filter((inv) => {
+      const quotation = inv.quotation_id ? quotationsById.get(inv.quotation_id) : undefined;
+
       // 1. Search filter
       const q = searchQuery.toLowerCase().trim();
       if (q) {
-        const matchesCode = inv.code?.toLowerCase().includes(q);
-        const matchesCustomer = inv.customerName?.toLowerCase().includes(q);
-        const matchesQuote = inv.quotationId?.toLowerCase().includes(q) || inv.quotationCode?.toLowerCase().includes(q);
-        const matchesSub = inv.subscriptionId?.toLowerCase().includes(q) || inv.subscriptionCode?.toLowerCase().includes(q);
-        if (!matchesCode && !matchesCustomer && !matchesQuote && !matchesSub) {
+        const matchesCode = inv.invoice_number?.toLowerCase().includes(q);
+        const matchesCustomer = inv.customer_id?.toLowerCase().includes(q);
+        const matchesQuote =
+          inv.quotation_id?.toLowerCase().includes(q) ||
+          quotation?.quotation_number.toLowerCase().includes(q);
+        if (!matchesCode && !matchesCustomer && !matchesQuote) {
           return false;
         }
       }
 
       // 2. Status filter
-      if (statusFilter === 'UNPAID') {
-        if (inv.status !== 'Unpaid' || inv.isCreditNote) return false;
-      } else if (statusFilter === 'PARTIALLY_PAID') {
-        if (inv.status !== 'Partially Paid') return false;
-      } else if (statusFilter === 'PAID') {
-        if (inv.status !== 'Paid') return false;
-      } else if (statusFilter === 'OVERDUE') {
-        const todayStr = new Date().toISOString().split('T')[0];
-        const isPastDue = inv.dueDate < todayStr && (inv.balanceDue ?? inv.amount) > 0;
-        if (inv.status !== 'Overdue' && !isPastDue) return false;
-      } else if (statusFilter === 'CREDIT_NOTES') {
-        if (!inv.isCreditNote && inv.type !== 'Credit Note') return false;
+      if (statusFilter !== 'ALL') {
+        if (statusFilter === 'OVERDUE') {
+          const todayStr = new Date().toISOString().split('T')[0];
+          const isPastDue = !!inv.due_date && inv.due_date < todayStr && getApproxBalance(inv) > 0;
+          if (inv.status !== 'OVERDUE' && !isPastDue) return false;
+        } else if (inv.status !== statusFilter) {
+          return false;
+        }
       }
 
       // 3. Type filter
-      if (typeFilter === 'ONE_TIME') {
-        if (inv.isRecurring || inv.isCreditNote || inv.type === 'Recurring' || inv.type === 'Credit Note') return false;
-      } else if (typeFilter === 'RECURRING') {
-        if (!inv.isRecurring && inv.type !== 'Recurring') return false;
-      } else if (typeFilter === 'CREDIT_NOTE') {
-        if (!inv.isCreditNote && inv.type !== 'Credit Note') return false;
+      if (typeFilter !== 'ALL' && inv.invoice_type !== typeFilter) {
+        return false;
       }
 
       return true;
     });
-  }, [invoices, searchQuery, statusFilter, typeFilter]);
+  }, [invoices, quotationsById, searchQuery, statusFilter, typeFilter]);
 
   return (
     <div className="space-y-5">
@@ -198,17 +213,19 @@ export const InvoicesListPage: React.FC = () => {
           <div className="mt-1 text-[11px] text-emerald-700">Settled and reconciled in cash ledger</div>
         </div>
 
+        {/* The real API has no dedicated Credit Note concept; this card is
+            repointed to VOID invoices (the closest real cancelled status). */}
         <div className="bg-white border border-purple-200 rounded p-3.5 shadow-2xs bg-purple-50/20">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-purple-700">Applied Credits</span>
+            <span className="text-[11px] font-medium uppercase tracking-wider text-purple-700">Void Invoices</span>
             <FileMinus className="w-4 h-4 text-purple-600" />
           </div>
           <div className="mt-1.5 flex items-baseline gap-2">
             <span className="text-xl font-bold font-mono text-purple-900">
-              ${metrics.creditNotesAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ${metrics.voidAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           </div>
-          <div className="mt-1 text-[11px] text-purple-700">{metrics.creditNotesCount} active credit adjustments</div>
+          <div className="mt-1 text-[11px] text-purple-700">{metrics.voidCount} voided financial records</div>
         </div>
       </div>
 
@@ -268,16 +285,6 @@ export const InvoicesListPage: React.FC = () => {
             >
               Recurring
             </button>
-            <button
-              onClick={() => setTypeFilter('CREDIT_NOTE')}
-              className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
-                typeFilter === 'CREDIT_NOTE'
-                  ? 'bg-purple-700 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              Credit Note
-            </button>
           </div>
         </div>
 
@@ -286,11 +293,11 @@ export const InvoicesListPage: React.FC = () => {
           <span className="text-slate-500 font-medium mr-1 shrink-0">Status:</span>
           {[
             { id: 'ALL', label: 'All Invoices' },
-            { id: 'UNPAID', label: 'Unpaid' },
+            { id: 'ISSUED', label: 'Issued' },
             { id: 'PARTIALLY_PAID', label: 'Partially Paid' },
             { id: 'PAID', label: 'Paid' },
             { id: 'OVERDUE', label: 'Overdue' },
-            { id: 'CREDIT_NOTES', label: 'Credit Notes' },
+            { id: 'VOID', label: 'Void' },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -318,7 +325,6 @@ export const InvoicesListPage: React.FC = () => {
                 <th className="py-2.5 px-3">Customer</th>
                 <th className="py-2.5 px-3">Originating Quotation</th>
                 <th className="py-2.5 px-3">Type</th>
-                <th className="py-2.5 px-3">Delivery Stage</th>
                 <th className="py-2.5 px-3">Due Date</th>
                 <th className="py-2.5 px-3 text-right">Total</th>
                 <th className="py-2.5 px-3 text-right">Balance Due</th>
@@ -327,9 +333,15 @@ export const InvoicesListPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-sans">
-              {filteredInvoices.length === 0 ? (
+              {loading ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-slate-500">
+                  <td colSpan={10} className="py-12 text-center text-slate-400 text-xs">
+                    Loading invoices…
+                  </td>
+                </tr>
+              ) : filteredInvoices.length === 0 ? (
+                <tr>
+                  <td colSpan={10} className="py-12 text-center text-slate-500">
                     <FileText className="w-8 h-8 mx-auto text-slate-300 mb-2" />
                     <p className="font-medium text-slate-700">No matching invoices found</p>
                     <p className="text-[11px] text-slate-400 mt-0.5">Try clearing filters or search terms</p>
@@ -337,10 +349,11 @@ export const InvoicesListPage: React.FC = () => {
                 </tr>
               ) : (
                 filteredInvoices.map((inv) => {
-                  const isCredit = inv.isCreditNote || inv.type === 'Credit Note';
-                  const paid = inv.paidAmount ?? (inv.status === 'Paid' ? inv.amount : 0);
-                  const balanceDue = inv.balanceDue !== undefined ? inv.balanceDue : (isCredit ? 0 : Math.max(0, inv.amount - paid));
-                  const isOverdue = inv.status === 'Overdue' || (inv.status === 'Unpaid' && inv.dueDate < new Date().toISOString().split('T')[0]);
+                  const total = parseFloat(inv.total) || 0;
+                  const balanceDue = getApproxBalance(inv);
+                  const todayStr = new Date().toISOString().split('T')[0];
+                  const isOverdue = inv.status === 'OVERDUE' || (!!inv.due_date && inv.due_date < todayStr && balanceDue > 0);
+                  const quotation = inv.quotation_id ? quotationsById.get(inv.quotation_id) : undefined;
 
                   return (
                     <tr
@@ -351,38 +364,36 @@ export const InvoicesListPage: React.FC = () => {
                       {/* Document Code */}
                       <td className="py-2.5 px-3.5 whitespace-nowrap">
                         <div className="flex items-center gap-1.5">
-                          {isCredit ? (
-                            <FileMinus className="w-3.5 h-3.5 text-purple-600 shrink-0" />
-                          ) : inv.isRecurring ? (
+                          {inv.invoice_type === 'RECURRING' ? (
                             <RefreshCw className="w-3.5 h-3.5 text-cyan-600 shrink-0" />
                           ) : (
                             <FileText className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
                           )}
                           <span className="font-mono font-bold text-indigo-900 group-hover:underline">
-                            {inv.code}
+                            {inv.invoice_number}
                           </span>
                         </div>
                       </td>
 
                       {/* Issue Date */}
                       <td className="py-2.5 px-3 whitespace-nowrap font-mono text-[11px] text-slate-600">
-                        {inv.issueDate}
+                        {inv.issued_at ? inv.issued_at.split('T')[0] : inv.created_at.split('T')[0]}
                       </td>
 
-                      {/* Customer */}
-                      <td className="py-2.5 px-3 font-medium text-slate-900 whitespace-nowrap">
-                        {inv.customerName || 'Customer'}
+                      {/* Customer — shown by id; no customer-directory lookup in this list page's scope. */}
+                      <td className="py-2.5 px-3 font-mono text-[11px] text-slate-900 whitespace-nowrap">
+                        {inv.customer_id}
                       </td>
 
                       {/* Originating Quotation */}
                       <td className="py-2.5 px-3 whitespace-nowrap">
-                        {inv.quotationId ? (
+                        {inv.quotation_id ? (
                           <Link
-                            to={`/quotations/${inv.quotationId}`}
+                            to={`/quotations/${inv.quotation_id}`}
                             onClick={(e) => e.stopPropagation()}
                             className="inline-flex items-center gap-1 font-mono text-[11px] text-slate-600 hover:text-indigo-600 hover:underline"
                           >
-                            <span>{inv.quotationCode || inv.quotationId}</span>
+                            <span>{quotation?.quotation_number || inv.quotation_id}</span>
                             <ArrowUpRight className="w-3 h-3 text-slate-400" />
                           </Link>
                         ) : (
@@ -392,11 +403,7 @@ export const InvoicesListPage: React.FC = () => {
 
                       {/* Type Badge */}
                       <td className="py-2.5 px-3 whitespace-nowrap">
-                        {isCredit ? (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-800 border border-purple-200">
-                            Credit Note
-                          </span>
-                        ) : inv.isRecurring ? (
+                        {inv.invoice_type === 'RECURRING' ? (
                           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-cyan-100 text-cyan-800 border border-cyan-200">
                             Recurring
                           </span>
@@ -407,35 +414,23 @@ export const InvoicesListPage: React.FC = () => {
                         )}
                       </td>
 
-                      {/* Delivery Stage */}
-                      <td className="py-2.5 px-3 whitespace-nowrap">
-                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-700">
-                          {inv.deliveryStage === 'Partially Shipped' ? (
-                            <Truck className="w-3 h-3 text-amber-600" />
-                          ) : inv.deliveryStage === 'Shipped' ? (
-                            <Truck className="w-3 h-3 text-emerald-600" />
-                          ) : (
-                            <Layers className="w-3 h-3 text-slate-400" />
-                          )}
-                          <span>{inv.deliveryStage || 'Invoiced'}</span>
-                        </span>
-                      </td>
-
                       {/* Due Date */}
                       <td className="py-2.5 px-3 whitespace-nowrap font-mono text-[11px]">
                         <span className={isOverdue ? 'text-rose-600 font-semibold' : 'text-slate-600'}>
-                          {inv.dueDate}
+                          {inv.due_date || '—'}
                         </span>
                       </td>
 
                       {/* Total Amount */}
                       <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono font-semibold">
-                        <span className={isCredit ? 'text-purple-700' : 'text-slate-900'}>
-                          {isCredit ? `-$${Math.abs(inv.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : `$${inv.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
+                        <span className="text-slate-900">
+                          ${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </span>
                       </td>
 
-                      {/* Balance Due */}
+                      {/* Balance Due — approximated (see getApproxBalance); the
+                          real API needs a per-invoice payments fetch for the
+                          exact figure. */}
                       <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono font-semibold">
                         {balanceDue > 0 ? (
                           <span className={isOverdue ? 'text-rose-600 font-bold' : 'text-amber-800'}>
@@ -475,10 +470,10 @@ export const InvoicesListPage: React.FC = () => {
           </div>
           <div className="flex items-center gap-4 font-mono">
             <span>
-              Total Visible: <strong className="text-slate-900">${filteredInvoices.reduce((s, i) => s + i.amount, 0).toLocaleString()}</strong>
+              Total Visible: <strong className="text-slate-900">${filteredInvoices.reduce((s, i) => s + (parseFloat(i.total) || 0), 0).toLocaleString()}</strong>
             </span>
             <span>
-              Unsettled Balance: <strong className="text-amber-800">${filteredInvoices.reduce((s, i) => s + (i.balanceDue ?? (i.status === 'Paid' ? 0 : i.amount)), 0).toLocaleString()}</strong>
+              Unsettled Balance: <strong className="text-amber-800">${filteredInvoices.reduce((s, i) => s + getApproxBalance(i), 0).toLocaleString()}</strong>
             </span>
           </div>
         </div>

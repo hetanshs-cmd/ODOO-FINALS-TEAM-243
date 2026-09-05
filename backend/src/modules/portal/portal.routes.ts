@@ -33,4 +33,14 @@ router.get(
   portalController.getInvoice,
 );
 
+// FR9 — customer confirmation. Re-runs the discount engine before accepting,
+// so confirming a negotiated quotation can silently re-enter approval rather
+// than bypassing the ceiling. Produces the ACCEPTED status that
+// POST /quotations/:id/convert requires.
+router.post(
+  '/quotations/:id/confirm',
+  validate({ params: idParamSchema }),
+  portalController.confirmQuotation,
+);
+
 export { router as portalResourcesRouter };

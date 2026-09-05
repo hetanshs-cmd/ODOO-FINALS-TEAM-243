@@ -89,17 +89,17 @@ export interface CustomerLinkRow {
 
 /**
  * Finds the customer this user is linked to as a portal user, via
- * `customer_users`. A user could in theory be linked to more than one
- * customer (no DB constraint prevents it) — for this stub phase we just
- * use the first active link. Supporting multiple customers per portal
- * user is a future enhancement, not needed yet.
+ * `users.customer_id` — the 2026-09-05 schema refactor folded the old
+ * `customer_users` join table into that single column, one customer per
+ * portal user (no DB support for multiple customers per user, same as
+ * before this rename).
  */
 export async function findActiveCustomerLink(userId: string): Promise<CustomerLinkRow | null> {
   const result = await db.query<CustomerLinkRow>(
-    `SELECT cu.customer_id
-     FROM customer_users cu
-     JOIN customers c ON c.id = cu.customer_id
-     WHERE cu.user_id = $1 AND cu.status = 'ACTIVE' AND c.status = 'ACTIVE'
+    `SELECT u.customer_id
+     FROM users u
+     JOIN customers c ON c.id = u.customer_id
+     WHERE u.id = $1 AND u.customer_id IS NOT NULL AND u.status = 'ACTIVE' AND c.status = 'ACTIVE'
      LIMIT 1`,
     [userId],
   );

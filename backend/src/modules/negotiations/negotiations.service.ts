@@ -1,11 +1,13 @@
 import { Errors } from '../../errors/AppError';
 import { withTransaction } from '../../shared/db/withTransaction';
-import { roundMoney } from '../../shared/money';
 import { insertAuditLog } from '../../shared/auditLog';
+import { runPostCommit } from '../../shared/postCommit';
+import { getPaginationParams, buildPaginatedResult, PaginatedResult } from '../../utils/pagination';
 import { discountEngineService } from '../discount-engine/discount-engine.service';
 import { notificationsService } from '../notifications/notifications.service';
 import { negotiationsRepository } from './negotiations.repository';
 import { Negotiation } from './negotiations.model';
+import { AuthenticatedUser } from '../auth/auth.types';
 
 const ACTIONABLE_STATUSES = new Set(['OPEN', 'IN_PROGRESS']);
 
@@ -24,6 +26,25 @@ interface AddMessageDto {
 }
 
 export const negotiationsService = {
+  /**
+   * Sales-rep-facing inbox — every negotiation thread across the caller's
+   * own quotations (or all of them for managers/admins), most recent
+   * first, so a rep can find a customer's message without already knowing
+   * which quotation it's on.
+   */
+  async listAll(
+    query: { page?: unknown; limit?: unknown },
+    requester: AuthenticatedUser,
+  ): Promise<PaginatedResult<Negotiation & { quotation_number: string; customer_id: string }>> {
+    const pagination = getPaginationParams(query);
+    const filters = { salesRepId: requester.role === 'SALES_REP' ? requester.id : undefined };
+    const [items, total] = await Promise.all([
+      negotiationsRepository.listAll(filters, pagination.limit, pagination.offset),
+      negotiationsRepository.countAll(filters),
+    ]);
+    return buildPaginatedResult(items, total, pagination);
+  },
+
   async open(
     quotationId: string,
     initiatedBy: string,
@@ -35,6 +56,28 @@ export const negotiationsService = {
       throw Errors.forbidden();
     }
     return negotiationsRepository.insertNegotiation({ quotationId, initiatedBy });
+  },
+
+  /**
+   * Lets either side (sales rep or portal customer) find the existing
+   * negotiation thread for a quotation without already knowing its id, so
+   * a page load can resume a conversation instead of always creating a new
+   * thread via `open`. Most recent first; each thread's messages are
+   * included so the caller doesn't need a second round-trip per thread.
+   */
+  async listForQuotation(quotationId: string, portalCustomerId?: string) {
+    const quotation = await negotiationsRepository.findQuotationForNegotiation(quotationId);
+    if (!quotation) throw Errors.notFound('Quotation');
+    if (portalCustomerId && quotation.customer_id !== portalCustomerId) {
+      throw Errors.forbidden();
+    }
+    const negotiations = await negotiationsRepository.listByQuotationId(quotationId);
+    return Promise.all(
+      negotiations.map(async (negotiation) => ({
+        ...negotiation,
+        messages: await negotiationsRepository.listMessages(negotiation.id),
+      })),
+    );
   },
 
   async getDetail(id: string, portalCustomerId?: string) {
@@ -94,16 +137,10 @@ export const negotiationsService = {
           );
         }
 
-        const lineSubtotal = roundMoney(Number(item.quantity) * Number(item.unit_price));
-        const discountAmount = roundMoney(lineSubtotal * (change.new_discount_percent / 100));
-        const taxableAmount = roundMoney(lineSubtotal - discountAmount);
-        const taxAmount = roundMoney(taxableAmount * (Number(item.tax_percent) / 100));
-        const lineTotal = roundMoney(taxableAmount + taxAmount);
-
+        // discount_amount/line_total are never stored — quotation_item_amounts
+        // recomputes them from discount_percent on every read (006_quotations.sql).
         await negotiationsRepository.updateQuotationItemDiscount(client, item.id, {
           discountPercent: change.new_discount_percent,
-          discountAmount,
-          lineTotal,
         });
 
         await negotiationsRepository.insertChange(client, {
@@ -116,7 +153,6 @@ export const negotiationsService = {
         });
       }
 
-      await negotiationsRepository.recalculateQuotationTotals(client, negotiation.quotation_id);
       await negotiationsRepository.updateQuotationStatus(
         client,
         negotiation.quotation_id,
@@ -140,19 +176,24 @@ export const negotiationsService = {
       });
     });
 
-    const quotation = await negotiationsRepository.findQuotationForNegotiation(
-      negotiation.quotation_id,
-    );
-    if (quotation) {
-      await notificationsService.notify({
-        userId: quotation.sales_rep_id,
-        type: 'NEGOTIATION_COUNTER_OFFER',
-        title: 'Customer submitted a counter-offer',
-        message: `A counter-offer was submitted on quotation ${negotiation.quotation_id}`,
-        referenceType: 'quotation',
-        referenceId: negotiation.quotation_id,
-      });
-    }
+    // The counter-offer itself is already committed at this point — a
+    // failure in either follow-up must not surface as a 500 for a request
+    // that already succeeded.
+    await runPostCommit('negotiations.addMessage.notify', async () => {
+      const quotation = await negotiationsRepository.findQuotationForNegotiation(
+        negotiation.quotation_id,
+      );
+      if (quotation) {
+        await notificationsService.notify({
+          userId: quotation.sales_rep_id,
+          type: 'NEGOTIATION_COUNTER_OFFER',
+          title: 'Customer submitted a counter-offer',
+          message: `A counter-offer was submitted on quotation ${negotiation.quotation_id}`,
+          referenceType: 'quotation',
+          referenceId: negotiation.quotation_id,
+        });
+      }
+    });
 
     const reEvaluation = await discountEngineService.checkDiscounts(negotiation.quotation_id);
     return { message, reEvaluation };

@@ -1,36 +1,42 @@
-import React, { useState } from 'react';
-import { useDealStore } from '../../hooks/useDealStore';
-import {
-  ProductCategory,
-  CustomerTier,
-  ApprovalChainRule,
-  RiskLevel,
-} from '../../types';
+import React, { useState, useEffect, useCallback } from 'react';
+import { adminService, isForbiddenError } from '../../services';
+import { ApiDiscountRule, ApiApprovalLevel } from '../../services/apiTypes';
+import { ApiError } from '../../services/httpClient';
+import { ProductCategory, CustomerTier, RiskLevel } from '../../types';
 import {
   Percent,
   ShieldCheck,
   Plus,
   Edit2,
-  CheckCircle2,
-  AlertTriangle,
-  Layers,
   Sparkles,
   Save,
   Check,
-  Trash2,
 } from 'lucide-react';
 import { toast } from '../../components/ui/Toast';
 
+// Migrated off the mock store's three conflated concepts (categoryCeilings,
+// discountTiers, approvalRules) onto the two real backend resources per the
+// migration brief: /admin/discount-rules (scoped by nullable
+// product/category/customer_tier columns, strictest-wins precedence per
+// docs/references.md's Medusa pricing note) covers both the Category
+// Ceilings and Customer Tiers tabs; /admin/approval-levels covers the
+// Approval Escalation Matrix tab. The 3-tab layout is preserved even though
+// two tabs now read from the same underlying resource, filtered client-side
+// by which scope column is populated.
+const CATEGORIES: ProductCategory[] = ['Hardware', 'Services', 'Subscription'];
+const TIERS: CustomerTier[] = ['Bronze', 'Silver', 'Gold'];
+
+function getMaxDiscount(rule: ApiDiscountRule | undefined): number {
+  if (!rule) return 0;
+  const v = typeof rule.max_discount_percent === 'string' ? parseFloat(rule.max_discount_percent) : rule.max_discount_percent;
+  return Number.isFinite(v) ? v : 0;
+}
+
 export const AdminDiscountTiersPage: React.FC = () => {
-  const {
-    categoryCeilings,
-    discountTiers,
-    approvalRules,
-    saveCategoryCeiling,
-    saveDiscountTier,
-    saveApprovalRule,
-    quotations,
-  } = useDealStore();
+  const [discountRules, setDiscountRules] = useState<ApiDiscountRule[]>([]);
+  const [approvalLevels, setApprovalLevels] = useState<ApiApprovalLevel[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [forbidden, setForbidden] = useState(false);
 
   // Active sub-tab
   const [activeTab, setActiveTab] = useState<'ceilings' | 'tiers' | 'chains'>('ceilings');
@@ -43,110 +49,155 @@ export const AdminDiscountTiersPage: React.FC = () => {
   const [editingTier, setEditingTier] = useState<CustomerTier | null>(null);
   const [tierInput, setTierInput] = useState<number>(15);
 
-  // Approval Chain Modal / Edit State
+  // Approval Level Modal / Edit State
   const [isChainModalOpen, setIsChainModalOpen] = useState(false);
-  const [editingRule, setEditingRule] = useState<Partial<ApprovalChainRule> | null>(null);
+  const [editingRule, setEditingRule] = useState<Partial<ApiApprovalLevel> | null>(null);
 
-  // Helper count of draft quotes
-  const draftQuotesCount = quotations.filter(
-    (q) => q.stage === 'Draft' || q.stage === 'Returned for Revision' || q.stage === 'ReturnedForRevision'
-  ).length;
+  const load = useCallback(async () => {
+    setLoading(true);
+    setForbidden(false);
+    try {
+      const [rules, levels] = await Promise.all([
+        adminService.discountRules.list(),
+        adminService.approvalLevels.list(),
+      ]);
+      setDiscountRules(rules);
+      setApprovalLevels(levels);
+    } catch (err) {
+      if (isForbiddenError(err)) {
+        setForbidden(true);
+      } else {
+        toast.warning('Load Failed', err instanceof ApiError ? err.message : 'Could not load governance config.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const handleStartEditCeiling = (cat: ProductCategory, currentLimit: number) => {
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const categoryRules = new Map<string, ApiDiscountRule>(
+    discountRules
+      .filter((r) => r.category && !r.customer_tier)
+      .map((r): [string, ApiDiscountRule] => [r.category as string, r])
+  );
+  const tierRules = new Map<string, ApiDiscountRule>(
+    discountRules
+      .filter((r) => r.customer_tier && !r.category)
+      .map((r): [string, ApiDiscountRule] => [r.customer_tier as string, r])
+  );
+
+  const handleStartEditCeiling = (cat: ProductCategory) => {
     setEditingCategory(cat);
-    setCeilingInput(currentLimit);
+    setCeilingInput(getMaxDiscount(categoryRules.get(cat)) || 15);
   };
 
-  const handleSaveCeiling = (cat: ProductCategory) => {
+  const handleSaveCeiling = async (cat: ProductCategory) => {
     const parsed = Math.max(0, Math.min(100, Number(ceilingInput) || 0));
-    saveCategoryCeiling(cat, parsed);
-    setEditingCategory(null);
-    toast.success(
-      'Ceiling Updated',
-      `Updated ${cat} discount ceiling to ${parsed}%. Active draft quotations recalculated live.`
-    );
+    const existing = categoryRules.get(cat);
+    try {
+      if (existing) {
+        await adminService.discountRules.update(existing.id, { max_discount_percent: parsed });
+      } else {
+        await adminService.discountRules.create({ category: cat, max_discount_percent: parsed, active: true });
+      }
+      await load();
+      setEditingCategory(null);
+      toast.success('Ceiling Updated', `Updated ${cat} discount ceiling to ${parsed}%.`);
+    } catch (err) {
+      toast.warning('Save Failed', err instanceof ApiError ? err.message : 'Could not save ceiling.');
+    }
   };
 
-  const handleStartEditTier = (tier: CustomerTier, currentLimit: number) => {
+  const handleStartEditTier = (tier: CustomerTier) => {
     setEditingTier(tier);
-    setTierInput(currentLimit);
+    setTierInput(getMaxDiscount(tierRules.get(tier)) || 15);
   };
 
-  const handleSaveTier = (tier: CustomerTier) => {
+  const handleSaveTier = async (tier: CustomerTier) => {
     const parsed = Math.max(0, Math.min(100, Number(tierInput) || 0));
-    saveDiscountTier(tier, parsed);
-    setEditingTier(null);
-    toast.success(
-      'Customer Tier Updated',
-      `Updated ${tier} Tier governance limit to ${parsed}%. Active draft quotations recalculated.`
-    );
+    const existing = tierRules.get(tier);
+    try {
+      if (existing) {
+        await adminService.discountRules.update(existing.id, { max_discount_percent: parsed });
+      } else {
+        await adminService.discountRules.create({ customer_tier: tier, max_discount_percent: parsed, active: true });
+      }
+      await load();
+      setEditingTier(null);
+      toast.success('Customer Tier Updated', `Updated ${tier} Tier governance limit to ${parsed}%.`);
+    } catch (err) {
+      toast.warning('Save Failed', err instanceof ApiError ? err.message : 'Could not save tier limit.');
+    }
   };
 
   const handleCreateRule = () => {
     setEditingRule({
-      id: `CHAIN-${Date.now()}`,
       name: 'Custom High Risk Escalation',
-      discountRange: 'over_limit_high',
-      minDiscountPercent: 25,
-      maxDiscountPercent: 100,
-      requiredApprovers: ['sales_manager', 'finance'],
+      min_discount_percent: 25,
+      max_discount_percent: 100,
+      required_role: 'sales_manager',
+      risk_level: 'HIGH',
+      priority: approvalLevels.length + 1,
       active: true,
-      priority: approvalRules.length + 1,
-      riskLevel: 'HIGH',
     });
     setIsChainModalOpen(true);
   };
 
-  const handleEditRule = (rule: ApprovalChainRule) => {
+  const handleEditRule = (rule: ApiApprovalLevel) => {
     setEditingRule({ ...rule });
     setIsChainModalOpen(true);
   };
 
-  const handleToggleRuleActive = (rule: ApprovalChainRule) => {
-    const updated: ApprovalChainRule = { ...rule, active: !rule.active };
-    saveApprovalRule(updated);
-    toast.info(
-      'Rule Status Changed',
-      `Approval rule "${rule.name || rule.discountRange}" is now ${updated.active ? 'Active' : 'Disabled'}.`
-    );
+  const handleToggleRuleActive = async (rule: ApiApprovalLevel) => {
+    const nextActive = !(rule.active !== false);
+    try {
+      await adminService.approvalLevels.update(rule.id, { active: nextActive } as Partial<ApiApprovalLevel>);
+      await load();
+      toast.info('Rule Status Changed', `Approval level "${rule.name || rule.id}" is now ${nextActive ? 'Active' : 'Disabled'}.`);
+    } catch (err) {
+      toast.warning('Update Failed', err instanceof ApiError ? err.message : 'Could not update rule.');
+    }
   };
 
-  const handleSaveRuleModal = (e: React.FormEvent) => {
+  const handleSaveRuleModal = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingRule || !editingRule.discountRange) return;
+    if (!editingRule) return;
 
-    const fullRule: ApprovalChainRule = {
-      id: editingRule.id || `CHAIN-${Date.now()}`,
-      name: editingRule.name || `Rule: ${editingRule.discountRange}`,
-      discountRange: editingRule.discountRange,
-      minDiscountPercent: Number(editingRule.minDiscountPercent) || 0,
-      maxDiscountPercent: editingRule.maxDiscountPercent !== undefined ? Number(editingRule.maxDiscountPercent) : 100,
-      requiredApprovers: editingRule.requiredApprovers || [],
-      active: editingRule.active !== false,
+    const payload: Partial<ApiApprovalLevel> = {
+      name: editingRule.name || `Level ${(editingRule.priority ?? approvalLevels.length + 1)}`,
+      min_discount_percent: Number(editingRule.min_discount_percent) || 0,
+      max_discount_percent: editingRule.max_discount_percent !== undefined ? Number(editingRule.max_discount_percent) : 100,
+      required_role: editingRule.required_role || 'sales_manager',
+      risk_level: editingRule.risk_level || 'MEDIUM',
       priority: Number(editingRule.priority) || 1,
-      riskLevel: editingRule.riskLevel || 'MEDIUM',
+      active: editingRule.active !== false,
     };
 
-    saveApprovalRule(fullRule);
-    toast.success(
-      'Approval Chain Saved',
-      `Rule "${fullRule.name}" saved. Required approvers: [${fullRule.requiredApprovers.join(', ') || 'None'}].`
-    );
-    setIsChainModalOpen(false);
-    setEditingRule(null);
+    try {
+      if (editingRule.id) {
+        await adminService.approvalLevels.update(editingRule.id, payload);
+      } else {
+        await adminService.approvalLevels.create(payload);
+      }
+      await load();
+      toast.success('Approval Level Saved', `Level "${payload.name}" saved.`);
+      setIsChainModalOpen(false);
+      setEditingRule(null);
+    } catch (err) {
+      toast.warning('Save Failed', err instanceof ApiError ? err.message : 'Could not save approval level.');
+    }
   };
 
-  const toggleApproverInModal = (role: 'sales_manager' | 'finance') => {
-    if (!editingRule) return;
-    const current = editingRule.requiredApprovers || [];
-    let next: ('sales_manager' | 'finance')[];
-    if (current.includes(role)) {
-      next = current.filter((r) => r !== role);
-    } else {
-      next = [...current, role];
-    }
-    setEditingRule({ ...editingRule, requiredApprovers: next });
-  };
+  if (forbidden) {
+    return (
+      <div className="p-6 bg-white rounded-lg border border-[#E5E7EB] text-xs text-[#6B7280]">
+        You don't have access to discount governance administration.
+      </div>
+    );
+  }
 
   return (
     <div id="admin-discount-governance" className="space-y-4">
@@ -158,7 +209,7 @@ export const AdminDiscountTiersPage: React.FC = () => {
               Discount Governance & Approval Escalation
             </h2>
             <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-[#F3F4F6] text-[#4B5563]">
-              {categoryCeilings.length} Ceilings • {discountTiers.length} Customer Tiers • {approvalRules.length} Escalation Rules
+              {categoryRules.size} Ceilings • {tierRules.size} Customer Tiers • {approvalLevels.length} Escalation Levels
             </span>
           </div>
           <p className="text-xs text-[#6B7280]">
@@ -205,14 +256,13 @@ export const AdminDiscountTiersPage: React.FC = () => {
       </div>
 
       {/* Live Sync Banner */}
-      <div className="p-3 bg-[#ECFDF5] border border-[#A7F3D0] rounded-lg text-xs text-[#065F46] flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-[#059669] shrink-0" />
-          <span>
-            <strong>Deterministic Governance Engine Active:</strong> Changes made here immediately govern active draft
-            quotations ({draftQuotesCount} drafts in workspace). Historical confirmed quotes and completed approvals remain immutably preserved.
-          </span>
-        </div>
+      <div className="p-3 bg-[#ECFDF5] border border-[#A7F3D0] rounded-lg text-xs text-[#065F46] flex items-center gap-2">
+        <Sparkles className="w-4 h-4 text-[#059669] shrink-0" />
+        <span>
+          <strong>Real Governance Engine:</strong> Category Ceilings and Customer Tiers below are both backed by the
+          same discount-rules resource, distinguished by which scope column (category vs. customer tier) is set —
+          the stricter of the two applies to any given line. Escalation levels are enforced server-side on submit.
+        </span>
       </div>
 
       {activeTab === 'ceilings' && (
@@ -238,14 +288,16 @@ export const AdminDiscountTiersPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#E5E7EB]">
-                {categoryCeilings.map((c) => {
-                  const isEditing = editingCategory === c.category;
+                {CATEGORIES.map((cat) => {
+                  const rule = categoryRules.get(cat);
+                  const currentLimit = getMaxDiscount(rule);
+                  const isEditing = editingCategory === cat;
 
                   return (
-                    <tr key={c.category} id={`ceiling-row-${c.category}`} className="hover:bg-[#F9FAFB] transition-colors">
+                    <tr key={cat} id={`ceiling-row-${cat}`} className="hover:bg-[#F9FAFB] transition-colors">
                       <td className="py-2.5 px-4 font-semibold text-[#1F2937]">
                         <span className="px-2.5 py-1 rounded bg-[#F3F4F6] border border-[#E5E7EB] text-xs font-medium">
-                          {c.category}
+                          {cat}
                         </span>
                       </td>
 
@@ -253,7 +305,7 @@ export const AdminDiscountTiersPage: React.FC = () => {
                         {isEditing ? (
                           <div className="inline-flex items-center gap-1 justify-center">
                             <input
-                              id={`input-ceiling-${c.category}`}
+                              id={`input-ceiling-${cat}`}
                               type="number"
                               min="0"
                               max="100"
@@ -265,13 +317,13 @@ export const AdminDiscountTiersPage: React.FC = () => {
                           </div>
                         ) : (
                           <span className="px-2.5 py-1 rounded font-mono font-bold text-xs bg-[#ECFDF5] text-[#065F46] border border-[#A7F3D0]">
-                            {c.maxDiscountPercent}%
+                            {rule ? `${currentLimit}%` : 'Not set'}
                           </span>
                         )}
                       </td>
 
                       <td className="py-2.5 px-4 text-xs text-[#6B7280]">
-                        Discounts &gt; {isEditing ? ceilingInput : c.maxDiscountPercent}% will be flagged as{' '}
+                        Discounts &gt; {isEditing ? ceilingInput : currentLimit}% will be flagged as{' '}
                         <span className="font-bold text-[#DC2626]">Over-discount</span> and trigger approval chain.
                       </td>
 
@@ -279,15 +331,15 @@ export const AdminDiscountTiersPage: React.FC = () => {
                         {isEditing ? (
                           <div className="inline-flex items-center gap-1">
                             <button
-                              id={`btn-save-ceiling-${c.category}`}
-                              onClick={() => handleSaveCeiling(c.category)}
+                              id={`btn-save-ceiling-${cat}`}
+                              onClick={() => handleSaveCeiling(cat)}
                               className="inline-flex items-center gap-1 px-2.5 py-1 bg-[#059669] hover:bg-[#047857] text-white text-xs font-semibold rounded shadow-2xs transition-colors cursor-pointer"
                             >
                               <Check className="w-3 h-3" />
                               <span>Apply</span>
                             </button>
                             <button
-                              id={`btn-cancel-ceiling-${c.category}`}
+                              id={`btn-cancel-ceiling-${cat}`}
                               onClick={() => setEditingCategory(null)}
                               className="px-2 py-1 text-xs text-[#4B5563] hover:bg-[#F3F4F6] rounded transition-colors cursor-pointer"
                             >
@@ -296,8 +348,8 @@ export const AdminDiscountTiersPage: React.FC = () => {
                           </div>
                         ) : (
                           <button
-                            id={`btn-edit-ceiling-${c.category}`}
-                            onClick={() => handleStartEditCeiling(c.category, c.maxDiscountPercent)}
+                            id={`btn-edit-ceiling-${cat}`}
+                            onClick={() => handleStartEditCeiling(cat)}
                             className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-[#714B67] hover:bg-[#F5EEF4] rounded transition-colors cursor-pointer"
                           >
                             <Edit2 className="w-3 h-3" />
@@ -337,14 +389,16 @@ export const AdminDiscountTiersPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#E5E7EB]">
-                {discountTiers.map((t) => {
-                  const isEditing = editingTier === t.tier;
+                {TIERS.map((tier) => {
+                  const rule = tierRules.get(tier);
+                  const currentLimit = getMaxDiscount(rule);
+                  const isEditing = editingTier === tier;
 
                   return (
-                    <tr key={t.tier} id={`tier-row-${t.tier}`} className="hover:bg-[#F9FAFB] transition-colors">
+                    <tr key={tier} id={`tier-row-${tier}`} className="hover:bg-[#F9FAFB] transition-colors">
                       <td className="py-2.5 px-4 font-semibold text-[#1F2937]">
                         <span className="px-2.5 py-1 rounded font-bold text-xs bg-[#EEF2FF] text-[#4338CA] border border-[#C7D2FE]">
-                          {t.tier} Tier
+                          {tier} Tier
                         </span>
                       </td>
 
@@ -352,7 +406,7 @@ export const AdminDiscountTiersPage: React.FC = () => {
                         {isEditing ? (
                           <div className="inline-flex items-center gap-1 justify-center">
                             <input
-                              id={`input-tier-${t.tier}`}
+                              id={`input-tier-${tier}`}
                               type="number"
                               min="0"
                               max="100"
@@ -364,28 +418,28 @@ export const AdminDiscountTiersPage: React.FC = () => {
                           </div>
                         ) : (
                           <span className="px-2.5 py-1 rounded font-mono font-bold text-xs bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]">
-                            ≤ {t.maxDiscountPercent}%
+                            {rule ? `≤ ${currentLimit}%` : 'Not set'}
                           </span>
                         )}
                       </td>
 
                       <td className="py-2.5 px-4 text-xs text-[#6B7280]">
-                        Quotes for {t.tier} accounts requiring &gt; {isEditing ? tierInput : t.maxDiscountPercent}% discount escalate to management.
+                        Quotes for {tier} accounts requiring &gt; {isEditing ? tierInput : currentLimit}% discount escalate to management.
                       </td>
 
                       <td className="py-2.5 px-4 text-right">
                         {isEditing ? (
                           <div className="inline-flex items-center gap-1">
                             <button
-                              id={`btn-save-tier-${t.tier}`}
-                              onClick={() => handleSaveTier(t.tier)}
+                              id={`btn-save-tier-${tier}`}
+                              onClick={() => handleSaveTier(tier)}
                               className="inline-flex items-center gap-1 px-2.5 py-1 bg-[#059669] hover:bg-[#047857] text-white text-xs font-semibold rounded shadow-2xs transition-colors cursor-pointer"
                             >
                               <Check className="w-3 h-3" />
                               <span>Apply</span>
                             </button>
                             <button
-                              id={`btn-cancel-tier-${t.tier}`}
+                              id={`btn-cancel-tier-${tier}`}
                               onClick={() => setEditingTier(null)}
                               className="px-2 py-1 text-xs text-[#4B5563] hover:bg-[#F3F4F6] rounded transition-colors cursor-pointer"
                             >
@@ -394,8 +448,8 @@ export const AdminDiscountTiersPage: React.FC = () => {
                           </div>
                         ) : (
                           <button
-                            id={`btn-edit-tier-${t.tier}`}
-                            onClick={() => handleStartEditTier(t.tier, t.maxDiscountPercent)}
+                            id={`btn-edit-tier-${tier}`}
+                            onClick={() => handleStartEditTier(tier)}
                             className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-[#714B67] hover:bg-[#F5EEF4] rounded transition-colors cursor-pointer"
                           >
                             <Edit2 className="w-3 h-3" />
@@ -413,12 +467,12 @@ export const AdminDiscountTiersPage: React.FC = () => {
       )}
 
       {activeTab === 'chains' && (
-        /* ================= APPROVAL CHAINS VIEW ================= */
+        /* ================= APPROVAL ESCALATION MATRIX VIEW ================= */
         <div className="bg-white rounded-lg border border-[#E5E7EB] shadow-2xs overflow-hidden">
           <div className="p-3.5 bg-[#F9FAFB] border-b border-[#E5E7EB] flex items-center justify-between">
             <div>
               <h3 className="text-xs font-bold text-[#1F2937] uppercase tracking-wide">
-                Multi-Step Approval Escalation Chain
+                Multi-Step Approval Escalation Levels
               </h3>
               <p className="text-xs text-[#6B7280]">
                 Defines required authority levels depending on total deal discount brackets and margin risk levels.
@@ -431,7 +485,7 @@ export const AdminDiscountTiersPage: React.FC = () => {
               className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#714B67] hover:bg-[#593952] text-white text-xs font-semibold rounded-md shadow-2xs transition-colors cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Add Escalation Rule</span>
+              <span>Add Escalation Level</span>
             </button>
           </div>
 
@@ -440,115 +494,113 @@ export const AdminDiscountTiersPage: React.FC = () => {
               <thead>
                 <tr className="border-b border-[#E5E7EB] bg-[#F3F4F6] text-[#4B5563] font-semibold">
                   <th className="py-2.5 px-4 text-center">Priority</th>
-                  <th className="py-2.5 px-4">Rule Name</th>
+                  <th className="py-2.5 px-4">Level Name</th>
                   <th className="py-2.5 px-4">Discount Bracket</th>
-                  <th className="py-2.5 px-4">Required Approvers in Chain</th>
+                  <th className="py-2.5 px-4">Required Role</th>
                   <th className="py-2.5 px-4 text-center">Risk Level</th>
                   <th className="py-2.5 px-4 text-center">Status</th>
                   <th className="py-2.5 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#E5E7EB]">
-                {approvalRules
-                  .sort((a, b) => (a.priority || 1) - (b.priority || 1))
-                  .map((rule, idx) => {
-                    const isActive = rule.active !== false;
+                {loading ? (
+                  <tr>
+                    <td colSpan={7} className="py-8 text-center text-[#9CA3AF] italic">
+                      Loading escalation levels…
+                    </td>
+                  </tr>
+                ) : approvalLevels.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-8 text-center text-[#9CA3AF] italic">
+                      No escalation levels configured yet.
+                    </td>
+                  </tr>
+                ) : (
+                  [...approvalLevels]
+                    .sort((a, b) => (a.priority || 1) - (b.priority || 1))
+                    .map((rule, idx) => {
+                      const isActive = rule.active !== false;
 
-                    return (
-                      <tr
-                        key={rule.id || idx}
-                        id={`rule-row-${rule.id || idx}`}
-                        className={`hover:bg-[#F9FAFB] transition-colors ${
-                          !isActive ? 'opacity-50 bg-[#FAFAFA]' : ''
-                        }`}
-                      >
-                        <td className="py-2.5 px-4 text-center font-mono font-bold text-[#6B7280]">
-                          #{rule.priority || idx + 1}
-                        </td>
+                      return (
+                        <tr
+                          key={rule.id || idx}
+                          id={`rule-row-${rule.id || idx}`}
+                          className={`hover:bg-[#F9FAFB] transition-colors ${
+                            !isActive ? 'opacity-50 bg-[#FAFAFA]' : ''
+                          }`}
+                        >
+                          <td className="py-2.5 px-4 text-center font-mono font-bold text-[#6B7280]">
+                            #{rule.priority || idx + 1}
+                          </td>
 
-                        <td className="py-2.5 px-4">
-                          <div className="font-semibold text-[#1F2937]">{rule.name || `Rule ${idx + 1}`}</div>
-                          <div className="text-[11px] font-mono text-[#6B7280]">
-                            Range: {rule.discountRange.replace('_', ' ')} ({rule.minDiscountPercent || 0}% - {rule.maxDiscountPercent || 100}%)
-                          </div>
-                        </td>
-
-                        <td className="py-2.5 px-4">
-                          <span className="px-2 py-0.5 rounded font-mono font-bold text-xs bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A]">
-                            {rule.discountRange}
-                          </span>
-                        </td>
-
-                        <td className="py-2.5 px-4">
-                          {rule.requiredApprovers.length === 0 ? (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#059669]">
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Direct Sales Rep Authority (No Escalation)
-                            </span>
-                          ) : (
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              {rule.requiredApprovers.map((approver, aIdx) => (
-                                <span
-                                  key={approver}
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-[#714B67]/10 text-[#714B67] border border-[#714B67]/20"
-                                >
-                                  <span className="w-3.5 h-3.5 rounded-full bg-[#714B67] text-white flex items-center justify-center text-[9px] font-bold">
-                                    {aIdx + 1}
-                                  </span>
-                                  <span>{approver === 'sales_manager' ? 'Sales Manager' : 'Finance'}</span>
-                                </span>
-                              ))}
+                          <td className="py-2.5 px-4">
+                            <div className="font-semibold text-[#1F2937]">{rule.name || `Level ${idx + 1}`}</div>
+                            <div className="text-[11px] font-mono text-[#6B7280]">
+                              {rule.min_discount_percent ?? 0}% – {rule.max_discount_percent ?? 100}%
                             </div>
-                          )}
-                        </td>
+                          </td>
 
-                        <td className="py-2.5 px-4 text-center">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                              rule.riskLevel === 'HIGH'
-                                ? 'bg-[#FEE2E2] text-[#991B1B]'
-                                : rule.riskLevel === 'MEDIUM'
-                                ? 'bg-[#FEF3C7] text-[#92400E]'
-                                : 'bg-[#ECFDF5] text-[#065F46]'
-                            }`}
-                          >
-                            {rule.riskLevel || 'LOW'}
-                          </span>
-                        </td>
+                          <td className="py-2.5 px-4">
+                            <span className="px-2 py-0.5 rounded font-mono font-bold text-xs bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A]">
+                              {rule.min_discount_percent ?? 0}%–{rule.max_discount_percent ?? 100}%
+                            </span>
+                          </td>
 
-                        <td className="py-2.5 px-4 text-center">
-                          <button
-                            id={`btn-toggle-rule-${rule.id || idx}`}
-                            onClick={() => handleToggleRuleActive(rule)}
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold cursor-pointer transition-colors ${
-                              isActive
-                                ? 'bg-[#ECFDF5] text-[#065F46] hover:bg-[#D1FAE5]'
-                                : 'bg-[#F3F4F6] text-[#6B7280] hover:bg-[#E5E7EB]'
-                            }`}
-                          >
-                            {isActive ? 'Active' : 'Disabled'}
-                          </button>
-                        </td>
+                          <td className="py-2.5 px-4">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-[#714B67]/10 text-[#714B67] border border-[#714B67]/20">
+                              {rule.required_role || rule.required_roles?.join(', ') || 'sales_manager'}
+                            </span>
+                          </td>
 
-                        <td className="py-2.5 px-4 text-right">
-                          <button
-                            id={`btn-edit-rule-${rule.id || idx}`}
-                            onClick={() => handleEditRule(rule)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-[#714B67] hover:bg-[#F5EEF4] rounded transition-colors cursor-pointer"
-                          >
-                            <Edit2 className="w-3 h-3" />
-                            <span>Edit Chain</span>
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                          <td className="py-2.5 px-4 text-center">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                                rule.risk_level === 'HIGH'
+                                  ? 'bg-[#FEE2E2] text-[#991B1B]'
+                                  : rule.risk_level === 'MEDIUM'
+                                  ? 'bg-[#FEF3C7] text-[#92400E]'
+                                  : 'bg-[#ECFDF5] text-[#065F46]'
+                              }`}
+                            >
+                              {rule.risk_level || 'LOW'}
+                            </span>
+                          </td>
+
+                          <td className="py-2.5 px-4 text-center">
+                            <button
+                              id={`btn-toggle-rule-${rule.id || idx}`}
+                              onClick={() => handleToggleRuleActive(rule)}
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold cursor-pointer transition-colors ${
+                                isActive
+                                  ? 'bg-[#ECFDF5] text-[#065F46] hover:bg-[#D1FAE5]'
+                                  : 'bg-[#F3F4F6] text-[#6B7280] hover:bg-[#E5E7EB]'
+                              }`}
+                            >
+                              {isActive ? 'Active' : 'Disabled'}
+                            </button>
+                          </td>
+
+                          <td className="py-2.5 px-4 text-right">
+                            <button
+                              id={`btn-edit-rule-${rule.id || idx}`}
+                              onClick={() => handleEditRule(rule)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-[#714B67] hover:bg-[#F5EEF4] rounded transition-colors cursor-pointer"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                              <span>Edit Level</span>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                )}
               </tbody>
             </table>
           </div>
         </div>
       )}
 
-      {/* ================= APPROVAL CHAIN MODAL ================= */}
+      {/* ================= APPROVAL LEVEL MODAL ================= */}
       {isChainModalOpen && editingRule && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="bg-white rounded-lg border border-[#E5E7EB] shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-150">
@@ -556,7 +608,7 @@ export const AdminDiscountTiersPage: React.FC = () => {
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4" />
                 <h3 className="text-sm font-bold">
-                  {editingRule.id ? 'Configure Approval Escalation Rule' : 'New Approval Rule'}
+                  {editingRule.id ? 'Configure Approval Escalation Level' : 'New Approval Level'}
                 </h3>
               </div>
               <button
@@ -571,7 +623,7 @@ export const AdminDiscountTiersPage: React.FC = () => {
             <form onSubmit={handleSaveRuleModal} className="p-4 space-y-3.5 text-xs">
               <div>
                 <label className="block text-xs font-semibold text-[#374151] mb-1">
-                  Rule Name *
+                  Level Name *
                 </label>
                 <input
                   id="rule-modal-name"
@@ -587,22 +639,16 @@ export const AdminDiscountTiersPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-[#374151] mb-1">
-                    Discount Bracket Range *
+                    Required Role *
                   </label>
                   <select
-                    id="rule-modal-range"
-                    value={editingRule.discountRange || 'within_limit'}
-                    onChange={(e) =>
-                      setEditingRule({
-                        ...editingRule,
-                        discountRange: e.target.value as any,
-                      })
-                    }
+                    id="rule-modal-role"
+                    value={editingRule.required_role || 'sales_manager'}
+                    onChange={(e) => setEditingRule({ ...editingRule, required_role: e.target.value })}
                     className="w-full px-2.5 py-1.5 border border-[#D1D5DB] rounded-md text-xs text-[#1F2937] focus:outline-hidden focus:border-[#714B67]"
                   >
-                    <option value="within_limit">within_limit (Standard Rep Limit)</option>
-                    <option value="over_limit_medium">over_limit_medium (Tier 1 Escalation)</option>
-                    <option value="over_limit_high">over_limit_high (Tier 2 High Risk)</option>
+                    <option value="sales_manager">Sales Manager</option>
+                    <option value="finance">Finance</option>
                   </select>
                 </div>
 
@@ -612,9 +658,9 @@ export const AdminDiscountTiersPage: React.FC = () => {
                   </label>
                   <select
                     id="rule-modal-risk"
-                    value={editingRule.riskLevel || 'MEDIUM'}
+                    value={editingRule.risk_level || 'MEDIUM'}
                     onChange={(e) =>
-                      setEditingRule({ ...editingRule, riskLevel: e.target.value as RiskLevel })
+                      setEditingRule({ ...editingRule, risk_level: e.target.value as RiskLevel })
                     }
                     className="w-full px-2.5 py-1.5 border border-[#D1D5DB] rounded-md text-xs text-[#1F2937] focus:outline-hidden focus:border-[#714B67]"
                   >
@@ -635,9 +681,9 @@ export const AdminDiscountTiersPage: React.FC = () => {
                     type="number"
                     min="0"
                     max="100"
-                    value={editingRule.minDiscountPercent ?? 0}
+                    value={editingRule.min_discount_percent ?? 0}
                     onChange={(e) =>
-                      setEditingRule({ ...editingRule, minDiscountPercent: parseFloat(e.target.value) || 0 })
+                      setEditingRule({ ...editingRule, min_discount_percent: parseFloat(e.target.value) || 0 })
                     }
                     className="w-full px-2.5 py-1.5 font-mono border border-[#D1D5DB] rounded-md text-xs text-[#1F2937] focus:outline-hidden focus:border-[#714B67]"
                   />
@@ -652,9 +698,9 @@ export const AdminDiscountTiersPage: React.FC = () => {
                     type="number"
                     min="0"
                     max="100"
-                    value={editingRule.maxDiscountPercent ?? 100}
+                    value={editingRule.max_discount_percent ?? 100}
                     onChange={(e) =>
-                      setEditingRule({ ...editingRule, maxDiscountPercent: parseFloat(e.target.value) || 100 })
+                      setEditingRule({ ...editingRule, max_discount_percent: parseFloat(e.target.value) || 100 })
                     }
                     className="w-full px-2.5 py-1.5 font-mono border border-[#D1D5DB] rounded-md text-xs text-[#1F2937] focus:outline-hidden focus:border-[#714B67]"
                   />
@@ -662,34 +708,17 @@ export const AdminDiscountTiersPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-[#374151] mb-1.5">
-                  Required Approver Roles
+                <label className="block text-xs font-semibold text-[#374151] mb-1">
+                  Priority
                 </label>
-                <div className="space-y-1.5 border border-[#E5E7EB] rounded-md p-2.5 bg-[#F9FAFB]">
-                  {[
-                    { role: 'sales_manager' as const, label: 'Sales Manager' },
-                    { role: 'finance' as const, label: 'Finance' },
-                  ].map(({ role, label }) => {
-                    const isChecked = (editingRule.requiredApprovers || []).includes(role);
-                    return (
-                      <label
-                        key={role}
-                        className="flex items-center gap-2 cursor-pointer text-xs text-[#374151]"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => toggleApproverInModal(role)}
-                          className="rounded border-[#D1D5DB] text-[#714B67] focus:ring-[#714B67]"
-                        />
-                        <span className={isChecked ? 'font-semibold text-[#714B67]' : ''}>{label}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-                <span className="text-[10px] text-[#6B7280]">
-                  Unchecked = No escalation required (Direct Sales Rep authority).
-                </span>
+                <input
+                  id="rule-modal-priority"
+                  type="number"
+                  min="1"
+                  value={editingRule.priority ?? 1}
+                  onChange={(e) => setEditingRule({ ...editingRule, priority: parseInt(e.target.value) || 1 })}
+                  className="w-full px-2.5 py-1.5 font-mono border border-[#D1D5DB] rounded-md text-xs text-[#1F2937] focus:outline-hidden focus:border-[#714B67]"
+                />
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#E5E7EB]">
@@ -707,7 +736,7 @@ export const AdminDiscountTiersPage: React.FC = () => {
                   className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-[#714B67] hover:bg-[#593952] text-white text-xs font-semibold rounded-md shadow-2xs transition-colors cursor-pointer"
                 >
                   <Save className="w-3.5 h-3.5" />
-                  <span>Save Escalation Rule</span>
+                  <span>Save Escalation Level</span>
                 </button>
               </div>
             </form>

@@ -169,7 +169,6 @@ describe('quotationsService.addItem', () => {
   it('refreshes the deal-health score after adding a line item', async () => {
     vi.mocked(quotationsRepository.findById).mockResolvedValue(makeQuotation());
     vi.mocked(quotationsRepository.addItem).mockResolvedValue(makeItem());
-    vi.mocked(quotationsRepository.recalculateTotals).mockResolvedValue(makeQuotation());
 
     await quotationsService.addItem(
       'quote-1',
