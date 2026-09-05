@@ -8,12 +8,10 @@ export const listApprovalsQuerySchema = z.object({
   limit: z.string().optional(),
 });
 
-// user_id is accepted in the body as a temporary stand-in for req.user.id
-// until the `auth` module lands (see docs/references.md TODO markers in the
-// admin module for the same gap). The FK to users(id) is still enforced by
-// the database either way.
+// The acting user is taken from req.user (set by `authenticate`), never
+// from the request body — the body has no user_id field so a caller can't
+// forge who took the action.
 export const actOnApprovalSchema = z.object({
   action: z.enum(['APPROVED', 'REJECTED', 'ESCALATED', 'COMMENTED', 'CANCELLED']),
-  user_id: z.string().uuid(),
   comment: z.string().max(2000).optional().nullable(),
 });

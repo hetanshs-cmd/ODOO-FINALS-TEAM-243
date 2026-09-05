@@ -1,16 +1,25 @@
-import { randomBytes } from 'crypto';
 import { Errors } from '../../errors/AppError';
 import { roundMoney } from '../../shared/money';
+import { generateDocumentNumber } from '../../shared/documentNumber';
 import { mapDbError } from '../../shared/crud/dbErrors';
 import { quotationsRepository } from './quotations.repository';
 import { Quotation, QuotationItem, QuotationWithItems } from './quotations.model';
+import { AuthenticatedUser } from '../auth/auth.types';
 
 interface CreateQuotationDto {
   customer_id: string;
-  sales_rep_id: string;
   price_list_id?: string | null;
   currency: string;
   valid_until?: string | null;
+}
+
+// A plain sales rep only works their own quotations; managers/admins can
+// act on any quotation (matches quotations.routes.ts's stated intent, now
+// actually enforced here instead of just in a comment).
+function assertCanAccessQuotation(quotation: Quotation, requester: AuthenticatedUser): void {
+  if (requester.role === 'SALES_REP' && quotation.sales_rep_id !== requester.id) {
+    throw Errors.forbidden();
+  }
 }
 
 interface AddQuotationItemDto {
@@ -23,19 +32,15 @@ interface AddQuotationItemDto {
   billing_type: 'ONE_TIME' | 'RECURRING';
 }
 
-function generateQuotationNumber(): string {
-  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const suffix = randomBytes(3).toString('hex').toUpperCase();
-  return `Q-${today}-${suffix}`;
-}
-
 export const quotationsService = {
-  async create(dto: CreateQuotationDto): Promise<Quotation> {
+  async create(dto: CreateQuotationDto, salesRepId: string): Promise<Quotation> {
     try {
       return await quotationsRepository.create({
-        quotation_number: generateQuotationNumber(),
+        quotation_number: generateDocumentNumber('Q'),
         customer_id: dto.customer_id,
-        sales_rep_id: dto.sales_rep_id,
+        // Always the authenticated caller — never client-supplied — so a
+        // quotation can't be created under someone else's name.
+        sales_rep_id: salesRepId,
         price_list_id: dto.price_list_id ?? null,
         currency: dto.currency,
         valid_until: dto.valid_until ?? null,
@@ -45,9 +50,10 @@ export const quotationsService = {
     }
   },
 
-  async getWithItems(id: string): Promise<QuotationWithItems> {
+  async getWithItems(id: string, requester: AuthenticatedUser): Promise<QuotationWithItems> {
     const quotation = await quotationsRepository.findById(id);
     if (!quotation) throw Errors.notFound('Quotation');
+    assertCanAccessQuotation(quotation, requester);
     const items = await quotationsRepository.listItems(id);
     return { ...quotation, items };
   },
@@ -58,12 +64,17 @@ export const quotationsService = {
    * a client-supplied line_total is never trusted (docs/security.md: backend
    * validation/computation is authoritative).
    */
-  async addItem(quotationId: string, dto: AddQuotationItemDto): Promise<QuotationItem> {
+  async addItem(
+    quotationId: string,
+    dto: AddQuotationItemDto,
+    requester: AuthenticatedUser,
+  ): Promise<QuotationItem> {
     const quotation = await quotationsRepository.findById(quotationId);
     if (!quotation) throw Errors.notFound('Quotation');
+    assertCanAccessQuotation(quotation, requester);
     if (quotation.status !== 'DRAFT') {
       throw Errors.businessRuleViolation(
-        `Cannot add items to a quotation in status ${quotation.status}; only DRAFT quotations are editable`
+        `Cannot add items to a quotation in status ${quotation.status}; only DRAFT quotations are editable`,
       );
     }
 

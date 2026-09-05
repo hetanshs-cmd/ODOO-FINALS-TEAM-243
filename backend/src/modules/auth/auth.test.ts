@@ -12,7 +12,13 @@ import { UserRow } from './auth.repository';
  */
 vi.mock('./auth.repository');
 
-const PASSWORD = 'correct-password';
+// Fixture password, not a real credential — read from .env per
+// docs/security.md's "no hardcoded secrets" rule. See backend/.env.example.
+const rawTestPassword = process.env.TEST_USER_PASSWORD;
+if (!rawTestPassword) {
+  throw new Error('TEST_USER_PASSWORD must be set in backend/.env to run this test suite');
+}
+const PASSWORD: string = rawTestPassword;
 // Low bcrypt cost so the test suite stays fast — never do this for real passwords.
 const TEST_BCRYPT_ROUNDS = 4;
 

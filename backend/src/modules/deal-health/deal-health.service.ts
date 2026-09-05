@@ -1,6 +1,7 @@
 import { Errors } from '../../errors/AppError';
 import { withTransaction } from '../../shared/db/withTransaction';
 import { roundMoney } from '../../shared/money';
+import { getPaginationParams, buildPaginatedResult } from '../../utils/pagination';
 import { calculateDealHealth } from './dealHealth';
 import { dealHealthRepository } from './deal-health.repository';
 
@@ -55,7 +56,7 @@ export const dealHealthService = {
             alertType: alert.type,
             severity: alert.severity,
             message: alert.message,
-          })
+          }),
         );
       }
 
@@ -74,14 +75,12 @@ export const dealHealthService = {
   },
 
   async listOpenAlerts(query: { page?: unknown; limit?: unknown }) {
-    const page = Math.max(1, parseInt(String(query.page ?? '1'), 10) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(String(query.limit ?? '20'), 10) || 20));
-    const offset = (page - 1) * limit;
+    const pagination = getPaginationParams(query);
     const [items, total] = await Promise.all([
-      dealHealthRepository.listOpenAlerts(limit, offset),
+      dealHealthRepository.listOpenAlerts(pagination.limit, pagination.offset),
       dealHealthRepository.countOpenAlerts(),
     ]);
-    return { items, total, page, limit };
+    return buildPaginatedResult(items, total, pagination);
   },
 
   async updateAlertStatus(alertId: string, status: 'ESCALATED' | 'NUDGED' | 'RESOLVED') {
