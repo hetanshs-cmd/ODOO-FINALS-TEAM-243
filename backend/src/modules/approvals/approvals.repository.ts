@@ -27,8 +27,11 @@ export const approvalsRepository = {
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     params.push(limit, offset);
     const { rows } = await db.query(
-      `SELECT * FROM approval_requests ${where}
-       ORDER BY requested_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      `SELECT ar.*, al.name AS approval_level
+       FROM approval_requests ar
+       JOIN approval_levels al ON al.id = ar.approval_level_id
+       ${where}
+       ORDER BY ar.requested_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params,
     );
     return rows as ApprovalRequest[];
@@ -54,7 +57,31 @@ export const approvalsRepository = {
   },
 
   async findById(id: string): Promise<ApprovalRequest | null> {
-    const { rows } = await db.query('SELECT * FROM approval_requests WHERE id = $1', [id]);
+    const { rows } = await db.query(
+      `SELECT ar.*, al.name AS approval_level
+       FROM approval_requests ar
+       JOIN approval_levels al ON al.id = ar.approval_level_id
+       WHERE ar.id = $1`,
+      [id],
+    );
+    return (rows[0] as ApprovalRequest | undefined) ?? null;
+  },
+
+  /**
+   * Same read under a row lock, for `act`. The status check and the status
+   * write must not be separable: two managers hitting Approve at the same
+   * moment both used to pass the `status === 'PENDING'` check, producing two
+   * APPROVED action rows and two quotation status writes for one request.
+   */
+  async findByIdForUpdate(client: PoolClient, id: string): Promise<ApprovalRequest | null> {
+    const { rows } = await client.query(
+      `SELECT ar.*, al.name AS approval_level
+       FROM approval_requests ar
+       JOIN approval_levels al ON al.id = ar.approval_level_id
+       WHERE ar.id = $1
+       FOR UPDATE OF ar`,
+      [id],
+    );
     return (rows[0] as ApprovalRequest | undefined) ?? null;
   },
 
@@ -90,7 +117,11 @@ export const approvalsRepository = {
     status: ApprovalRequestStatus,
   ): Promise<ApprovalRequest> {
     const { rows } = await client.query(
-      `UPDATE approval_requests SET status = $2, responded_at = now() WHERE id = $1 RETURNING *`,
+      `WITH updated AS (
+         UPDATE approval_requests SET status = $2, responded_at = now() WHERE id = $1 RETURNING *
+       )
+       SELECT updated.*, al.name AS approval_level
+       FROM updated JOIN approval_levels al ON al.id = updated.approval_level_id`,
       [id, status],
     );
     return rows[0] as ApprovalRequest;
@@ -101,7 +132,7 @@ export const approvalsRepository = {
     input: { quotationId: string; requestedBy: string; approvalLevelId: string; reason: string },
   ): Promise<string> {
     const { rows } = await client.query(
-      `INSERT INTO approval_requests (quotation_id, requested_by, approval_level, reason)
+      `INSERT INTO approval_requests (quotation_id, requested_by, approval_level_id, reason)
        VALUES ($1, $2, $3, $4)
        RETURNING id`,
       [input.quotationId, input.requestedBy, input.approvalLevelId, input.reason],

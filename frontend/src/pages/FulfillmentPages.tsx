@@ -31,11 +31,15 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { toast } from '../components/ui/Toast';
-import { useSalesOrders } from '../hooks/useSalesOrders';
+import { Modal } from '../components/ui/Modal';
+import { Button } from '../components/ui/Button';
+import { useSalesOrders, useSalesOrder } from '../hooks/useSalesOrders';
 import { useCustomers } from '../hooks/useCustomers';
 import { useUsers } from '../hooks/useUsers';
-import { warehouseService, productService } from '../services';
-import { ApiWarehouse, ApiProduct } from '../services/apiTypes';
+import { useBackorders } from '../hooks/useBackorders';
+import { warehouseService, productService, fulfillmentService, backorderService, salesOrderService } from '../services';
+import { ApiWarehouse, ApiProduct, ApiFulfillment } from '../services/apiTypes';
+import { ApiError } from '../services/httpClient';
 import { SalesOrder, SalesOrderStatus } from '../types';
 
 // ============================================================================
@@ -385,137 +389,175 @@ export const FulfillmentListPage: React.FC = () => {
 // ============================================================================
 
 export const FulfillmentDetailPage: React.FC = () => {
+  // NOTE: like ApprovalDetailPage, the (not-yet-migrated) FulfillmentListPage
+  // above navigates here with a mock quotation id (`/fulfillment/${q.id}`).
+  // The real fulfillment flow is keyed on a SalesOrder, so this page resolves
+  // the SalesOrder by its quotation_id field rather than requiring a route
+  // change to the still-mock list page.
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
-  const {
-    currentUser,
-    quotations,
-    warehouses,
-    activeFulfillmentSplits,
-    timelineEvents,
-    acceptWarehouseSplit,
-    overrideWarehouseSplit,
-    consolidateBackorderAction,
-    restockWarehouse,
-  } = useDealStore();
+  const [salesOrderId, setSalesOrderId] = useState<string | undefined>(undefined);
+  const [resolveError, setResolveError] = useState<string | null>(null);
+  const [resolving, setResolving] = useState(true);
 
-  const [isOverrideModalOpen, setIsOverrideModalOpen] = useState<boolean>(false);
+  React.useEffect(() => {
+    let cancelled = false;
+    if (!id) return;
+    setResolving(true);
+    salesOrderService
+      .getAll({ quotation_id: id })
+      .then((orders) => {
+        if (cancelled) return;
+        if (orders.length > 0) {
+          setSalesOrderId(orders[0].id);
+        } else {
+          // Fall back to treating the route id itself as a sales order id,
+          // in case a caller links here directly with one.
+          setSalesOrderId(id);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSalesOrderId(id);
+      })
+      .finally(() => {
+        if (!cancelled) setResolving(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
 
-  // Locate the quotation
-  const quote = quotations.find((q) => q.id === id || q.code === id);
+  const { salesOrder, loading: soLoading, error: soError, refetch: refetchSalesOrder } = useSalesOrder(salesOrderId);
+  const { backorders, loading: boLoading, refetch: refetchBackorders } = useBackorders(
+    salesOrder ? { sales_order_id: salesOrder.id } : undefined
+  );
 
-  // Role permissions
-  const canManageFulfillment = quote
-    ? canUserPerformAction(currentUser, 'manage_fulfillment', { quotation: quote }).allowed
-    : false;
-  const overridePermission = quote
-    ? canUserPerformAction(currentUser, 'override_warehouse', { quotation: quote })
-    : { allowed: false, reason: 'Restricted' };
+  const [fulfillments, setFulfillments] = useState<ApiFulfillment[]>([]);
+  const [fulfillmentsLoading, setFulfillmentsLoading] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [isActing, setIsActing] = useState(false);
+  const [overrideModalFor, setOverrideModalFor] = useState<ApiFulfillment | null>(null);
+  const [overrideText, setOverrideText] = useState('');
 
-  // Calculate live or saved fulfillment split
-  const physicalLines = useMemo(() => {
-    if (!quote) return [];
-    return quote.lines.filter((l) => l.category === 'Hardware' && !l.isSubscription);
-  }, [quote]);
+  const loadFulfillments = React.useCallback(() => {
+    if (!salesOrder) return;
+    setFulfillmentsLoading(true);
+    fulfillmentService
+      .listForSalesOrder(salesOrder.id)
+      .then(setFulfillments)
+      .catch(() => setFulfillments([]))
+      .finally(() => setFulfillmentsLoading(false));
+  }, [salesOrder]);
 
-  const totalPhysicalUnits = useMemo(() => {
-    return physicalLines.reduce((sum, l) => sum + l.quantity, 0);
-  }, [physicalLines]);
+  React.useEffect(() => {
+    loadFulfillments();
+  }, [loadFulfillments]);
 
-  // Current split (either already saved/accepted or recommended by domain engine)
-  const splitResult: WarehouseSplitResult = useMemo(() => {
-    if (!quote) {
-      return {
-        strategy: 'Empty',
-        allocations: [],
-        totalShipments: 0,
-        estimatedCost: 0,
-        backorderedLines: [],
-      };
-    }
-    const saved = activeFulfillmentSplits[quote.id];
-    if (saved) return saved;
-    return computeWarehouseSplit(quote.lines, warehouses);
-  }, [quote, activeFulfillmentSplits, warehouses]);
-
-  // Overall fulfillment badge
-  const fulfillmentStatus = useMemo(() => {
-    if (!quote) return null;
-    const saved = activeFulfillmentSplits[quote.id];
-    return getQuotationFulfillmentStatus(quote, saved, warehouses);
-  }, [quote, activeFulfillmentSplits, warehouses]);
-
-  // Check for proactive consolidation opportunity (Test M / N)
-  const consolidationOpportunity = useMemo(() => {
-    if (!splitResult || splitResult.backorderedLines.length === 0) return null;
-    return detectConsolidationOpportunity(splitResult.backorderedLines, warehouses);
-  }, [splitResult, warehouses]);
-
-  // Handle Accepting Recommended Split
-  const handleAcceptSplit = () => {
-    if (!quote) return;
-    if (!canManageFulfillment) {
-      toast.error('Permission Denied', 'Operations, Finance, or Admin authorization required to accept split.');
-      return;
-    }
-
+  const handleSuggest = async () => {
+    if (!salesOrder) return;
+    setIsActing(true);
+    setActionError(null);
     try {
-      acceptWarehouseSplit(quote.id, splitResult);
-      toast.success(
-        'Fulfillment Plan Confirmed',
-        `Stock reserved across ${splitResult.totalShipments} facility location(s). Order stage moved to Fulfillment.`
-      );
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to accept warehouse split.';
+      await fulfillmentService.suggestFulfillment(salesOrder.id);
+      toast.success('Fulfillment Suggested', 'A recommended warehouse allocation has been generated.');
+      loadFulfillments();
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : 'Failed to suggest fulfillment.';
+      setActionError(msg);
       toast.error('Allocation Error', msg);
+    } finally {
+      setIsActing(false);
     }
   };
 
-  // Handle Consolidation
-  const handleConsolidate = () => {
-    if (!quote || !consolidationOpportunity) return;
-    if (!canManageFulfillment) {
-      toast.error('Permission Denied', 'Operations or Finance authorization required.');
+  const handleAcceptSplit = async (fulfillmentId: string) => {
+    setIsActing(true);
+    setActionError(null);
+    try {
+      await fulfillmentService.acceptSplit(fulfillmentId);
+      toast.success('Fulfillment Plan Confirmed', 'The recommended split has been accepted.');
+      loadFulfillments();
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : 'Failed to accept warehouse split.';
+      setActionError(msg);
+      toast.error('Allocation Error', msg);
+    } finally {
+      setIsActing(false);
+    }
+  };
+
+  const handleShip = async (fulfillmentId: string) => {
+    setIsActing(true);
+    setActionError(null);
+    try {
+      await fulfillmentService.ship(fulfillmentId);
+      toast.success('Shipped', 'The fulfillment has been marked as shipped.');
+      loadFulfillments();
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : 'Failed to ship fulfillment.';
+      setActionError(msg);
+      toast.error('Shipping Error', msg);
+    } finally {
+      setIsActing(false);
+    }
+  };
+
+  const handleOverrideSave = async () => {
+    if (!overrideModalFor) return;
+    let allocations: unknown[];
+    try {
+      allocations = overrideText.trim() ? JSON.parse(overrideText) : [];
+      if (!Array.isArray(allocations)) throw new Error('not an array');
+    } catch {
+      setActionError('Override allocations must be valid JSON array, e.g. [{"item_id":"...","warehouse_id":"...","quantity":5}]');
       return;
     }
-
+    setIsActing(true);
+    setActionError(null);
     try {
-      consolidateBackorderAction(
-        quote.id,
-        consolidationOpportunity.productId!,
-        consolidationOpportunity.quantity!,
-        consolidationOpportunity.warehouseId!
-      );
-      toast.success(
-        'Backorder Consolidated',
-        `Allocated ${consolidationOpportunity.quantity} units from ${consolidationOpportunity.warehouseName}. Backorder cleared!`
-      );
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to consolidate backorder.';
-      toast.error('Consolidation Error', msg);
+      await fulfillmentService.overrideSplit(overrideModalFor.id, allocations);
+      toast.success('Split Overridden', 'The manual allocation override has been saved.');
+      setOverrideModalFor(null);
+      setOverrideText('');
+      loadFulfillments();
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : 'Failed to override warehouse split.';
+      setActionError(msg);
+      toast.error('Override Error', msg);
+    } finally {
+      setIsActing(false);
     }
   };
 
-  // Demo Restock Trigger
-  const handleSimulateRestock = () => {
-    if (!quote) return;
-    // Find backordered product or first physical product
-    const targetProduct =
-      splitResult.backorderedLines[0]?.productId || physicalLines[0]?.productId || 'PROD-LP14';
-    // Restock Mumbai Distribution Center by +25 units
-    restockWarehouse('WH-MUMBAI', targetProduct, 25);
-    toast.info(
-      'Demo Restock Simulated',
-      `Added +25 units of ${targetProduct} to Mumbai Distribution Center. Inventory ledger updated.`
-    );
+  const handleConsolidate = async (backorderId: string) => {
+    setIsActing(true);
+    setActionError(null);
+    try {
+      await backorderService.consolidate(backorderId);
+      toast.success('Backorder Consolidated', 'The backorder has been consolidated against available stock.');
+      await Promise.all([refetchBackorders(), refetchSalesOrder()]);
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : 'Failed to consolidate backorder.';
+      setActionError(msg);
+      toast.error('Consolidation Error', msg);
+    } finally {
+      setIsActing(false);
+    }
   };
 
-  if (!quote) {
+  if (resolving || soLoading) {
+    return <div className="p-8 text-center text-xs text-slate-500">Loading fulfillment record…</div>;
+  }
+
+  if (soError || !salesOrder) {
     return (
       <div className="p-8 text-center space-y-4">
-        <h3 className="text-base font-semibold text-slate-900">Quotation Not Found</h3>
-        <p className="text-xs text-slate-500">The requested quotation does not exist or has been removed.</p>
+        <h3 className="text-base font-semibold text-slate-900">Sales Order Not Found</h3>
+        <p className="text-xs text-slate-500">
+          No sales order could be resolved for quotation/order id <strong>{id}</strong>
+          {resolveError ? ` (${resolveError})` : ''}. A quotation must be converted to a sales order before fulfillment can be planned.
+        </p>
         <Link
           to="/fulfillment"
           className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded bg-[#714B67] text-white"
@@ -526,16 +568,13 @@ export const FulfillmentDetailPage: React.FC = () => {
     );
   }
 
-  const isAccepted = !!activeFulfillmentSplits[quote.id];
-  const totalAllocated = splitResult.allocations.reduce((sum, a) => sum + a.quantityFulfilled, 0);
-  const totalBackordered = splitResult.backorderedLines.reduce((sum, b) => sum + b.backordered, 0);
-
-  // Relevant timeline events for this quotation
-  const quoteEvents = timelineEvents.filter((ev) => ev.quotationId === quote.id);
+  const totalPhysicalUnits = (salesOrder.items || []).reduce((sum, l) => sum + Number(l.quantity), 0);
+  const totalFulfilled = (salesOrder.items || []).reduce((sum, l) => sum + Number(l.fulfilled_quantity || 0), 0);
+  const totalBackordered = (salesOrder.items || []).reduce((sum, l) => sum + Number(l.backordered_quantity || 0), 0);
 
   return (
     <div className="space-y-5">
-      {/* Top Header Strip with Status Bar */}
+      {/* Top Header Strip */}
       <div className="bg-white border border-slate-200 rounded-sm p-4 shadow-2xs">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3 mb-3">
           <div className="flex items-center gap-3">
@@ -549,321 +588,160 @@ export const FulfillmentDetailPage: React.FC = () => {
             </button>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-mono text-base font-bold text-slate-900">{quote.code}</span>
+                <span className="font-mono text-base font-bold text-slate-900">{salesOrder.order_number}</span>
                 <span className="text-slate-400">/</span>
-                <span className="text-sm font-semibold text-slate-800">{quote.customerName}</span>
-                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
-                  {quote.customerTier || 'Silver'} Tier
-                </span>
+                {/* TODO: resolve customer display name once a customers directory hook lands. */}
+                <span className="text-sm font-semibold text-slate-800 font-mono">{salesOrder.customer_id}</span>
               </div>
               <div className="text-xs text-slate-500 mt-0.5">
-                Delivery Target: <strong className="text-slate-700">{quote.requestedDeliveryDate || 'Standard Logistics (18 Sep 2026)'}</strong> • Rep: {quote.repName || 'Alex Rivera'}
+                Order Date: <strong className="text-slate-700">{new Date(salesOrder.order_date).toLocaleDateString()}</strong>
               </div>
             </div>
           </div>
-
-          {/* Odoo Status Pipeline (Chevron Strip) */}
-          <div className="flex items-center border border-slate-200 rounded overflow-hidden text-[11px] font-medium divide-x divide-slate-200">
-            {['Draft', 'Pending Approval', 'Approved', 'Fulfillment', 'Shipped'].map((step) => {
-              const isCurrent =
-                (step === 'Fulfillment' && quote.stage === 'Fulfillment') ||
-                (step === 'Approved' && (quote.stage === 'Approved' || quote.stage === 'Confirmed')) ||
-                (step === 'Shipped' && quote.stage === 'Completed');
-              const isPassed =
-                step === 'Draft' ||
-                (step === 'Pending Approval' && quote.stage !== 'Draft') ||
-                (step === 'Approved' && ['Fulfillment', 'Completed'].includes(quote.stage));
-
-              return (
-                <div
-                  key={step}
-                  className={`px-3 py-1.5 transition-colors ${
-                    isCurrent
-                      ? 'bg-[#714B67] text-white font-semibold'
-                      : isPassed
-                      ? 'bg-slate-100 text-slate-700'
-                      : 'bg-white text-slate-400'
-                  }`}
-                >
-                  {step}
-                </div>
-              );
-            })}
-          </div>
+          <StatusBadge status={salesOrder.status} size="md" />
         </div>
 
-        {/* Smart Buttons KPI Bar */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs font-mono">
+        {/* KPI Bar */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
           <div className="p-2.5 bg-slate-50 rounded border border-slate-200">
-            <div className="text-[10px] text-slate-500 uppercase">Physical Demand</div>
-            <div className="text-sm font-bold text-slate-900 mt-0.5">
-              {totalPhysicalUnits} <span className="text-xs font-normal text-slate-600">units</span>
-            </div>
+            <div className="text-[10px] text-slate-500 uppercase">Ordered Units</div>
+            <div className="text-sm font-bold text-slate-900 mt-0.5">{totalPhysicalUnits}</div>
           </div>
-
           <div className="p-2.5 bg-slate-50 rounded border border-slate-200">
-            <div className="text-[10px] text-slate-500 uppercase">Allocated Units</div>
-            <div className="text-sm font-bold text-emerald-700 mt-0.5">
-              {totalAllocated} / {totalPhysicalUnits}
-            </div>
+            <div className="text-[10px] text-slate-500 uppercase">Fulfilled Units</div>
+            <div className="text-sm font-bold text-emerald-700 mt-0.5">{totalFulfilled} / {totalPhysicalUnits}</div>
           </div>
-
           <div className={`p-2.5 rounded border ${totalBackordered > 0 ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
-            <div className={`text-[10px] uppercase ${totalBackordered > 0 ? 'text-amber-800' : 'text-slate-500'}`}>
-              Backordered Units
-            </div>
-            <div className={`text-sm font-bold mt-0.5 ${totalBackordered > 0 ? 'text-amber-900 font-black' : 'text-slate-400'}`}>
-              {totalBackordered}
-            </div>
+            <div className={`text-[10px] uppercase ${totalBackordered > 0 ? 'text-amber-800' : 'text-slate-500'}`}>Backordered Units</div>
+            <div className={`text-sm font-bold mt-0.5 ${totalBackordered > 0 ? 'text-amber-900 font-black' : 'text-slate-400'}`}>{totalBackordered}</div>
           </div>
-
           <div className="p-2.5 bg-slate-50 rounded border border-slate-200">
-            <div className="text-[10px] text-slate-500 uppercase">Fulfillment Facilities</div>
-            <div className="text-sm font-bold text-slate-900 mt-0.5">
-              {splitResult.totalShipments} <span className="text-xs font-normal text-slate-600">Shipments</span>
-            </div>
-          </div>
-
-          <div className="p-2.5 bg-slate-50 rounded border border-slate-200">
-            <div className="text-[10px] text-slate-500 uppercase">Freight & Handling</div>
-            <div className="text-sm font-bold text-blue-900 mt-0.5">
-              ${splitResult.estimatedCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-            </div>
+            <div className="text-[10px] text-slate-500 uppercase">Grand Total</div>
+            <div className="text-sm font-bold text-blue-900 mt-0.5">${Number(salesOrder.grand_total).toLocaleString()}</div>
           </div>
         </div>
       </div>
 
-      {/* PROACTIVE BACKORDER CONSOLIDATION ALERT BANNER (Sections 40, 41, 42) */}
-      {consolidationOpportunity && consolidationOpportunity.canConsolidate && (
-        <div className="p-4 bg-amber-500/10 border-2 border-amber-500/50 rounded-sm shadow-xs flex flex-wrap items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-200">
-          <div className="flex items-start gap-3">
-            <div className="p-2 bg-amber-500 text-white rounded shrink-0">
-              <Sparkles className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="text-xs font-bold text-amber-950 uppercase tracking-wide">
-                Restock Consolidation Available
-              </div>
-              <p className="text-xs text-amber-900 mt-0.5 max-w-xl">
-                {consolidationOpportunity.message ||
-                  `${consolidationOpportunity.quantity} backordered units can now be fulfilled from ${consolidationOpportunity.warehouseName}. Consolidating here avoids an additional split.`}
-              </p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleConsolidate}
-            className="px-3.5 py-1.5 text-xs font-bold rounded bg-amber-600 hover:bg-amber-700 text-white shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
-          >
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            Consolidate Remaining Backorder
-          </button>
-        </div>
-      )}
-
-      {/* Grid: Left Column (Engine & Allocation) + Right Column (Order & Stock Ledger) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* LEFT COLUMN: 2 Cols wide */}
+        {/* LEFT COLUMN */}
         <div className="lg:col-span-2 space-y-5">
-          {/* Main Recommendation Engine Card */}
+          {/* Fulfillments (each row = one warehouse allocation, the real
+              backend's analog of the mock's multi-facility split table) */}
           <div className="bg-white border border-slate-200 rounded-sm shadow-xs overflow-hidden">
-            {/* Card Header */}
             <div className="p-3.5 border-b border-slate-200 bg-slate-50/70 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Truck className="w-4 h-4 text-[#714B67]" />
-                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                  Recommended Warehouse Allocation
-                </h3>
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Warehouse Fulfillments</h3>
               </div>
-
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono font-semibold bg-purple-50 text-purple-900 border border-purple-200">
-                Strategy: {splitResult.strategy}
-              </span>
+              <button
+                type="button"
+                onClick={handleSuggest}
+                disabled={isActing}
+                className="px-3 py-1.5 text-xs font-bold rounded bg-[#714B67] hover:bg-[#5E3E56] text-white shadow-2xs transition-colors flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Suggest Fulfillment
+              </button>
             </div>
 
-            {/* Explainability Section: "Why this split?" */}
-            <div className="p-4 bg-slate-50/40 border-b border-slate-100 text-xs text-slate-700">
-              <div className="flex items-center gap-1.5 font-bold text-slate-900 text-xs mb-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-[#714B67]" />
-                Why this split?
-              </div>
-              <p className="text-xs text-slate-600 leading-relaxed font-sans">
-                {splitResult.explanation ||
-                  'Optimization evaluated inventory availability, minimizing facility splits, and applying configured freight cost weightings.'}
-              </p>
-            </div>
+            {actionError && (
+              <div className="p-3 bg-rose-50 border-b border-rose-200 text-xs text-rose-800">{actionError}</div>
+            )}
 
-            {/* Allocation Table */}
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200 uppercase text-[10px] tracking-wider">
-                    <th className="py-2.5 px-3.5">Fulfillment Facility</th>
-                    <th className="py-2.5 px-3.5">SKU</th>
-                    <th className="py-2.5 px-3.5 text-right">Available</th>
-                    <th className="py-2.5 px-3.5 text-right font-bold text-slate-900">Allocated</th>
-                    <th className="py-2.5 px-3.5 text-center">Shipments</th>
-                    <th className="py-2.5 px-3.5 text-right">Base Freight</th>
-                    <th className="py-2.5 px-3.5 text-right">Handling</th>
-                    <th className="py-2.5 px-3.5 text-right font-bold">Total Cost</th>
+                    <th className="py-2.5 px-3.5">Warehouse</th>
+                    <th className="py-2.5 px-3.5">Status</th>
+                    <th className="py-2.5 px-3.5 text-right">Items</th>
+                    <th className="py-2.5 px-3.5">Scheduled</th>
+                    <th className="py-2.5 px-3.5 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 font-normal">
-                  {splitResult.allocations.length === 0 ? (
+                  {fulfillmentsLoading ? (
+                    <tr><td colSpan={5} className="py-8 text-center text-slate-400">Loading…</td></tr>
+                  ) : fulfillments.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="py-8 text-center text-slate-400 italic">
-                        No warehouse stock currently allocated.
+                      <td colSpan={5} className="py-8 text-center text-slate-400 italic">
+                        No fulfillments yet. Click &quot;Suggest Fulfillment&quot; to generate a recommended allocation.
                       </td>
                     </tr>
                   ) : (
-                    splitResult.allocations.map((alloc, idx) => {
-                      const wh = warehouses.find((w) => w.id === alloc.warehouseId);
-                      const currentAvail = wh ? getWarehouseAvailableStock(wh, alloc.productId) : 0;
-
-                      return (
-                        <tr key={idx} className="hover:bg-slate-50/60 transition-colors">
-                          <td className="py-2.5 px-3.5">
-                            <div className="font-semibold text-slate-800">{alloc.warehouseName}</div>
-                            <div className="text-[10px] text-slate-500 font-mono">
-                              Cost Factor: {(wh?.shippingCostWeight || 1.0).toFixed(1)}x
-                            </div>
-                          </td>
-
-                          <td className="py-2.5 px-3.5 font-mono font-semibold text-slate-900">
-                            {alloc.productId}
-                          </td>
-
-                          <td className="py-2.5 px-3.5 text-right font-mono text-slate-600">
-                            {currentAvail + (isAccepted ? alloc.quantityFulfilled : 0)} units
-                          </td>
-
-                          <td className="py-2.5 px-3.5 text-right font-mono font-bold text-emerald-800">
-                            <span className="bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                              {alloc.quantityFulfilled}
-                            </span>
-                          </td>
-
-                          <td className="py-2.5 px-3.5 text-center font-mono text-slate-700">
-                            1
-                          </td>
-
-                          <td className="py-2.5 px-3.5 text-right font-mono text-slate-600">
-                            ${alloc.shippingCost.toFixed(2)}
-                          </td>
-
-                          <td className="py-2.5 px-3.5 text-right font-mono text-slate-600">
-                            ${(alloc.handlingCost || 0).toFixed(2)}
-                          </td>
-
-                          <td className="py-2.5 px-3.5 text-right font-mono font-bold text-slate-900">
-                            ${(alloc.totalCost || alloc.shippingCost).toFixed(2)}
-                          </td>
-                        </tr>
-                      );
-                    })
+                    fulfillments.map((f) => (
+                      <tr key={f.id} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="py-2.5 px-3.5 font-mono font-semibold text-slate-900">{f.warehouse_id}</td>
+                        <td className="py-2.5 px-3.5"><StatusBadge status={f.status} size="sm" /></td>
+                        <td className="py-2.5 px-3.5 text-right font-mono">{(f.items || []).length}</td>
+                        <td className="py-2.5 px-3.5 font-mono text-slate-600">
+                          {f.scheduled_date ? new Date(f.scheduled_date).toLocaleDateString() : '—'}
+                        </td>
+                        <td className="py-2.5 px-3.5">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleAcceptSplit(f.id)}
+                              disabled={isActing || f.status !== 'PENDING'}
+                              className="px-2 py-1 text-[11px] font-semibold rounded border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 disabled:opacity-40"
+                            >
+                              Accept
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOverrideModalFor(f);
+                                setOverrideText('');
+                                setActionError(null);
+                              }}
+                              disabled={isActing}
+                              className="px-2 py-1 text-[11px] font-semibold rounded border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                            >
+                              Override
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleShip(f.id)}
+                              disabled={isActing || f.status === 'SHIPPED' || f.status === 'DELIVERED'}
+                              className="px-2 py-1 text-[11px] font-semibold rounded bg-[#714B67] text-white hover:bg-[#5E3E56] disabled:opacity-40"
+                            >
+                              Ship
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
                   )}
                 </tbody>
-                <tfoot>
-                  <tr className="bg-slate-50 font-mono text-xs border-t border-slate-200 font-semibold text-slate-800">
-                    <td colSpan={3} className="py-2.5 px-3.5 text-slate-600">
-                      Total Allocated / Required
-                    </td>
-                    <td className="py-2.5 px-3.5 text-right text-emerald-800 font-bold">
-                      {totalAllocated} / {totalPhysicalUnits}
-                    </td>
-                    <td className="py-2.5 px-3.5 text-center">
-                      {splitResult.totalShipments}
-                    </td>
-                    <td className="py-2.5 px-3.5 text-right text-slate-600">
-                      ${(splitResult.costBreakdown?.shippingCost || 0).toFixed(2)}
-                    </td>
-                    <td className="py-2.5 px-3.5 text-right text-slate-600">
-                      ${(splitResult.costBreakdown?.handlingCost || 0).toFixed(2)}
-                    </td>
-                    <td className="py-2.5 px-3.5 text-right text-blue-900 font-bold">
-                      ${splitResult.estimatedCost.toFixed(2)}
-                    </td>
-                  </tr>
-                </tfoot>
               </table>
-            </div>
-
-            {/* Backorder Callout Box if inventory is insufficient */}
-            {totalBackordered > 0 && (
-              <div className="p-3.5 bg-amber-50/90 border-t border-amber-200 text-xs text-amber-950 flex items-start gap-2.5">
-                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                <div className="space-y-0.5">
-                  <div className="font-bold">Partial Allocation Active — Backorder Generated</div>
-                  <div className="text-[11px] text-amber-900">
-                    Required: <strong>{totalPhysicalUnits}</strong> • Allocated from available stock: <strong>{totalAllocated}</strong> • Backordered:{' '}
-                    <strong>{totalBackordered} units</strong>. The engine will proactively notify when restocked inventory allows consolidation.
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Action Buttons Strip */}
-            <div className="p-3.5 bg-slate-50/80 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsOverrideModalOpen(true)}
-                  className="px-3 py-1.5 text-xs font-semibold rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                >
-                  <Sliders className="w-3.5 h-3.5 text-slate-500" />
-                  Manual Override
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleSimulateRestock}
-                  className="px-3 py-1.5 text-xs font-medium rounded border border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-900 transition-colors flex items-center gap-1.5 cursor-pointer"
-                  title="Demo test utility: Inbounds +25 units to Mumbai Distribution Center"
-                >
-                  <PlusCircle className="w-3.5 h-3.5 text-[#714B67]" />
-                  Demo: Simulate Restock (+25 to Mumbai)
-                </button>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleAcceptSplit}
-                disabled={!canManageFulfillment}
-                className="px-4 py-1.5 text-xs font-bold rounded bg-[#714B67] hover:bg-[#5E3E56] text-white shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                {isAccepted ? 'Re-confirm Allocation' : 'Accept Recommended Split'}
-              </button>
             </div>
           </div>
 
-          {/* Physical Line Items Spec */}
+          {/* Order Line Items */}
           <div className="bg-white border border-slate-200 rounded-sm shadow-xs p-4">
             <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3 flex items-center gap-2">
               <Package className="w-3.5 h-3.5 text-[#714B67]" />
-              Physical Line Items Requiring Fulfillment
+              Order Line Items
             </h4>
-
             <div className="border border-slate-200 rounded-sm overflow-hidden text-xs">
               <table className="w-full text-left">
                 <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 text-[11px]">
                   <tr>
-                    <th className="py-2 px-3">Product SKU</th>
-                    <th className="py-2 px-3">Description</th>
+                    <th className="py-2 px-3">Product ID</th>
                     <th className="py-2 px-3 text-right">Quantity</th>
-                    <th className="py-2 px-3 text-right">Unit Price</th>
+                    <th className="py-2 px-3 text-right">Fulfilled</th>
+                    <th className="py-2 px-3 text-right">Backordered</th>
                     <th className="py-2 px-3 text-right">Line Total</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-mono">
-                  {physicalLines.map((line) => (
+                  {(salesOrder.items || []).map((line) => (
                     <tr key={line.id} className="hover:bg-slate-50/50">
-                      <td className="py-2 px-3 font-bold text-slate-900">{line.productId}</td>
-                      <td className="py-2 px-3 font-sans text-slate-700">{line.productName}</td>
+                      <td className="py-2 px-3 font-bold text-slate-900">{line.product_id}</td>
                       <td className="py-2 px-3 text-right font-bold text-slate-900">{line.quantity}</td>
-                      <td className="py-2 px-3 text-right text-slate-600">${line.unitPrice.toLocaleString()}</td>
-                      <td className="py-2 px-3 text-right text-slate-900">${line.lineTotal.toLocaleString()}</td>
+                      <td className="py-2 px-3 text-right text-emerald-700">{line.fulfilled_quantity}</td>
+                      <td className="py-2 px-3 text-right text-amber-700">{line.backordered_quantity}</td>
+                      <td className="py-2 px-3 text-right text-slate-900">${Number(line.total).toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -872,85 +750,98 @@ export const FulfillmentDetailPage: React.FC = () => {
           </div>
         </div>
 
-        {/* RIGHT COLUMN: 1 Col wide */}
+        {/* RIGHT COLUMN */}
         <div className="space-y-5">
-          {/* Commercial Order Summary */}
           <div className="bg-white border border-slate-200 rounded-sm shadow-xs p-4 space-y-3">
             <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-2">
               Order Commercial Context
             </h4>
-
             <div className="space-y-2 text-xs">
               <div className="flex justify-between">
-                <span className="text-slate-500">Customer:</span>
-                <span className="font-semibold text-slate-900">{quote.customerName}</span>
+                <span className="text-slate-500">Customer ID:</span>
+                <span className="font-mono font-semibold text-slate-900">{salesOrder.customer_id}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Tier:</span>
-                <span className="font-mono text-slate-700">{quote.customerTier || 'Silver'}</span>
+                <span className="text-slate-500">Quotation ID:</span>
+                <span className="font-mono text-slate-700">{salesOrder.quotation_id}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Sales Representative:</span>
-                <span className="text-slate-800">{quote.repName || 'Alex Rivera'}</span>
+                <span className="text-slate-500">Grand Total:</span>
+                <span className="font-mono font-bold text-blue-900">${Number(salesOrder.grand_total).toLocaleString()}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-500">Commercial Total:</span>
-                <span className="font-mono font-bold text-blue-900">
-                  ${(quote.grandTotal ?? quote.totalAmount ?? 0).toLocaleString()}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Workflow Stage:</span>
-                <StatusBadge status={quote.stage} size="sm" />
+                <span className="text-slate-500">Status:</span>
+                <StatusBadge status={salesOrder.status} size="sm" />
               </div>
             </div>
           </div>
 
-          {/* Fulfillment Audit Trail */}
+          {/* Backorders (new — GET /backorders + consolidate) */}
           <div className="bg-white border border-slate-200 rounded-sm shadow-xs p-4">
             <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3 flex items-center gap-2 border-b border-slate-100 pb-2">
-              <History className="w-3.5 h-3.5 text-[#714B67]" />
-              Fulfillment Audit Trail
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+              Backorders
             </h4>
-
-            {quoteEvents.length === 0 ? (
-              <p className="text-xs text-slate-400 italic">No fulfillment events logged yet.</p>
+            {boLoading ? (
+              <p className="text-xs text-slate-400">Loading…</p>
+            ) : backorders.length === 0 ? (
+              <p className="text-xs text-slate-400 italic">No open backorders for this order.</p>
             ) : (
-              <div className="space-y-3 text-xs">
-                {quoteEvents
-                  .slice()
-                  .reverse()
-                  .map((ev) => (
-                    <div key={ev.id} className="border-l-2 border-[#714B67] pl-3 py-0.5 space-y-0.5">
-                      <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
-                        <span>{new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                        <span className="font-semibold text-slate-700">{ev.actorName || 'System'}</span>
-                      </div>
-                      <div className="font-semibold text-slate-800 text-[11px] font-mono">
-                        {ev.eventType}
-                      </div>
-                      <div className="text-slate-600 text-[11px] leading-tight font-sans">
-                        {ev.note}
-                      </div>
+              <div className="space-y-2 text-xs">
+                {backorders.map((b) => (
+                  <div key={b.id} className="border border-amber-200 bg-amber-50/50 rounded p-2.5 flex items-center justify-between gap-2">
+                    <div>
+                      <div className="font-semibold text-amber-950">{b.quantity} units — {b.status}</div>
+                      {b.expected_date && (
+                        <div className="text-[10px] text-amber-800">Expected: {new Date(b.expected_date).toLocaleDateString()}</div>
+                      )}
                     </div>
-                  ))}
+                    <button
+                      type="button"
+                      onClick={() => handleConsolidate(b.id)}
+                      disabled={isActing || b.status !== 'OPEN'}
+                      className="px-2.5 py-1 text-[11px] font-bold rounded bg-amber-600 hover:bg-amber-700 text-white disabled:opacity-40"
+                    >
+                      Consolidate
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* Manual Override Modal */}
-      <FulfillmentOverrideModal
-        isOpen={isOverrideModalOpen}
-        onClose={() => setIsOverrideModalOpen(false)}
-        quotation={quote}
-        warehouses={warehouses}
-        currentAllocations={splitResult.allocations}
-        onSaveOverride={(newAllocs) => overrideWarehouseSplit(quote.id, newAllocs)}
-        canOverride={overridePermission.allowed}
-        permissionReason={overridePermission.reason}
-      />
+      {/* Manual Override Modal — plain JSON input against the real
+          override-split endpoint. The mock-typed FulfillmentOverrideModal
+          component (rich per-allocation UI) is coupled to the mock
+          Quotation/Warehouse shapes and isn't reused here; a proper
+          allocation-editing UI can replace this once the backend documents
+          a stable allocations schema. */}
+      <Modal
+        isOpen={!!overrideModalFor}
+        onClose={() => setOverrideModalFor(null)}
+        title={`Override Split — ${overrideModalFor?.warehouse_id || ''}`}
+        description="Provide the manual allocation override as JSON (advanced)."
+        size="md"
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setOverrideModalFor(null)}>Cancel</Button>
+            <Button variant="primary" size="sm" onClick={handleOverrideSave} disabled={isActing}>Save Override</Button>
+          </div>
+        }
+      >
+        <div className="space-y-2 text-xs">
+          {actionError && <div className="p-2 bg-rose-50 border border-rose-200 rounded text-rose-800">{actionError}</div>}
+          <textarea
+            value={overrideText}
+            onChange={(e) => setOverrideText(e.target.value)}
+            placeholder='[{"item_id":"...","warehouse_id":"...","quantity":5}]'
+            rows={6}
+            className="w-full p-2.5 border border-slate-300 rounded font-mono text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:ring-1 focus:ring-[#714B67]"
+          />
+        </div>
+      </Modal>
     </div>
   );
 };

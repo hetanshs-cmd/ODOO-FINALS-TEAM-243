@@ -14,7 +14,7 @@ export const listInvoicesQuerySchema = z.object({
 });
 
 export const recordPaymentSchema = z.object({
-  amount: z.number().positive('amount must be greater than 0'),
+  amount: z.number().finite().positive('amount must be greater than 0').multipleOf(0.01),
   payment_method: z.string().min(1).max(30),
   transaction_reference: z.string().max(100).optional(),
 });

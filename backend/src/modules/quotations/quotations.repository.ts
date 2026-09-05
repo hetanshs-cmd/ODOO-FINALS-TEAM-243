@@ -1,3 +1,4 @@
+import { PoolClient } from 'pg';
 import { db } from '../../config/database';
 import { Quotation, QuotationItem } from './quotations.model';
 
@@ -17,15 +18,14 @@ export interface CreateQuotationItemInput {
   quantity: number;
   unit_price: number;
   discount_percent: number;
-  discount_amount: number;
   tax_percent: number;
-  line_total: number;
   billing_type: 'ONE_TIME' | 'RECURRING';
 }
 
 export const quotationsRepository = {
-  async create(input: CreateQuotationInput): Promise<Quotation> {
-    const { rows } = await db.query(
+  /** Takes the caller's transaction client so the insert and its audit row commit together. */
+  async create(client: PoolClient, input: CreateQuotationInput): Promise<Quotation> {
+    const { rows } = await client.query(
       `INSERT INTO quotations (quotation_number, customer_id, sales_rep_id, price_list_id, currency, valid_until)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
@@ -38,29 +38,74 @@ export const quotationsRepository = {
         input.valid_until,
       ],
     );
-    return rows[0] as Quotation;
+    // A brand-new quotation has no items yet, so quotation_totals would
+    // report all-zero anyway — skip the extra round trip.
+    return {
+      ...(rows[0] as Omit<Quotation, 'subtotal' | 'discount_total' | 'tax_total' | 'grand_total'>),
+      subtotal: '0.00',
+      discount_total: '0.00',
+      tax_total: '0.00',
+      grand_total: '0.00',
+    };
   },
 
+  /**
+   * Money totals are not stored on `quotations` — they're derived from
+   * quotation_items via the `quotation_totals` view (single source of
+   * truth, see 006_quotations.sql), so every read joins it in.
+   */
   async findById(id: string): Promise<Quotation | null> {
-    const { rows } = await db.query('SELECT * FROM quotations WHERE id = $1', [id]);
+    const { rows } = await db.query(
+      `SELECT q.*, qt.subtotal, qt.discount_total, qt.tax_total, qt.grand_total
+       FROM quotations q
+       JOIN quotation_totals qt ON qt.quotation_id = q.id
+       WHERE q.id = $1`,
+      [id],
+    );
     return (rows[0] as Quotation | undefined) ?? null;
   },
 
+  /**
+   * margin_percent is computed here (not stored) from the product's current
+   * cost_price, mirroring upsell.repository's margin CASE — null when the
+   * product has no cost_price on record, never a guessed value.
+   *
+   * Reads from `quotation_item_amounts` (not the bare `quotation_items`
+   * table) so discount_amount/tax_amount/line_total come from the single
+   * canonical formula instead of being recomputed here.
+   */
   async listItems(quotationId: string): Promise<QuotationItem[]> {
     const { rows } = await db.query(
-      'SELECT * FROM quotation_items WHERE quotation_id = $1 ORDER BY created_at ASC',
+      `SELECT qia.*,
+              CASE WHEN p.cost_price IS NULL OR qia.unit_price = 0 THEN NULL
+                   ELSE ROUND(((qia.unit_price - p.cost_price) / qia.unit_price * 100)::numeric, 2)
+              END AS margin_percent
+       FROM quotation_item_amounts qia
+       JOIN products p ON p.id = qia.product_id
+       WHERE qia.quotation_id = $1
+       ORDER BY qia.created_at ASC`,
       [quotationId],
     );
     return rows as QuotationItem[];
   },
 
+  async findProductCostPrice(productId: string): Promise<string | null> {
+    const { rows } = await db.query('SELECT cost_price FROM products WHERE id = $1', [productId]);
+    return (rows[0] as { cost_price: string | null } | undefined)?.cost_price ?? null;
+  },
+
+  /**
+   * Inserts the raw line inputs only — discount_amount/tax_amount/line_total
+   * are never stored (006_quotations.sql), so the insert is immediately
+   * followed by a read from `quotation_item_amounts` to hand back the
+   * computed figures the caller (and the API contract) still needs.
+   */
   async addItem(input: CreateQuotationItemInput): Promise<QuotationItem> {
     const { rows } = await db.query(
       `INSERT INTO quotation_items
-         (quotation_id, product_id, description, quantity, unit_price,
-          discount_percent, discount_amount, tax_percent, line_total, billing_type)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING *`,
+         (quotation_id, product_id, description, quantity, unit_price, discount_percent, tax_percent, billing_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id`,
       [
         input.quotation_id,
         input.product_id,
@@ -68,13 +113,16 @@ export const quotationsRepository = {
         input.quantity,
         input.unit_price,
         input.discount_percent,
-        input.discount_amount,
         input.tax_percent,
-        input.line_total,
         input.billing_type,
       ],
     );
-    return rows[0] as QuotationItem;
+    const insertedId = (rows[0] as { id: string }).id;
+    const { rows: amountRows } = await db.query(
+      'SELECT * FROM quotation_item_amounts WHERE id = $1',
+      [insertedId],
+    );
+    return amountRows[0] as QuotationItem;
   },
 
   async list(
@@ -99,8 +147,11 @@ export const quotationsRepository = {
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     params.push(limit, offset);
     const { rows } = await db.query(
-      `SELECT * FROM quotations ${where}
-       ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      `SELECT q.*, qt.subtotal, qt.discount_total, qt.tax_total, qt.grand_total
+       FROM quotations q
+       JOIN quotation_totals qt ON qt.quotation_id = q.id
+       ${where}
+       ORDER BY q.created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params,
     );
     return rows as Quotation[];
@@ -145,36 +196,35 @@ export const quotationsRepository = {
     const params: unknown[] = entries.map(([, value]) => value);
     const setClause = entries.map(([key], i) => `${key} = $${i + 2}`).join(', ');
     const { rows } = await db.query(
-      `UPDATE quotations SET ${setClause} WHERE id = $1 RETURNING *`,
+      `WITH updated AS (
+         UPDATE quotations SET ${setClause} WHERE id = $1 RETURNING *
+       )
+       SELECT updated.*, qt.subtotal, qt.discount_total, qt.tax_total, qt.grand_total
+       FROM updated JOIN quotation_totals qt ON qt.quotation_id = updated.id`,
       [id, ...params],
     );
     return (rows[0] as Quotation | undefined) ?? null;
   },
 
-  /**
-   * Recomputes quotation-level totals from its current items. Called after
-   * every item add/edit so `quotations.subtotal/discount_total/tax_total/
-   * grand_total` never drift from the authoritative per-item figures.
-   */
-  async recalculateTotals(quotationId: string): Promise<Quotation> {
+  async listTimeline(quotationId: string): Promise<Record<string, unknown>[]> {
     const { rows } = await db.query(
-      `UPDATE quotations SET
-         subtotal = COALESCE((
-           SELECT SUM(quantity * unit_price) FROM quotation_items WHERE quotation_id = $1
-         ), 0),
-         discount_total = COALESCE((
-           SELECT SUM(discount_amount) FROM quotation_items WHERE quotation_id = $1
-         ), 0),
-         tax_total = COALESCE((
-           SELECT SUM(line_total - (quantity * unit_price - discount_amount)) FROM quotation_items WHERE quotation_id = $1
-         ), 0),
-         grand_total = COALESCE((
-           SELECT SUM(line_total) FROM quotation_items WHERE quotation_id = $1
-         ), 0)
-       WHERE id = $1
-       RETURNING *`,
+      `SELECT * FROM audit_logs WHERE entity_type = 'quotation' AND entity_id = $1
+       ORDER BY created_at ASC`,
       [quotationId],
     );
-    return rows[0] as Quotation;
+    return rows;
+  },
+
+  /** Dedicated status-transition flow (e.g. DRAFT -> SUBMITTED on submit). */
+  async updateStatus(client: PoolClient, id: string, status: string): Promise<Quotation | null> {
+    const { rows } = await client.query(
+      `WITH updated AS (
+         UPDATE quotations SET status = $2 WHERE id = $1 RETURNING *
+       )
+       SELECT updated.*, qt.subtotal, qt.discount_total, qt.tax_total, qt.grand_total
+       FROM updated JOIN quotation_totals qt ON qt.quotation_id = updated.id`,
+      [id, status],
+    );
+    return (rows[0] as Quotation | undefined) ?? null;
   },
 };

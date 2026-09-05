@@ -71,6 +71,11 @@ jobs:
           FRONTEND_URL: http://localhost:5173
           PORT: 4000
           TEST_USER_PASSWORD: ci-test-fixture-password
+          # Test-only: exercises the portal magic-link devToken path.
+          # NODE_ENV is guaranteed 'test' here, and config/env.ts refuses to
+          # boot with this set alongside NODE_ENV=production, so this can't
+          # leak into a real deployment.
+          ALLOW_DEV_MAGIC_LINK: 'true'
 
   # ── Frontend Quality Checks ─────────────────────────────────────────────────
   frontend:
@@ -101,8 +106,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Format check
-        run: npm run format:check
+      # No formatter (prettier or otherwise) is configured for the frontend
+      # package — unlike the backend, there is no format:check script to run,
+      # and adding one is a new-tooling decision for the team, not a CI fix.
 
       - name: Build
         run: npm run build

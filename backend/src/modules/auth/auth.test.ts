@@ -100,6 +100,81 @@ describe('authService.login', () => {
   });
 });
 
+describe('authService.signup', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('creates a user, hashes the password, and returns an access token', async () => {
+    vi.mocked(authRepository.findUserByEmail).mockResolvedValue(null);
+    vi.mocked(authRepository.findRoleByName).mockResolvedValue({
+      id: 'role-1',
+      name: 'SALES_REP',
+    });
+    const createdUser = await makeUser({ id: 'user-2', email: 'new@example.com' });
+    vi.mocked(authRepository.createUser).mockResolvedValue(createdUser);
+
+    const result = await authService.signup({
+      name: 'New User',
+      email: 'new@example.com',
+      password: PASSWORD,
+    });
+
+    expect(result.accessToken).toBeTypeOf('string');
+    expect(result.user).toEqual({
+      id: createdUser.id,
+      name: createdUser.name,
+      email: createdUser.email,
+      role: createdUser.role_name,
+    });
+    expect(result.user).not.toHaveProperty('password_hash');
+    expect(authRepository.findRoleByName).toHaveBeenCalledWith('SALES_REP');
+    expect(authRepository.createUser).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'New User', email: 'new@example.com', roleId: 'role-1' }),
+    );
+  });
+
+  it('defaults to the SALES_REP role when none is given', async () => {
+    vi.mocked(authRepository.findUserByEmail).mockResolvedValue(null);
+    vi.mocked(authRepository.findRoleByName).mockResolvedValue({
+      id: 'role-2',
+      name: 'SALES_REP',
+    });
+    vi.mocked(authRepository.createUser).mockResolvedValue(
+      await makeUser({ role_name: 'SALES_REP' }),
+    );
+
+    await authService.signup({ name: 'New User', email: 'new@example.com', password: PASSWORD });
+
+    expect(authRepository.findRoleByName).toHaveBeenCalledWith('SALES_REP');
+  });
+
+  it('rejects signup with a 409 when the email is already registered', async () => {
+    const existing = await makeUser();
+    vi.mocked(authRepository.findUserByEmail).mockResolvedValue(existing);
+
+    await expect(
+      authService.signup({ name: 'Dup', email: existing.email, password: PASSWORD }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+
+    expect(authRepository.createUser).not.toHaveBeenCalled();
+  });
+
+  it('rejects a role that does not exist', async () => {
+    vi.mocked(authRepository.findUserByEmail).mockResolvedValue(null);
+    vi.mocked(authRepository.findRoleByName).mockResolvedValue(null);
+
+    await expect(
+      authService.signup({
+        name: 'New User',
+        email: 'new@example.com',
+        password: PASSWORD,
+        role: 'NOT_A_ROLE',
+      }),
+    ).rejects.toThrow(AppError);
+  });
+});
+
 describe('authService.requestMagicLink / verifyMagicLink', () => {
   beforeEach(() => {
     vi.clearAllMocks();

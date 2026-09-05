@@ -10,8 +10,6 @@ CREATE TABLE fulfillments (
     status          VARCHAR(20) NOT NULL DEFAULT 'PENDING',
     scheduled_date  DATE,
     fulfilled_date  DATE,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT chk_fulfillments_status CHECK (
         status IN ('PENDING', 'IN_PROGRESS', 'SHIPPED', 'DELIVERED', 'CANCELLED')
     )
@@ -19,9 +17,7 @@ CREATE TABLE fulfillments (
 CREATE INDEX idx_fulfillments_sales_order_id ON fulfillments(sales_order_id);
 CREATE INDEX idx_fulfillments_warehouse_id ON fulfillments(warehouse_id);
 CREATE INDEX idx_fulfillments_status ON fulfillments(status);
-CREATE TRIGGER trg_fulfillments_updated_at
-    BEFORE UPDATE ON fulfillments
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE INDEX idx_fulfillments_scheduled_date ON fulfillments(scheduled_date);
 
 CREATE TABLE fulfillment_items (
     id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -29,8 +25,6 @@ CREATE TABLE fulfillment_items (
     sales_order_item_id   UUID NOT NULL REFERENCES sales_order_items(id) ON DELETE RESTRICT,
     quantity              NUMERIC(12,2) NOT NULL,
     status                VARCHAR(20) NOT NULL DEFAULT 'PENDING',
-    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT chk_fulfillment_items_quantity CHECK (quantity > 0),
     CONSTRAINT chk_fulfillment_items_status CHECK (
         status IN ('PENDING', 'PACKED', 'SHIPPED', 'DELIVERED', 'CANCELLED')
@@ -38,6 +32,3 @@ CREATE TABLE fulfillment_items (
 );
 CREATE INDEX idx_fulfillment_items_fulfillment_id ON fulfillment_items(fulfillment_id);
 CREATE INDEX idx_fulfillment_items_sales_order_item_id ON fulfillment_items(sales_order_item_id);
-CREATE TRIGGER trg_fulfillment_items_updated_at
-    BEFORE UPDATE ON fulfillment_items
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
