@@ -10,8 +10,6 @@ CREATE TABLE recommendation_rules (
     priority                 INTEGER NOT NULL DEFAULT 0,
     reason                   TEXT,
     status                   VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
-    created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT chk_recommendation_rules_type CHECK (recommendation_type IN ('UPSELL', 'CROSS_SELL')),
     CONSTRAINT chk_recommendation_rules_priority CHECK (priority >= 0),
     CONSTRAINT chk_recommendation_rules_not_self CHECK (source_product_id <> recommended_product_id),
@@ -20,6 +18,3 @@ CREATE TABLE recommendation_rules (
 );
 CREATE INDEX idx_recommendation_rules_source_product_id ON recommendation_rules(source_product_id);
 CREATE INDEX idx_recommendation_rules_recommended_product_id ON recommendation_rules(recommended_product_id);
-CREATE TRIGGER trg_recommendation_rules_updated_at
-    BEFORE UPDATE ON recommendation_rules
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();

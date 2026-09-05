@@ -10,7 +10,7 @@
 
 import { getToken } from './tokenStore';
 
-const DEFAULT_BASE_URL = 'http://localhost:4000/api/v1';
+const DEFAULT_BASE_URL = '/api/v1';
 
 function resolveBaseUrl(): string {
   try {

@@ -39,9 +39,10 @@ import {
   Tag,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import { useNegotiation } from '../hooks/useNegotiation';
 import { toast } from '../components/ui/Toast';
 import { portalService, negotiationService } from '../services';
-import { ApiQuotationWithItems, ApiNegotiation, ApiNegotiationMessage } from '../services/apiTypes';
+import { ApiQuotationWithItems } from '../services/apiTypes';
 import { ApiError } from '../services/httpClient';
 
 // =========================================================================
@@ -116,15 +117,9 @@ export const PortalQuotationPage: React.FC = () => {
     e.preventDefault();
     setIsSubmittingRequest(true);
     try {
-      let negotiation: ApiNegotiation;
-      try {
-        negotiation = await negotiationService.open(quote.id);
-      } catch (err) {
-        // A negotiation may already be open for this quotation — that's not
-        // fatal, we just can't post a fresh message without its id in that
-        // case (no "get negotiation by quotation id" lookup is exposed).
-        throw err;
-      }
+      // Resumes the existing OPEN/IN_PROGRESS thread if one exists, otherwise
+      // opens a new one — see negotiationService.openOrResume.
+      const negotiation = await negotiationService.openOrResume(quote.id);
       await negotiationService.addMessage(negotiation.id, { message: negotiationMessage, message_type: 'TEXT' });
       setShowRequestChangesForm(false);
       toast.success('Request Sent', 'Your requested changes have been sent to your account team for review.');
@@ -450,55 +445,36 @@ export const PortalQuotationPage: React.FC = () => {
 
 export const PortalMessagesPage: React.FC = () => {
   const { user } = useAuth();
-  const [quotes, setQuotes] = useState<ApiQuotationWithItems[]>([]);
-  const [negotiation, setNegotiation] = useState<(ApiNegotiation & { messages?: ApiNegotiationMessage[] }) | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [newMessageText, setNewMessageText] = useState('');
-  const [isSending, setIsSending] = useState(false);
 
+  // Real quotations for this portal customer (GET /portal/quotations) — the
+  // negotiation API needs a real quotation UUID, not a mock-store id.
+  const [quotes, setQuotes] = useState<ApiQuotationWithItems[]>([]);
+  const [quotesLoading, setQuotesLoading] = useState(true);
   useEffect(() => {
-    setLoading(true);
     portalService
       .getQuotations()
-      .then(async (data) => {
-        setQuotes(data as ApiQuotationWithItems[]);
-        // Best-effort: open (or reuse) a negotiation thread for the first
-        // quotation so there's something to display messages against.
-        // There's no "get negotiation by quotation id" lookup exposed, so
-        // this always opens fresh rather than resuming a prior thread.
-        if (data.length > 0) {
-          try {
-            const neg = await negotiationService.open(data[0].id);
-            const full = await negotiationService.getById(neg.id);
-            setNegotiation(full);
-          } catch {
-            setNegotiation(null);
-          }
-        }
-      })
-      .finally(() => setLoading(false));
+      .then((data) => setQuotes(data as ApiQuotationWithItems[]))
+      .finally(() => setQuotesLoading(false));
   }, []);
 
   const primaryQuote = quotes[0];
+  const { messages, loading, sending, sendMessage } = useNegotiation(primaryQuote?.id);
+
+  const [newMessageText, setNewMessageText] = useState('');
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessageText.trim() || !negotiation) return;
-    setIsSending(true);
+    if (!newMessageText.trim() || !primaryQuote) return;
     try {
-      await negotiationService.addMessage(negotiation.id, { message: newMessageText.trim(), message_type: 'TEXT' });
+      await sendMessage(newMessageText.trim());
       setNewMessageText('');
-      const full = await negotiationService.getById(negotiation.id);
-      setNegotiation(full);
       toast.success('Message Dispatched', 'Your message has been sent to your account team.');
-    } catch (err) {
-      toast.error('Failed to send', err instanceof ApiError ? err.message : 'Unknown error.');
-    } finally {
-      setIsSending(false);
+    } catch {
+      toast.error('Failed to send', 'Your message could not be delivered. Please try again.');
     }
   };
 
-  if (loading) {
+  if (quotesLoading) {
     return <div className="max-w-4xl mx-auto py-12 text-center text-xs text-gray-500">Loading messages…</div>;
   }
 
@@ -526,39 +502,51 @@ export const PortalMessagesPage: React.FC = () => {
             value={newMessageText}
             onChange={(e) => setNewMessageText(e.target.value)}
             placeholder="Ask a question regarding delivery timelines, commercial terms, or line items..."
-            className="flex-1 text-xs bg-white border border-gray-300 rounded px-3 py-1.5 text-gray-800 focus:outline-none focus:border-[#714B67]"
-            disabled={!negotiation}
+            className="flex-1 text-xs bg-white border border-gray-300 rounded px-3 py-1.5 text-gray-800 focus:outline-none focus:border-[#714B67] disabled:bg-gray-50"
+            disabled={!primaryQuote || sending}
           />
           <button
             type="submit"
-            disabled={!negotiation || isSending}
-            className="bg-[#714B67] hover:bg-[#5A3A52] text-white px-4 py-1.5 rounded text-xs font-semibold transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+            disabled={!primaryQuote || sending}
+            className="bg-[#714B67] hover:bg-[#5A3A52] text-white px-4 py-1.5 rounded text-xs font-semibold transition-colors cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Send
+            {sending ? 'Sending...' : 'Send'}
           </button>
         </form>
       </div>
 
       <div className="space-y-3">
-        {!negotiation || !negotiation.messages || negotiation.messages.length === 0 ? (
+        {loading ? (
+          <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-xs text-gray-500">
+            Loading messages...
+          </div>
+        ) : messages.length === 0 ? (
           <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-xs text-gray-500">
             No message history recorded yet. Use the input above to ask your account team a question.
           </div>
         ) : (
-          negotiation.messages.map((msg) => (
-            <div key={msg.id} className="bg-white rounded-lg border border-gray-200 p-4 shadow-2xs space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-gray-900">
-                    {msg.sender_user_id === user.id ? user.name : msg.sender_user_id}
-                  </span>
-                  <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-medium">{msg.message_type}</span>
+          messages.map((msg) => {
+            const isMine = msg.sender_user_id === user.id;
+            return (
+              <div key={msg.id} className="bg-white rounded-lg border border-gray-200 p-4 shadow-2xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-gray-900">{isMine ? user.name : 'Account Team'}</span>
+                    <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-medium">
+                      {isMine ? 'You' : 'Sales Rep'}
+                    </span>
+                    {msg.message_type === 'COUNTER_OFFER' && (
+                      <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded font-semibold">
+                        Counter-Offer
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[11px] text-gray-400">{new Date(msg.created_at).toLocaleString()}</span>
                 </div>
-                <span className="text-[11px] text-gray-400">{new Date(msg.created_at).toLocaleString()}</span>
+                <p className="text-xs text-gray-700 leading-relaxed">{msg.message}</p>
               </div>
-              <p className="text-xs text-gray-700 leading-relaxed">{msg.message}</p>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>

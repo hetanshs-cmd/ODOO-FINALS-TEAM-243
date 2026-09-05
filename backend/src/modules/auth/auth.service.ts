@@ -6,11 +6,17 @@
  */
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
-import { AppError } from '../../errors/AppError';
+import { AppError, Errors } from '../../errors/AppError';
+import { mapDbError } from '../../shared/crud/dbErrors';
 import { config } from '../../config/env';
 import { signInternalToken, signPortalToken } from '../../utils/jwt';
 import * as authRepository from './auth.repository';
 import { LoginResult, RequestMagicLinkResult, VerifyMagicLinkResult } from './auth.types';
+
+// Least-privileged internal role — applied when a signup request doesn't
+// specify one. Staff signup is the only flow this endpoint serves for now;
+// CUSTOMER accounts are provisioned via users.customer_id/admin, not self-signup.
+const DEFAULT_SIGNUP_ROLE = 'SALES_REP';
 
 /**
  * POST /auth/login
@@ -28,7 +34,7 @@ export async function login(email: string, password: string): Promise<LoginResul
   if (!user) {
     throw invalidCredentials();
   }
-  if (user.status !== 'ACTIVE') {
+  if (user.status !== 'ACTIVE' || user.role_name === 'CUSTOMER') {
     throw invalidCredentials();
   }
 
@@ -38,6 +44,63 @@ export async function login(email: string, password: string): Promise<LoginResul
   }
 
   await authRepository.updateLastLogin(user.id);
+
+  const accessToken = signInternalToken(user.id, user.role_name);
+
+  return {
+    accessToken,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role_name,
+    },
+  };
+}
+
+/**
+ * POST /auth/signup
+ *
+ * Creates a new internal (staff) user and logs them in immediately,
+ * returning the exact same { accessToken, user } shape as login() — so a
+ * client can treat signup and login responses identically.
+ */
+export async function signup(input: {
+  name: string;
+  email: string;
+  password: string;
+  role?: string;
+}): Promise<LoginResult> {
+  if (input.role && input.role !== DEFAULT_SIGNUP_ROLE) {
+    throw new AppError('FORBIDDEN', 403, 'Public registration only permits the Sales Rep role');
+  }
+  const existing = await authRepository.findUserByEmail(input.email);
+  if (existing) {
+    throw Errors.conflict('An account with this email already exists');
+  }
+
+  const roleName = input.role ?? DEFAULT_SIGNUP_ROLE;
+  const role = await authRepository.findRoleByName(roleName);
+  if (!role) {
+    throw new AppError('INVALID_ROLE', 400, `Role "${roleName}" does not exist`);
+  }
+
+  const passwordHash = await bcrypt.hash(input.password, config.BCRYPT_ROUNDS);
+
+  let user;
+  try {
+    user = await authRepository.createUser({
+      name: input.name,
+      email: input.email,
+      passwordHash,
+      roleId: role.id,
+    });
+  } catch (err) {
+    // Catches the race where two signups for the same email land between
+    // the pre-check above and this insert — the UNIQUE constraint on
+    // users.email is the real guard, this just gives it a clean 409.
+    throw mapDbError(err, 'User');
+  }
 
   const accessToken = signInternalToken(user.id, user.role_name);
 
@@ -71,6 +134,21 @@ const magicLinks = new Map<string, MagicLinkRecord>();
 const MAGIC_LINK_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
 /**
+ * Hard cap on the in-memory store. Entries used to be removed only when
+ * someone looked them up, so repeatedly requesting links for a valid address
+ * grew this map without bound. Until the store moves into Postgres (tracked
+ * in CODEBASE_AUDIT.md as DB-14), sweeping on write bounds the memory.
+ */
+const MAGIC_LINK_MAX_ENTRIES = 10_000;
+
+function sweepExpiredMagicLinks(): void {
+  const now = Date.now();
+  for (const [token, record] of magicLinks) {
+    if (record.expiresAt < now) magicLinks.delete(token);
+  }
+}
+
+/**
  * POST /portal/request-link
  *
  * Always returns the same generic message, whether or not the email
@@ -92,6 +170,13 @@ export async function requestMagicLink(email: string): Promise<RequestMagicLinkR
     return genericResponse;
   }
 
+  sweepExpiredMagicLinks();
+  if (magicLinks.size >= MAGIC_LINK_MAX_ENTRIES) {
+    // Refuse to grow further rather than exhaust process memory. The caller
+    // still gets the generic response, so this reveals nothing.
+    return genericResponse;
+  }
+
   const token = crypto.randomBytes(32).toString('hex');
   magicLinks.set(token, {
     userId: user.id,
@@ -99,14 +184,14 @@ export async function requestMagicLink(email: string): Promise<RequestMagicLinkR
     expiresAt: Date.now() + MAGIC_LINK_TTL_MS,
   });
 
-  // STUB: log instead of emailing — there's no email service configured yet.
-  console.log(`[portal] magic link for ${email}: token=${token}`);
+  // Delivery is not configured. Never put a bearer credential in server logs.
 
   return {
     ...genericResponse,
-    // Only returned outside production, so the flow is testable end-to-end
-    // without a real inbox. Never do this in production.
-    devToken: config.NODE_ENV !== 'production' ? token : undefined,
+    // Gated on an explicit opt-in, NOT on "not production" — an unset
+    // NODE_ENV must never be enough to hand out a portal session to anyone
+    // who knows a customer's email address.
+    devToken: config.ALLOW_DEV_MAGIC_LINK ? token : undefined,
   };
 }
 

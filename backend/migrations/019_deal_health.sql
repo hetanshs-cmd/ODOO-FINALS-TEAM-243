@@ -14,7 +14,6 @@ CREATE TABLE deal_health_scores (
     delay_risk          NUMERIC(5,2) NOT NULL,
     fulfillment_risk    NUMERIC(5,2) NOT NULL,
     calculated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT chk_deal_health_scores_score CHECK (score >= 0 AND score <= 100),
     CONSTRAINT chk_deal_health_scores_risk_level CHECK (risk_level IN ('LOW', 'MEDIUM', 'HIGH')),
     CONSTRAINT chk_deal_health_scores_discount_risk CHECK (discount_risk >= 0 AND discount_risk <= 100),

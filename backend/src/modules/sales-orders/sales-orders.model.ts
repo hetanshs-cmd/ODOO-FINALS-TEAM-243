@@ -14,7 +14,6 @@ export interface SalesOrder {
   grand_total: string;
   order_date: string;
   created_at: string;
-  updated_at: string;
 }
 
 export interface SalesOrderItem {
@@ -24,11 +23,11 @@ export interface SalesOrderItem {
   quantity: string;
   unit_price: string;
   discount: string;
+  tax_percent: string;
+  /** Computed by `sales_order_item_amounts`, not stored (011_sales_orders.sql). */
   total: string;
   fulfilled_quantity: string;
-  backordered_quantity: string;
   created_at: string;
-  updated_at: string;
 }
 
 export interface SalesOrderWithItems extends SalesOrder {

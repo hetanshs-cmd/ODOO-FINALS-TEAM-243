@@ -41,8 +41,8 @@ export const LoginPage: React.FC = () => {
   const [internalSubMode, setInternalSubMode] = useState<InternalSubMode>('login');
 
   // Internal Login Form State
-  const [internalEmail, setInternalEmail] = useState('sarah.chen@dealflow.demo');
-  const [internalPassword, setInternalPassword] = useState('demo123');
+  const [internalEmail, setInternalEmail] = useState('');
+  const [internalPassword, setInternalPassword] = useState('');
   const [internalTeam, setInternalTeam] = useState<TeamName>('Enterprise Accounts');
   const [showInternalPassword, setShowInternalPassword] = useState(false);
 
@@ -148,8 +148,8 @@ export const LoginPage: React.FC = () => {
 
     if (!signupPassword) {
       newErrors.password = 'Password is required.';
-    } else if (signupPassword.length < 6) {
-      newErrors.password = 'Password must be at least 6 characters long.';
+    } else if (signupPassword.length < 8) {
+      newErrors.password = 'Password must be at least 8 characters long.';
     }
 
     if (signupPassword !== signupConfirmPassword) {
@@ -258,6 +258,7 @@ export const LoginPage: React.FC = () => {
 
   // Quick Demo Account Trigger
   const handleQuickLogin = async (role: UserRole, emailHint?: string) => {
+    if (isLoading) return;
     setIsLoading(true);
     setAuthFeedback(null);
     setErrors({});
@@ -270,6 +271,8 @@ export const LoginPage: React.FC = () => {
       }
       toast.success('Demo Account Activated', `Authenticated as ${res.user?.name} (${res.user?.title || res.user?.role})`);
       navigate(res.targetRoute);
+    } catch {
+      setAuthFeedback('Unable to sign in. Please retry when the server is available.');
     } finally {
       setIsLoading(false);
     }
@@ -283,13 +286,7 @@ export const LoginPage: React.FC = () => {
       return;
     }
 
-    setForgotFeedback('Password reset flow simulated for demo: instructions sent to ' + forgotEmail);
-    setTimeout(() => {
-      setIsForgotPasswordOpen(false);
-      setForgotFeedback(null);
-      setForgotEmail('');
-      toast.info('Password Reset Simulated', `Demo recovery email dispatched to ${forgotEmail}.`);
-    }, 1200);
+    setForgotFeedback('Password recovery is not configured. Contact your administrator; no email has been sent.');
   };
 
   return (
@@ -406,7 +403,7 @@ export const LoginPage: React.FC = () => {
           </div>
 
           <div className="mt-4 flex items-center justify-between text-[11px] text-[#9CA3AF]">
-            <span>Enterprise Security • ISO 27001</span>
+            <span>DealFlow360 • Development Workspace</span>
             <span>Deterministic Demo Baseline</span>
           </div>
         </div>
@@ -764,7 +761,7 @@ export const LoginPage: React.FC = () => {
                         setSignupPassword(e.target.value);
                         clearFieldError('password');
                       }}
-                      placeholder="Min 6 characters"
+                      placeholder="Min 8 characters"
                       className={`w-full text-xs bg-white text-[#1F2937] border rounded-md pl-3 pr-8 py-1.5 focus:outline-none focus:ring-2 transition-colors ${
                         errors.password
                           ? 'border-[#F87171] focus:ring-[#FCA5A5]'
@@ -859,9 +856,6 @@ export const LoginPage: React.FC = () => {
                     className="w-full text-xs bg-white text-[#1F2937] border border-[#D1D5DB] rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#714B67]/20 focus:border-[#714B67] cursor-pointer"
                   >
                     <option value="sales_rep">Sales Representative</option>
-                    <option value="sales_manager">Sales Manager</option>
-                    <option value="finance">Finance / Operations</option>
-                    <option value="admin">Admin</option>
                   </select>
                 </div>
               </div>
@@ -1077,7 +1071,7 @@ export const LoginPage: React.FC = () => {
                 <div className="text-[11px] font-semibold text-[#1F2937] group-hover:text-[#714B67] truncate">
                   Sales Rep
                 </div>
-                <div className="text-[10px] text-[#6B7280] truncate">Sarah Chen</div>
+                <div className="text-[10px] text-[#6B7280] truncate">rep@dev.local</div>
               </button>
 
               <button
@@ -1089,19 +1083,21 @@ export const LoginPage: React.FC = () => {
                 <div className="text-[11px] font-semibold text-[#1F2937] group-hover:text-[#714B67] truncate">
                   Sales Manager
                 </div>
-                <div className="text-[10px] text-[#6B7280] truncate">David Vance</div>
+                <div className="text-[10px] text-[#6B7280] truncate">manager@dev.local</div>
               </button>
 
               <button
                 id="demo-login-finance"
                 type="button"
+                disabled
+                title="No Finance demo account is seeded"
                 onClick={() => handleQuickLogin('finance')}
                 className="p-2 rounded-md border border-[#E5E7EB] bg-[#F8F9FA] hover:bg-[#F3EDF2] hover:border-[#714B67] transition-all text-left group cursor-pointer"
               >
                 <div className="text-[11px] font-semibold text-[#1F2937] group-hover:text-[#714B67] truncate">
                   Finance
                 </div>
-                <div className="text-[10px] text-[#6B7280] truncate">Elena Rostova</div>
+                <div className="text-[10px] text-[#6B7280] truncate">Not available</div>
               </button>
 
               <button
@@ -1113,12 +1109,14 @@ export const LoginPage: React.FC = () => {
                 <div className="text-[11px] font-semibold text-[#1F2937] group-hover:text-[#714B67] truncate">
                   Admin
                 </div>
-                <div className="text-[10px] text-[#6B7280] truncate">Marcus Sterling</div>
+                <div className="text-[10px] text-[#6B7280] truncate">admin@dev.local</div>
               </button>
 
               <button
                 id="demo-login-customer-meridian"
                 type="button"
+                disabled
+                title="No Meridian portal account is seeded"
                 onClick={() => handleQuickLogin('customer', 'priya.nair@meridianindustrial.com')}
                 className="p-2 rounded-md border border-[#E5E7EB] bg-[#F8F9FA] hover:bg-[#F3EDF2] hover:border-[#714B67] transition-all text-left group cursor-pointer"
               >
@@ -1126,7 +1124,7 @@ export const LoginPage: React.FC = () => {
                   <span>Customer (Meridian)</span>
                   <span className="text-[9px] text-[#714B67] bg-[#F3EDF2] px-1 rounded font-medium">Portal</span>
                 </div>
-                <div className="text-[10px] text-[#6B7280] truncate">Priya Nair (Procurement)</div>
+                <div className="text-[10px] text-[#6B7280] truncate">Not available</div>
               </button>
 
               <button
@@ -1136,10 +1134,10 @@ export const LoginPage: React.FC = () => {
                 className="p-2 rounded-md border border-[#E5E7EB] bg-[#F8F9FA] hover:bg-[#F3EDF2] hover:border-[#714B67] transition-all text-left group cursor-pointer"
               >
                 <div className="text-[11px] font-semibold text-[#1F2937] group-hover:text-[#714B67] truncate flex items-center justify-between">
-                  <span>Customer (Acme Corp)</span>
+                  <span>Customer</span>
                   <span className="text-[9px] text-[#714B67] bg-[#F3EDF2] px-1 rounded font-medium">Portal</span>
                 </div>
-                <div className="text-[10px] text-[#6B7280] truncate">Vikram Mehta (Procurement)</div>
+                <div className="text-[10px] text-[#6B7280] truncate">portal@dev.local</div>
               </button>
             </div>
           </div>
