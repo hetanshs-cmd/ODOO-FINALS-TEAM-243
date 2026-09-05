@@ -41,7 +41,7 @@ const envSchema = z.object({
     .transform((value) => value === 'true'),
   OLLAMA_BASE_URL: z.string().url().default('http://localhost:11434'),
   OLLAMA_MODEL: z.string().default('qwen2.5:3b-instruct'),
-  OLLAMA_TIMEOUT_MS: z.string().default('8000').transform(Number),
+  OLLAMA_TIMEOUT_MS: z.string().default('20000').transform(Number),
 });
 
 /**
