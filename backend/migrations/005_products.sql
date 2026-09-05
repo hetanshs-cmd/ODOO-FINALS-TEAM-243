@@ -7,14 +7,9 @@ CREATE TABLE product_categories (
     name                VARCHAR(150) NOT NULL,
     description         TEXT,
     parent_category_id  UUID REFERENCES product_categories(id) ON DELETE RESTRICT,
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT chk_product_categories_not_self CHECK (parent_category_id <> id)
 );
 CREATE INDEX idx_product_categories_parent_category_id ON product_categories(parent_category_id);
-CREATE TRIGGER trg_product_categories_updated_at
-    BEFORE UPDATE ON product_categories
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 CREATE TABLE products (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -50,15 +45,10 @@ CREATE TABLE price_lists (
     valid_from        DATE NOT NULL,
     valid_until       DATE,
     status            VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT chk_price_lists_valid_range CHECK (valid_until IS NULL OR valid_until >= valid_from),
     CONSTRAINT chk_price_lists_status CHECK (status IN ('ACTIVE', 'INACTIVE', 'EXPIRED'))
 );
 CREATE INDEX idx_price_lists_customer_tier_id ON price_lists(customer_tier_id);
-CREATE TRIGGER trg_price_lists_updated_at
-    BEFORE UPDATE ON price_lists
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 CREATE TABLE price_list_items (
     id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -67,8 +57,6 @@ CREATE TABLE price_list_items (
     price          NUMERIC(14,2) NOT NULL,
     min_quantity   INTEGER,
     max_quantity   INTEGER,
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT uq_price_list_items UNIQUE (price_list_id, product_id),
     CONSTRAINT chk_price_list_items_price CHECK (price >= 0),
     CONSTRAINT chk_price_list_items_min_quantity CHECK (min_quantity IS NULL OR min_quantity > 0),
@@ -78,6 +66,3 @@ CREATE TABLE price_list_items (
 );
 CREATE INDEX idx_price_list_items_price_list_id ON price_list_items(price_list_id);
 CREATE INDEX idx_price_list_items_product_id ON price_list_items(product_id);
-CREATE TRIGGER trg_price_list_items_updated_at
-    BEFORE UPDATE ON price_list_items
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();

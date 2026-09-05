@@ -1,7 +1,11 @@
 -- Migration: 006_quotations.sql
 -- Description: Quotations (the central business object) and their line items.
 -- Depends on: 004_customers.sql, 003_rbac.sql (users), 005_products.sql
-
+--
+-- Money totals (subtotal / discount_total / tax_total / grand_total) are NOT
+-- stored on either table: they are derived from quotation_items at read time
+-- (quantity, unit_price, discount_percent, tax_percent are the only inputs a
+-- total needs), so a quotation can never disagree with its own line items.
 CREATE TABLE quotations (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     quotation_number  VARCHAR(50) NOT NULL UNIQUE,
@@ -10,10 +14,6 @@ CREATE TABLE quotations (
     price_list_id     UUID REFERENCES price_lists(id) ON DELETE SET NULL,
     status            VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
     currency          VARCHAR(3)  NOT NULL,
-    subtotal          NUMERIC(14,2) NOT NULL DEFAULT 0,
-    discount_total    NUMERIC(14,2) NOT NULL DEFAULT 0,
-    tax_total         NUMERIC(14,2) NOT NULL DEFAULT 0,
-    grand_total       NUMERIC(14,2) NOT NULL DEFAULT 0,
     valid_until       DATE,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -21,11 +21,7 @@ CREATE TABLE quotations (
         'DRAFT', 'SUBMITTED', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED',
         'SENT_TO_CUSTOMER', 'NEGOTIATION', 'ACCEPTED', 'DECLINED',
         'EXPIRED', 'CANCELLED', 'CONVERTED'
-    )),
-    CONSTRAINT chk_quotations_subtotal CHECK (subtotal >= 0),
-    CONSTRAINT chk_quotations_discount_total CHECK (discount_total >= 0),
-    CONSTRAINT chk_quotations_tax_total CHECK (tax_total >= 0),
-    CONSTRAINT chk_quotations_grand_total CHECK (grand_total >= 0)
+    ))
 );
 CREATE INDEX idx_quotations_customer_id ON quotations(customer_id);
 CREATE INDEX idx_quotations_sales_rep_id ON quotations(sales_rep_id);
@@ -46,22 +42,44 @@ CREATE TABLE quotation_items (
     quantity          NUMERIC(12,2) NOT NULL,
     unit_price        NUMERIC(14,2) NOT NULL,
     discount_percent  NUMERIC(5,2)  NOT NULL DEFAULT 0,
-    discount_amount   NUMERIC(14,2) NOT NULL DEFAULT 0,
     tax_percent       NUMERIC(5,2)  NOT NULL DEFAULT 0,
-    line_total        NUMERIC(14,2) NOT NULL,
     billing_type      VARCHAR(20)   NOT NULL,
-    created_at        TIMESTAMPTZ   NOT NULL DEFAULT now(),
-    updated_at        TIMESTAMPTZ   NOT NULL DEFAULT now(),
     CONSTRAINT chk_quotation_items_quantity CHECK (quantity > 0),
     CONSTRAINT chk_quotation_items_unit_price CHECK (unit_price >= 0),
     CONSTRAINT chk_quotation_items_discount_percent CHECK (discount_percent >= 0 AND discount_percent <= 100),
-    CONSTRAINT chk_quotation_items_discount_amount CHECK (discount_amount >= 0),
     CONSTRAINT chk_quotation_items_tax_percent CHECK (tax_percent >= 0 AND tax_percent <= 100),
-    CONSTRAINT chk_quotation_items_line_total CHECK (line_total >= 0),
     CONSTRAINT chk_quotation_items_billing_type CHECK (billing_type IN ('ONE_TIME', 'RECURRING'))
 );
 CREATE INDEX idx_quotation_items_quotation_id ON quotation_items(quotation_id);
 CREATE INDEX idx_quotation_items_product_id ON quotation_items(product_id);
-CREATE TRIGGER trg_quotation_items_updated_at
-    BEFORE UPDATE ON quotation_items
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- The single definition of quotation money math. Every reader (API responses,
+-- approvals, negotiation, conversion to a sales order, reporting) selects from
+-- these views instead of recomputing the formula — or storing it.
+-- Rounding is applied per step so results match to the cent regardless of
+-- whether a caller reads one line or a whole-quotation total.
+CREATE VIEW quotation_item_amounts AS
+SELECT
+    t.*,
+    ROUND(t.taxable_amount * t.tax_percent / 100, 2) AS tax_amount,
+    t.taxable_amount + ROUND(t.taxable_amount * t.tax_percent / 100, 2) AS line_total
+FROM (
+    SELECT
+        qi.*,
+        ROUND(qi.quantity * qi.unit_price, 2) AS line_subtotal,
+        ROUND(qi.quantity * qi.unit_price * qi.discount_percent / 100, 2) AS discount_amount,
+        ROUND(qi.quantity * qi.unit_price, 2)
+            - ROUND(qi.quantity * qi.unit_price * qi.discount_percent / 100, 2) AS taxable_amount
+    FROM quotation_items qi
+) t;
+
+CREATE VIEW quotation_totals AS
+SELECT
+    q.id                                 AS quotation_id,
+    COALESCE(SUM(a.line_subtotal), 0)    AS subtotal,
+    COALESCE(SUM(a.discount_amount), 0)  AS discount_total,
+    COALESCE(SUM(a.tax_amount), 0)       AS tax_total,
+    COALESCE(SUM(a.line_total), 0)       AS grand_total
+FROM quotations q
+LEFT JOIN quotation_item_amounts a ON a.quotation_id = q.id
+GROUP BY q.id;
