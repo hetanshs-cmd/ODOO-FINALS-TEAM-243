@@ -12,7 +12,6 @@ CREATE TABLE audit_logs (
     entity_id     UUID NOT NULL,
     old_value     JSONB,
     new_value     JSONB,
-    ip_address    VARCHAR(45),
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_audit_logs_user_id ON audit_logs(user_id);

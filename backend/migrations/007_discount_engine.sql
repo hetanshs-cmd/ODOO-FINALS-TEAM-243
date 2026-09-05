@@ -20,8 +20,6 @@ CREATE TABLE discount_rules (
     approval_required  BOOLEAN NOT NULL DEFAULT false,
     approval_level     INTEGER,
     active             BOOLEAN NOT NULL DEFAULT true,
-    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT chk_discount_rules_priority CHECK (priority >= 0),
     CONSTRAINT chk_discount_rules_min_discount CHECK (min_discount >= 0 AND min_discount <= 100),
     CONSTRAINT chk_discount_rules_max_discount CHECK (max_discount >= 0 AND max_discount <= 100),
@@ -31,13 +29,11 @@ CREATE INDEX idx_discount_rules_product_id ON discount_rules(product_id);
 CREATE INDEX idx_discount_rules_category_id ON discount_rules(category_id);
 CREATE INDEX idx_discount_rules_customer_tier_id ON discount_rules(customer_tier_id);
 CREATE INDEX idx_discount_rules_active ON discount_rules(active);
-CREATE TRIGGER trg_discount_rules_updated_at
-    BEFORE UPDATE ON discount_rules
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- discount_evaluations is an append-only history: every evaluation of a
--- requested discount is preserved (no updated_at, no upsert), so risk
--- decisions can be audited and re-evaluated after negotiation.
+-- requested discount is preserved (no updates, no upsert), so risk decisions
+-- can be audited and re-evaluated after negotiation. evaluated_at is the
+-- single timestamp — everything orders and filters by it.
 CREATE TABLE discount_evaluations (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     quotation_id        UUID NOT NULL REFERENCES quotations(id) ON DELETE CASCADE,
@@ -48,7 +44,6 @@ CREATE TABLE discount_evaluations (
     risk_level          VARCHAR(20) NOT NULL,
     decision            VARCHAR(20) NOT NULL,
     evaluated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT chk_discount_evaluations_requested CHECK (requested_discount >= 0 AND requested_discount <= 100),
     CONSTRAINT chk_discount_evaluations_allowed CHECK (allowed_discount >= 0 AND allowed_discount <= 100),
     CONSTRAINT chk_discount_evaluations_risk_score CHECK (risk_score >= 0 AND risk_score <= 100),
