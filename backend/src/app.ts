@@ -37,6 +37,7 @@ import { reportingRouter } from './modules/reporting/reporting.routes';
 import { customersRouter } from './modules/customers/customers.routes';
 import { usersRouter } from './modules/users/users.routes';
 import { creditNotesRouter } from './modules/credit-notes/credit-notes.routes';
+import { backordersRouter } from './modules/fulfillment/backorders.routes';
 
 const app = express();
 
@@ -110,6 +111,7 @@ app.use('/api/v1/reports', reportingRouter);
 app.use('/api/v1/customers', customersRouter);
 app.use('/api/v1/users', usersRouter);
 app.use('/api/v1/credit-notes', creditNotesRouter);
+app.use('/api/v1/backorders', backordersRouter);
 
 // ── Not Found Handler ─────────────────────────────────────────────────────────
 app.use(notFoundHandler);
