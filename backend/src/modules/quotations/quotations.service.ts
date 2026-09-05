@@ -100,7 +100,12 @@ export const quotationsService = {
   /** Only DRAFT quotations are editable — matches addItem's own rule. */
   async update(
     id: string,
-    dto: { price_list_id?: string | null; currency?: string; valid_until?: string | null },
+    dto: {
+      price_list_id?: string | null;
+      currency?: string;
+      valid_until?: string | null;
+      order_discount_percent?: number;
+    },
     requester: AuthenticatedUser,
   ): Promise<Quotation> {
     const quotation = await quotationsRepository.findById(id);
@@ -113,6 +118,15 @@ export const quotationsService = {
     }
     const updated = await quotationsRepository.update(id, dto);
     if (!updated) throw Errors.notFound('Quotation');
+
+    if (dto.order_discount_percent !== undefined) {
+      // Same reasoning as addItem: the order-level discount is itself a
+      // discount/negotiation signal deal-health scores on.
+      await runPostCommit('quotations.update', () =>
+        dealHealthService.recalculate(id).then(() => undefined),
+      );
+    }
+
     return updated;
   },
 
@@ -177,6 +191,74 @@ export const quotationsService = {
     );
 
     return item;
+  },
+
+  /** Same DRAFT-only rule and margin/deal-health handling as addItem. */
+  async updateItem(
+    quotationId: string,
+    itemId: string,
+    dto: Partial<{
+      quantity: number;
+      unit_price: number;
+      discount_percent: number;
+      tax_percent: number;
+      description: string | null;
+    }>,
+    requester: AuthenticatedUser,
+  ): Promise<QuotationItem> {
+    const quotation = await quotationsRepository.findById(quotationId);
+    if (!quotation) throw Errors.notFound('Quotation');
+    assertCanAccessQuotation(quotation, requester);
+    if (quotation.status !== 'DRAFT') {
+      throw Errors.businessRuleViolation(
+        `Cannot edit items on a quotation in status ${quotation.status}; only DRAFT quotations are editable`,
+      );
+    }
+    const existingItem = await quotationsRepository.findItem(quotationId, itemId);
+    if (!existingItem) throw Errors.notFound('Quotation item');
+
+    let item: QuotationItem | null;
+    try {
+      item = await quotationsRepository.updateItem(itemId, dto);
+    } catch (err) {
+      throw mapDbError(err, 'Quotation item');
+    }
+    if (!item) throw Errors.notFound('Quotation item');
+
+    if (item.product_id) {
+      const costPrice = await quotationsRepository.findProductCostPrice(item.product_id);
+      const unitPrice = Number(item.unit_price);
+      item.margin_percent =
+        costPrice !== null && unitPrice !== 0
+          ? roundMoney(((unitPrice - Number(costPrice)) / unitPrice) * 100)
+          : null;
+    }
+
+    await runPostCommit('quotations.updateItem', () =>
+      dealHealthService.recalculate(quotationId).then(() => undefined),
+    );
+
+    return item;
+  },
+
+  /** Same DRAFT-only rule as addItem/updateItem. */
+  async removeItem(quotationId: string, itemId: string, requester: AuthenticatedUser): Promise<void> {
+    const quotation = await quotationsRepository.findById(quotationId);
+    if (!quotation) throw Errors.notFound('Quotation');
+    assertCanAccessQuotation(quotation, requester);
+    if (quotation.status !== 'DRAFT') {
+      throw Errors.businessRuleViolation(
+        `Cannot remove items from a quotation in status ${quotation.status}; only DRAFT quotations are editable`,
+      );
+    }
+    const existingItem = await quotationsRepository.findItem(quotationId, itemId);
+    if (!existingItem) throw Errors.notFound('Quotation item');
+
+    await quotationsRepository.removeItem(itemId);
+
+    await runPostCommit('quotations.removeItem', () =>
+      dealHealthService.recalculate(quotationId).then(() => undefined),
+    );
   },
 
   async getTimeline(id: string, requester: AuthenticatedUser) {

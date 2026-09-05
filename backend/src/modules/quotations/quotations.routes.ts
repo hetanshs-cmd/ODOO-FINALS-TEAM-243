@@ -7,7 +7,9 @@ import {
   createQuotationItemSchema,
   createQuotationSchema,
   idParamSchema,
+  itemIdParamSchema,
   listQuotationsQuerySchema,
+  updateQuotationItemSchema,
   updateQuotationSchema,
 } from './quotations.validator';
 
@@ -29,6 +31,16 @@ router.post(
   '/:id/items',
   validate({ params: idParamSchema, body: createQuotationItemSchema }),
   quotationsController.addItem,
+);
+router.patch(
+  '/:id/items/:itemId',
+  validate({ params: itemIdParamSchema, body: updateQuotationItemSchema }),
+  quotationsController.updateItem,
+);
+router.delete(
+  '/:id/items/:itemId',
+  validate({ params: itemIdParamSchema }),
+  quotationsController.removeItem,
 );
 router.post('/:id/submit', validate({ params: idParamSchema }), quotationsController.submit);
 router.get('/:id/timeline', validate({ params: idParamSchema }), quotationsController.getTimeline);

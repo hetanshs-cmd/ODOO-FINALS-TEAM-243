@@ -26,6 +26,8 @@ import {
   CreateQuotationInput,
   UpdateQuotationInput,
   CreateQuotationItemInput,
+  UpdateQuotationItemInput,
+  ApiQuotationItem,
   ApiApprovalRequest,
   ApiApprovalAction,
   ApiFulfillment,
@@ -115,8 +117,18 @@ export const quotationService = {
   async update(id: string, data: UpdateQuotationInput): Promise<ApiQuotation> {
     return httpClient.patch<ApiQuotation>(`/quotations/${id}`, data);
   },
-  async addItem(quotationId: string, item: CreateQuotationItemInput): Promise<ApiQuotationWithItems> {
-    return httpClient.post<ApiQuotationWithItems>(`/quotations/${quotationId}/items`, item);
+  async addItem(quotationId: string, item: CreateQuotationItemInput): Promise<ApiQuotationItem> {
+    return httpClient.post<ApiQuotationItem>(`/quotations/${quotationId}/items`, item);
+  },
+  async updateItem(
+    quotationId: string,
+    itemId: string,
+    data: UpdateQuotationItemInput,
+  ): Promise<ApiQuotationItem> {
+    return httpClient.patch<ApiQuotationItem>(`/quotations/${quotationId}/items/${itemId}`, data);
+  },
+  async removeItem(quotationId: string, itemId: string): Promise<void> {
+    await httpClient.delete<void>(`/quotations/${quotationId}/items/${itemId}`);
   },
   async checkDiscounts(quotationId: string): Promise<unknown> {
     return httpClient.post(`/quotations/${quotationId}/check-discounts`);
@@ -287,11 +299,13 @@ export const creditNoteService = {
 
 // 7. DEAL HEALTH SERVICE
 export const dealHealthService = {
-  async getForQuotation(quotationId: string): Promise<ApiDealHealthScore> {
-    return httpClient.get<ApiDealHealthScore>(`/quotations/${quotationId}/deal-health`);
+  // GET /quotations/:id/deal-health returns { score, alerts } — score is
+  // null until something has triggered a recalculation for this quotation.
+  async getForQuotation(quotationId: string): Promise<{ score: ApiDealHealthScore | null; alerts: ApiDealAlert[] }> {
+    return httpClient.get(`/quotations/${quotationId}/deal-health`);
   },
-  async recalculate(quotationId: string): Promise<ApiDealHealthScore> {
-    return httpClient.post<ApiDealHealthScore>(`/quotations/${quotationId}/deal-health/recalculate`);
+  async recalculate(quotationId: string): Promise<{ score: ApiDealHealthScore; newAlerts: ApiDealAlert[] }> {
+    return httpClient.post(`/quotations/${quotationId}/deal-health/recalculate`);
   },
   async listAlerts(query?: ListQuery): Promise<ApiDealAlert[]> {
     return getListItems<ApiDealAlert>('/deal-health', query);

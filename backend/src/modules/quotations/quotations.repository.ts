@@ -125,6 +125,43 @@ export const quotationsRepository = {
     return amountRows[0] as QuotationItem;
   },
 
+  /** Ownership check before update/remove — confirms the item belongs to this quotation. */
+  async findItem(quotationId: string, itemId: string): Promise<{ id: string } | null> {
+    const { rows } = await db.query(
+      'SELECT id FROM quotation_items WHERE id = $1 AND quotation_id = $2',
+      [itemId, quotationId],
+    );
+    return (rows[0] as { id: string } | undefined) ?? null;
+  },
+
+  /** Same raw-inputs-only + read-back-from-the-view pattern as addItem. */
+  async updateItem(
+    itemId: string,
+    fields: Partial<{
+      quantity: number;
+      unit_price: number;
+      discount_percent: number;
+      tax_percent: number;
+      description: string | null;
+      billing_type: 'ONE_TIME' | 'RECURRING';
+    }>,
+  ): Promise<QuotationItem | null> {
+    const entries = Object.entries(fields).filter(([, value]) => value !== undefined);
+    if (entries.length === 0) {
+      const { rows } = await db.query('SELECT * FROM quotation_item_amounts WHERE id = $1', [itemId]);
+      return (rows[0] as QuotationItem | undefined) ?? null;
+    }
+    const params: unknown[] = entries.map(([, value]) => value);
+    const setClause = entries.map(([key], i) => `${key} = $${i + 2}`).join(', ');
+    await db.query(`UPDATE quotation_items SET ${setClause} WHERE id = $1`, [itemId, ...params]);
+    const { rows } = await db.query('SELECT * FROM quotation_item_amounts WHERE id = $1', [itemId]);
+    return (rows[0] as QuotationItem | undefined) ?? null;
+  },
+
+  async removeItem(itemId: string): Promise<void> {
+    await db.query('DELETE FROM quotation_items WHERE id = $1', [itemId]);
+  },
+
   async list(
     filters: { status?: string; salesRepId?: string; customerId?: string },
     limit: number,
@@ -187,7 +224,12 @@ export const quotationsRepository = {
   /** Only DRAFT-safe fields — never customer_id/sales_rep_id/status (those change via dedicated flows). */
   async update(
     id: string,
-    fields: Partial<{ price_list_id: string | null; currency: string; valid_until: string | null }>,
+    fields: Partial<{
+      price_list_id: string | null;
+      currency: string;
+      valid_until: string | null;
+      order_discount_percent: number;
+    }>,
   ): Promise<Quotation | null> {
     const entries = Object.entries(fields).filter(([, value]) => value !== undefined);
     if (entries.length === 0) {
@@ -195,15 +237,15 @@ export const quotationsRepository = {
     }
     const params: unknown[] = entries.map(([, value]) => value);
     const setClause = entries.map(([key], i) => `${key} = $${i + 2}`).join(', ');
-    const { rows } = await db.query(
-      `WITH updated AS (
-         UPDATE quotations SET ${setClause} WHERE id = $1 RETURNING *
-       )
-       SELECT updated.*, qt.subtotal, qt.discount_total, qt.tax_total, qt.grand_total
-       FROM updated JOIN quotation_totals qt ON qt.quotation_id = updated.id`,
-      [id, ...params],
-    );
-    return (rows[0] as Quotation | undefined) ?? null;
+    // quotation_totals now depends on order_discount_percent (see 028_...sql),
+    // so this can't be one UPDATE...RETURNING joined to the view in a single
+    // statement: a view's own scan of `quotations` uses the same snapshot as
+    // the rest of that statement, taken before this UPDATE, and would read
+    // the pre-update order_discount_percent. Two round trips forces the
+    // totals read to see the committed write.
+    const result = await db.query(`UPDATE quotations SET ${setClause} WHERE id = $1`, [id, ...params]);
+    if (result.rowCount === 0) return null;
+    return this.findById(id);
   },
 
   async listTimeline(quotationId: string): Promise<Record<string, unknown>[]> {

@@ -32,6 +32,7 @@ export interface ApiQuotation {
   price_list_id: string | null;
   status: ApiQuotationStatus;
   currency: string;
+  order_discount_percent: string;
   subtotal: string;
   discount_total: string;
   tax_total: string;
@@ -51,10 +52,23 @@ export interface ApiQuotationItem {
   discount_percent: string;
   discount_amount: string;
   tax_percent: string;
+  line_subtotal?: string;
+  taxable_amount?: string;
+  tax_amount?: string;
   line_total: string;
   billing_type: 'ONE_TIME' | 'RECURRING';
   created_at: string;
   updated_at: string;
+  /** Computed server-side from the product's cost_price — null when it has none on record. */
+  margin_percent?: number | null;
+}
+
+export interface UpdateQuotationItemInput {
+  description?: string | null;
+  quantity?: number;
+  unit_price?: number;
+  discount_percent?: number;
+  tax_percent?: number;
 }
 
 export interface ApiQuotationWithItems extends ApiQuotation {
@@ -106,6 +120,7 @@ export interface UpdateQuotationInput {
   price_list_id?: string | null;
   currency?: string;
   valid_until?: string | null;
+  order_discount_percent?: number;
 }
 
 export interface CreateQuotationItemInput {
@@ -313,12 +328,17 @@ export interface ApiNotification {
 }
 
 // ── Upsell ───────────────────────────────────────────────────────────────────
+// GET /products/:id/recommendations joins in the recommended product's own
+// fields, so callers don't need a second product lookup.
 export interface ApiRecommendation {
-  id: string;
-  product_id: string;
   recommended_product_id: string;
+  name: string;
+  base_price: string;
+  cost_price: string | null;
+  margin_percent: string | null;
+  recommendation_type: 'UPSELL' | 'CROSS_SELL';
+  priority: number;
   reason: string | null;
-  [key: string]: unknown;
 }
 
 // ── Reporting ────────────────────────────────────────────────────────────────
@@ -358,15 +378,18 @@ export interface ApiUser {
 }
 
 // ── Quotation timeline (audit-log-backed activity feed) ─────────────────────
+// GET /quotations/:id/timeline reads straight from audit_logs (see
+// quotations.repository.ts::listTimeline) — action/old_value/new_value/
+// user_id, not event_type/note/metadata.
 export interface ApiTimelineEvent {
   id: string;
-  quotation_id: string;
-  actor_user_id?: string | null;
-  event_type: string;
-  note?: string | null;
-  metadata?: Record<string, unknown> | null;
+  entity_type: string;
+  entity_id: string;
+  action: string;
+  user_id: string | null;
+  old_value: Record<string, unknown> | null;
+  new_value: Record<string, unknown> | null;
   created_at: string;
-  [key: string]: unknown;
 }
 
 // ── Admin: Warehouses ────────────────────────────────────────────────────────
