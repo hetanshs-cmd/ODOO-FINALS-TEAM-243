@@ -171,9 +171,88 @@ GET /api/v1/health
 
 ---
 
-### [Future Endpoints]
+### Auth
 
-> Will be added after Phase 0 analysis identifies required API surface.
+| Method | Path | Body | Notes |
+|---|---|---|---|
+| POST | `/api/v1/auth/login` | `{ email, password }` | Internal users (rep/manager/admin) — JWT |
+| POST | `/api/v1/portal/auth/magic-link` | `{ email }` | Sends a portal magic-link |
+| POST | `/api/v1/portal/auth/verify` | `{ token }` | Exchanges magic-link token for a portal session |
+
+### Admin / Catalog (`/api/v1/admin/...`)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET/POST | `/admin/products` | Product CRUD |
+| GET/POST | `/admin/price-lists` | Price list + items |
+| GET/POST | `/admin/customers` | Customer CRUD, tier assignment |
+| GET/POST | `/admin/discount-ceilings` | Per-tier and per-category ceilings (FR2) |
+| GET/POST | `/admin/warehouses` | Warehouse CRUD, stock levels |
+| GET/POST | `/admin/subscription-plans` | Billing plan config |
+| GET/POST | `/admin/upsell-config` | Margin threshold + ranking weights |
+
+### Quotations & Discount Engine
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/v1/quotations` | Create draft quotation |
+| POST | `/api/v1/quotations/:id/lines` | Add/edit a line |
+| POST | `/api/v1/quotations/:id/check-discounts` | Pure discount-engine call (FR2/FR3) — no side effects |
+| POST | `/api/v1/quotations/:id/submit` | Submits for approval if ceilings breached, else auto-confirms |
+
+### Approvals
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/approvals` | Approvals queue (manager) |
+| GET | `/api/v1/approvals/:id` | Risk breakdown, per-line detail, step history |
+| POST | `/api/v1/approvals/:id/decide` | `{ action: approve\|reject\|return }` — writes `audit_log` (FR4) |
+
+### Fulfillment
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/v1/quotations/:id/fulfillment/split` | Computes warehouse split (FR6) |
+| POST | `/api/v1/fulfillment/:splitId/override` | Manual override of a suggested split |
+
+### Billing
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/v1/quotations/:id/billing/confirm` | One-time → invoice, recurring → subscription (FR7) |
+| GET | `/api/v1/subscriptions/:id` | Subscription + billing-line detail |
+| POST | `/api/v1/subscriptions/:id/cancel` | Cancellation (manual credit note for v1, see cut list) |
+
+### Customer Portal (`/api/v1/portal/...`)
+
+Scoped strictly to the authenticated `customer_portal_users` row — every query filters by
+`customer_id`, never trusts a client-supplied id (NFR2).
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/portal/quotations/:id` | Read-only view of own quotation |
+| POST | `/portal/quotations/:id/messages` | Comment / counter-discount (FR8) |
+| POST | `/portal/quotations/:id/confirm` | Re-runs FR2/FR3; re-enters approval if breached (FR9) |
+
+### Upsell / Cross-Sell
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/quotations/:id/upsell` | Ranked suggestions filtered by margin threshold (FR5) |
+
+### Deal Health
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/deal-health` | Dashboard: stalled / discount anomaly / slippage flags (FR10) |
+| POST | `/api/v1/deal-health/:id/escalate` | Escalate or nudge action on a flagged deal |
+
+### Reporting
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/reports` | Filterable by period/team/status/product (FR11) |
+| GET | `/api/v1/reports/export` | PDF/XLS export (cut-list candidate — see `development-workflow.md`) |
 
 ---
 

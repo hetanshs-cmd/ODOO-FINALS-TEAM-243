@@ -4,6 +4,7 @@
 - Always check the `docs/` folder for existing context, architecture notes, and conventions before starting work.
 - Keep `docs/` up to date whenever changes affect what's documented there.
 - If a change would alter the API contract, stop and confirm with the user before implementing it.
+- Before designing or implementing any module, check [`docs/references.md`](docs/references.md) for the relevant architectural reference (Medusa, Directus, Strapi, Ghost, or the React Inventory Management System) and follow its guidance — borrow the pattern, not the code, and implement it against our own schema/layering.
 
 ## Tech Stack
 - Stick to the tech stack(s) specified in `docs/`. Do not introduce new frameworks, libraries, or languages outside of what's documented without confirming with the user first.
