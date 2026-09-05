@@ -82,8 +82,12 @@ export const ChatWidget: React.FC = () => {
 
     setIsLoading(true);
     try {
+      // Exclude error entries (empty content) and nav-answer entries (never
+      // part of a real model turn) — the backend rejects empty message
+      // content, and replaying a canned nav answer back to the model as
+      // conversation history would just confuse it.
       const history: ChatMessage[] = [...thread, userEntry]
-        .filter((e) => e.role === 'user' || e.role === 'assistant')
+        .filter((e) => (e.role === 'user' || e.role === 'assistant') && e.content.trim() && !e.result?.suggestedActions?.some((a) => a.type === 'navigate'))
         .map((e) => ({ role: e.role, content: e.content }));
       const result = await aiService.chat(history);
       setThread((prev) => [...prev, { id: `${Date.now()}-assistant`, role: 'assistant', content: result.summary || '', result }]);
