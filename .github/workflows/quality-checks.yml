@@ -54,6 +54,11 @@ jobs:
       - name: Format check
         run: npm run format:check
 
+      - name: Run database migrations
+        run: npm run migrate
+        env:
+          DATABASE_URL: postgresql://odoo_user:odoo_password@localhost:5432/odoo_hackathon_test
+
       - name: Run tests with coverage
         run: npm run test:coverage
         env:
