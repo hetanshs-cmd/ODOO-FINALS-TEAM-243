@@ -12,6 +12,7 @@
  */
 import { Router } from 'express';
 import { validate } from '../../middleware/validate';
+import { authLimiter } from '../../middleware/authRateLimit';
 import { portalRequestLinkSchema, portalVerifyLinkSchema } from './auth.validator';
 import * as authController from './auth.controller';
 
@@ -19,11 +20,13 @@ const router = Router();
 
 router.post(
   '/portal/request-link',
+  authLimiter,
   validate({ body: portalRequestLinkSchema }),
   authController.requestLink,
 );
 router.post(
   '/portal/verify-link',
+  authLimiter,
   validate({ body: portalVerifyLinkSchema }),
   authController.verifyLink,
 );

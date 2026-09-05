@@ -497,28 +497,6 @@ export interface PortalConfirmResult {
   requiresApproval: boolean;
 }
 
-// Directory lookups (customers/users). STOPGAP inline helpers — a parallel
-// workstream is adding proper useCustomers/useUsers hooks + dedicated
-// service methods; these exist only so Group 2/5 detail pages can resolve a
-// display name in the meantime. Flag for reconciliation at merge time to
-// avoid duplicating the other agent's equivalent additions.
-export const directoryService = {
-  async getCustomer(id: string): Promise<ApiCustomer | null> {
-    try {
-      return await httpClient.get<ApiCustomer>(`/customers/${id}`);
-    } catch {
-      return null;
-    }
-  },
-  async getUser(id: string): Promise<ApiUser | null> {
-    try {
-      return await httpClient.get<ApiUser>(`/users/${id}`);
-    } catch {
-      return null;
-    }
-  },
-};
-
 import { reportingService } from './reportingService';
 export { reportingService };
 export { exportReportToPDF, exportReportToXLS } from './reportingExport';
