@@ -152,6 +152,15 @@ export const quotationsRepository = {
     return (rows[0] as Quotation | undefined) ?? null;
   },
 
+  async listTimeline(quotationId: string): Promise<Record<string, unknown>[]> {
+    const { rows } = await db.query(
+      `SELECT * FROM audit_logs WHERE entity_type = 'quotation' AND entity_id = $1
+       ORDER BY created_at ASC`,
+      [quotationId],
+    );
+    return rows;
+  },
+
   /** Dedicated status-transition flow (e.g. DRAFT -> SUBMITTED on submit). */
   async updateStatus(client: PoolClient, id: string, status: string): Promise<Quotation | null> {
     const { rows } = await client.query(

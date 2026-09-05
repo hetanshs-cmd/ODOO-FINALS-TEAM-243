@@ -2,6 +2,7 @@ import { Errors } from '../../errors/AppError';
 import { withTransaction } from '../../shared/db/withTransaction';
 import { notificationsService } from '../notifications/notifications.service';
 import { dealHealthService } from '../deal-health/deal-health.service';
+import { insertAuditLog } from '../../shared/auditLog';
 import { allocateAcrossWarehouses, InventoryRow, OrderItemToAllocate } from './warehouseAllocation';
 import { fulfillmentRepository } from './fulfillment.repository';
 import { Fulfillment } from './fulfillment.model';
@@ -162,6 +163,14 @@ export const fulfillmentService = {
         fulfillment.sales_order_id,
         fullyFulfilled ? 'FULFILLED' : 'PARTIALLY_FULFILLED'
       );
+
+      await insertAuditLog(client, {
+        entityType: 'fulfillment',
+        entityId: fulfillmentId,
+        action: 'FULFILLMENT_SHIPPED',
+        actorId: null,
+        newValue: { salesOrderId: fulfillment.sales_order_id, fullyFulfilled },
+      });
 
       return updated;
     }).then(async (updated) => {
