@@ -128,17 +128,18 @@ export const dealHealthRepository = {
   async listOpenAlerts(
     limit: number,
     offset: number,
-  ): Promise<(DealAlertRow & { quotation_number: string })[]> {
+  ): Promise<(DealAlertRow & { quotation_number: string; customer_id: string; customer_name: string })[]> {
     const { rows } = await db.query(
-      `SELECT da.*, q.quotation_number
+      `SELECT da.*, q.quotation_number, q.customer_id, c.company_name AS customer_name
        FROM deal_alerts da
        JOIN quotations q ON q.id = da.quotation_id
+       JOIN customers c ON c.id = q.customer_id
        WHERE da.status = 'OPEN'
        ORDER BY da.created_at DESC
        LIMIT $1 OFFSET $2`,
       [limit, offset],
     );
-    return rows as (DealAlertRow & { quotation_number: string })[];
+    return rows as (DealAlertRow & { quotation_number: string; customer_id: string; customer_name: string })[];
   },
 
   async countOpenAlerts(): Promise<number> {

@@ -99,7 +99,10 @@ calls made along the way:
 
 - **Phase G — frontend page migration off `dealStore`.** None of it is done;
   it's frontend-branch work. All of the Group 0–6 pages listed in the
-  original plan still read/mutate through the mock store. In particular:
+  original plan still read/mutate through the mock store. See
+  [`docs/dealstore-migration.md`](dealstore-migration.md) for the full
+  per-file consumer catalog, migration-difficulty verdicts, and the open
+  decision on features with no backend equivalent yet. In particular:
   - `useCustomers`/`useUsers` hooks (Group 0) can now be built against this
     branch's new `GET /customers` / `GET /users` endpoints.
   - `FulfillmentPages` detail view (Group 2) can now be built against

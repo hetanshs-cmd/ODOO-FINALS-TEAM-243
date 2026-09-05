@@ -80,6 +80,25 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
+// Login has its own, tighter budget so brute-force attempts are throttled
+// without being drowned out by the app-wide limiter's shared 100/15min
+// bucket — dev traffic (hot reloads, other routes, multiple testers behind
+// the same tunnel/proxy IP) was exhausting that bucket and returning 429s
+// on legitimate login attempts.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: {
+    success: false,
+    error: 'RATE_LIMIT_EXCEEDED',
+    message: 'Too many login attempts. Please wait a few minutes and try again.',
+  },
+});
+app.use('/api/v1/auth/login', loginLimiter);
+
 // ── Body Parsing ─────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
