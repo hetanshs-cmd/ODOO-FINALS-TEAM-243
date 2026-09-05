@@ -30,6 +30,7 @@ import { useQuotations } from '../hooks/useQuotations';
 import { useDealHealthAlerts } from '../hooks/useDealHealth';
 import { toast } from '../components/ui/Toast';
 import { CommandPalette } from '../components/ui/CommandPalette';
+import { ChatWidget } from '../components/ai/ChatWidget';
 
 export const InternalShell: React.FC = () => {
   const { user, logout } = useAuth();
@@ -405,6 +406,9 @@ export const InternalShell: React.FC = () => {
         onClose={() => setIsCommandPaletteOpen(false)}
         onReload={handleReloadData}
       />
+
+      {/* Floating Workspace Assistant (Part D: real-model chat + instant nav answers) */}
+      <ChatWidget />
     </div>
   );
 };

@@ -12,8 +12,12 @@
  *   GET   /quotations/:id/timeline   (audit-log activity feed)
  *
  * The rich mock-only concepts (per-line ceiling "over by", blended risk
- * score, order-level discount, internal notes, AI deal copilot) have no
- * backing on the real API and are intentionally dropped rather than faked.
+ * score, order-level discount, internal notes) have no backing on the real
+ * API and are intentionally dropped rather than faked. The AI Insights panel
+ * is the one exception reintroduced here: it now calls the real
+ * backend/src/modules/ai insight endpoint, grounded in this quotation's live
+ * DB record (not the old mock-derived context), so it's no longer a faked
+ * concept either.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
@@ -28,6 +32,7 @@ import {
   Layers,
   RotateCw,
   X,
+  Sparkles,
 } from 'lucide-react';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Button } from '../components/ui/Button';
@@ -42,6 +47,10 @@ import { ApiError } from '../services/httpClient';
 import { ApiProduct, ApiQuotationItem, ApiTimelineEvent } from '../services/apiTypes';
 import { RiskLevel } from '../types';
 import { formatCurrency, formatRelativeTime, formatExactDateTime } from '../utils/formatters';
+import { aiService, InsightType } from '../services/ai/aiService';
+import { AIResult } from '../services/ai/types';
+import { AIInsightPanel } from '../components/ai/AIInsightPanel';
+import { AIDraftEditorModal } from '../components/ai/AIDraftEditorModal';
 
 function humanizeStatus(status: string): string {
   return status
@@ -148,6 +157,37 @@ export const QuotationDetailPage: React.FC = () => {
   const [busy, setBusy] = useState(false);
   const [showAddItem, setShowAddItem] = useState(false);
   const [itemForm, setItemForm] = useState<NewItemForm>(EMPTY_ITEM);
+
+  // AI Insights — real local-model-backed calls (backend/src/modules/ai),
+  // grounded in this quotation's live DB record. No mock-data fallback here:
+  // on failure this shows the honest "temporarily unavailable" state rather
+  // than fabricating the mock-only fields (blended risk score, upsell
+  // opportunities) this page intentionally stopped faking.
+  const [aiResult, setAiResult] = useState<AIResult | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiActiveType, setAiActiveType] = useState<InsightType | null>(null);
+  const [showDraftModal, setShowDraftModal] = useState(false);
+
+  const runAiInsight = async (type: InsightType) => {
+    if (!quotation) return;
+    setAiActiveType(type);
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const result = await aiService.getInsight(type, quotation.id);
+      setAiResult(result);
+      if (type === 'draft_customer_message') setShowDraftModal(true);
+    } catch (err) {
+      setAiError(
+        err instanceof ApiError
+          ? err.message
+          : 'The local AI model is unavailable. It may not be running.'
+      );
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   const isDraft = quotation?.status === 'DRAFT';
 
@@ -393,6 +433,55 @@ export const QuotationDetailPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* AI Insights */}
+      <div className="bg-white rounded-md border border-[#E5E7EB] shadow-2xs p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-bold text-[#111827] uppercase tracking-wider flex items-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5 text-[#714B67]" /> AI Insights
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            <Button variant="outline" size="sm" isLoading={aiLoading && aiActiveType === 'summarize_quotation'} onClick={() => runAiInsight('summarize_quotation')}>
+              Summarize
+            </Button>
+            <Button variant="outline" size="sm" isLoading={aiLoading && aiActiveType === 'explain_risk'} onClick={() => runAiInsight('explain_risk')}>
+              Explain Risk
+            </Button>
+            <Button variant="outline" size="sm" isLoading={aiLoading && aiActiveType === 'suggest_improvements'} onClick={() => runAiInsight('suggest_improvements')}>
+              Suggest Improvements
+            </Button>
+            <Button variant="outline" size="sm" isLoading={aiLoading && aiActiveType === 'draft_customer_message'} onClick={() => runAiInsight('draft_customer_message')}>
+              Draft Follow-up
+            </Button>
+          </div>
+        </div>
+        {(aiResult || aiLoading || aiError) && (
+          <AIInsightPanel
+            result={aiResult}
+            isLoading={aiLoading}
+            loadingMessage="Consulting the local AI model…"
+            errorMessage={aiError}
+            onRetry={() => aiActiveType && runAiInsight(aiActiveType)}
+            compact
+          />
+        )}
+      </div>
+
+      {showDraftModal && aiResult?.summary && (
+        <AIDraftEditorModal
+          isOpen={showDraftModal}
+          onClose={() => setShowDraftModal(false)}
+          title="Draft Follow-up Message"
+          recipientLabel={customerName}
+          initialBody={aiResult.summary}
+          actionButtonLabel="Copy Draft"
+          onApplyOrSend={(body) => {
+            navigator.clipboard?.writeText(body).catch(() => undefined);
+            toast.success('Draft copied', 'Paste it into your usual email/messaging tool to send.');
+            setShowDraftModal(false);
+          }}
+        />
+      )}
 
       {/* Tabs */}
       <div className="bg-white rounded-md border border-[#E5E7EB] shadow-2xs">

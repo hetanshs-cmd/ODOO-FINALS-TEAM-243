@@ -19,6 +19,7 @@ import {
   ListFilter,
   CheckSquare,
   ExternalLink,
+  Sparkles,
 } from 'lucide-react';
 import {
   BarChart,
@@ -45,6 +46,9 @@ import { ReportFilters, ReportPeriod, ProductCategory, QuotationStage } from '..
 import { formatCurrency, formatPercent, formatRelativeTime } from '../utils/formatters';
 import { runReportingAcceptanceTests } from '../domain/tests/reportingTests';
 import { canUserPerformAction } from '../domain/permissions';
+import { aiService } from '../services/ai/aiService';
+import { AIResult } from '../services/ai/types';
+import { AIInsightPanel } from '../components/ai/AIInsightPanel';
 
 export const ReportsPage: React.FC = () => {
   const { currentUser, quotations } = useDealStore();
@@ -104,6 +108,43 @@ export const ReportsPage: React.FC = () => {
     users,
     availableTeams,
   } = reportData;
+
+  // AI Insights — real local-model-backed summary of this exact filtered
+  // view, grounded in the same computed KPIs rendered below (not fabricated
+  // for the AI call).
+  const [aiResult, setAiResult] = useState<AIResult | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  const handleSummarizeReport = async () => {
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const repName = repId !== 'All' ? users.find((u) => u.id === repId)?.name : undefined;
+      const result = await aiService.summarizeReport({
+        period,
+        dateRange: { start: startDate || undefined, end: endDate || undefined },
+        salesTeam: salesTeam !== 'All' ? salesTeam : undefined,
+        repId: repId !== 'All' ? repId : undefined,
+        repName,
+        productCategory: category !== 'All' ? category : undefined,
+        metrics: {
+          totalQuotes: kpis.quotesCreated,
+          totalPipelineValue: kpis.totalPipelineValue,
+          avgApprovalHours: kpis.averageApprovalTimeHours,
+          avgDiscountGiven: kpis.averageDiscountPercent,
+          blendedGrossMargin: kpis.blendedMarginRate,
+          winRatePercent: kpis.wonRatePercent,
+        },
+        topUpsellProduct: kpis.topUpsoldProduct,
+      });
+      setAiResult(result);
+    } catch (err) {
+      setAiError('The local AI model is unavailable. It may not be running.');
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   // Reset Filters Handler
   const handleResetFilters = () => {
@@ -432,6 +473,23 @@ export const ReportsPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* AI Insights */}
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">Report Overview</span>
+        <Button variant="outline" size="sm" icon={<Sparkles className="w-3.5 h-3.5" />} isLoading={aiLoading} onClick={handleSummarizeReport}>
+          AI Summary
+        </Button>
+      </div>
+      {(aiResult || aiLoading || aiError) && (
+        <AIInsightPanel
+          result={aiResult}
+          isLoading={aiLoading}
+          loadingMessage="Consulting the local AI model…"
+          errorMessage={aiError}
+          onRetry={handleSummarizeReport}
+        />
+      )}
 
       {/* CORE MANDATORY KPIS — 5 Core Metrics from canonical state */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
