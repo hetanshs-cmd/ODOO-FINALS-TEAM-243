@@ -20,6 +20,9 @@ import { httpClient, ApiError } from './httpClient';
 import {
   ApiQuotation,
   ApiQuotationWithItems,
+  ApiPortalQuotation,
+  ApiPortalProfile,
+  ApiPortalNegotiation,
   CreateQuotationInput,
   UpdateQuotationInput,
   CreateQuotationItemInput,
@@ -436,26 +439,47 @@ export const timelineService = {
   },
 };
 
-// Customer Portal service — the only portal-scoped resource route beyond
-// auth today is negotiations (POST /quotations/:id/negotiations falls back
-// to portal auth — see backend/src/modules/negotiations/negotiations.routes.ts).
-// There is no GET endpoint yet for a customer's own quotations/orders, so
-// that part of the portal UI has no live data source until one exists.
+// Customer Portal service — negotiations are the one resource both internal
+// reps and portal customers act on (negotiations.routes.ts accepts either
+// token), so the portal reuses the same service.
 export const customerPortalService = {
   negotiations: negotiationService,
 };
 
-// Portal-scoped reads (customer's own quotations). Stopgap: a small section
-// here rather than a full resource-hook module, per task scope — mirrors the
-// existing service call pattern.
+/**
+ * Portal-scoped reads. Every route here is filtered server-side by the
+ * portal token's customerId (portal.repository.ts), so a customer can only
+ * ever see their own records — the client does no tenant filtering.
+ */
 export const portalService = {
   async getQuotations(query?: ListQuery): Promise<ApiQuotation[]> {
     return httpClient.get<ApiQuotation[]>('/portal/quotations', { query });
   },
-  async getQuotationById(id: string): Promise<ApiQuotationWithItems> {
-    return httpClient.get<ApiQuotationWithItems>(`/portal/quotations/${id}`);
+  async getQuotationById(id: string): Promise<ApiPortalQuotation> {
+    return httpClient.get<ApiPortalQuotation>(`/portal/quotations/${id}`);
+  },
+  async getProfile(): Promise<ApiPortalProfile> {
+    return httpClient.get<ApiPortalProfile>('/portal/profile');
+  },
+  async getNegotiations(): Promise<ApiPortalNegotiation[]> {
+    return httpClient.get<ApiPortalNegotiation[]>('/portal/negotiations');
+  },
+  /**
+   * FR9 — customer confirmation. Re-runs the discount engine server-side, so
+   * a negotiated quotation can legitimately come back as PENDING_APPROVAL
+   * instead of converting; the caller must handle both outcomes.
+   */
+  async confirmQuotation(id: string): Promise<PortalConfirmResult> {
+    return httpClient.post<PortalConfirmResult>(`/portal/quotations/${id}/confirm`);
   },
 };
+
+export interface PortalConfirmResult {
+  quotationId: string;
+  status: 'ACCEPTED' | 'PENDING_APPROVAL';
+  salesOrder: SalesOrder | null;
+  requiresApproval: boolean;
+}
 
 // Directory lookups (customers/users). STOPGAP inline helpers — a parallel
 // workstream is adding proper useCustomers/useUsers hooks + dedicated

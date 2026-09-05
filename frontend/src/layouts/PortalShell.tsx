@@ -7,11 +7,12 @@ import React from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { FileText, MessageSquare, User, ShieldCheck, LogOut } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import { useDealStore } from '../hooks/useDealStore';
+import { usePortalProfile, usePortalNegotiations } from '../hooks/usePortal';
 
 export const PortalShell: React.FC = () => {
   const { user, logout } = useAuth();
-  const { customers, negotiations } = useDealStore();
+  const { profile } = usePortalProfile();
+  const { negotiations } = usePortalNegotiations();
   const navigate = useNavigate();
 
   const handleSignOut = () => {
@@ -19,12 +20,8 @@ export const PortalShell: React.FC = () => {
     navigate('/login');
   };
 
-  const customerRecord = customers.find((c) => c.id === user.customerId);
-  const companyName = customerRecord?.company || customerRecord?.name || 'Procurement Customer';
-
-  // Count unread / pending negotiation messages for this customer
-  const customerMessagesCount = negotiations.filter(
-    (n) => n.customerId === user.customerId && (n.status === 'Pending' || n.status === 'UnderReview')
+  const openNegotiationsCount = negotiations.filter(
+    (n) => n.status === 'OPEN' || n.status === 'IN_PROGRESS'
   ).length;
 
   const navLinks = [
@@ -33,7 +30,7 @@ export const PortalShell: React.FC = () => {
       label: 'Messages',
       path: '/portal/messages',
       icon: <MessageSquare className="w-4 h-4" />,
-      badge: customerMessagesCount > 0 ? customerMessagesCount : undefined,
+      badge: openNegotiationsCount > 0 ? openNegotiationsCount : undefined,
     },
     { label: 'Profile', path: '/portal/profile', icon: <User className="w-4 h-4" /> },
   ];
@@ -61,7 +58,9 @@ export const PortalShell: React.FC = () => {
           <div className="flex items-center gap-3">
             <div className="flex flex-col text-right">
               <span className="text-xs font-bold text-[#1F2937]">{user.name}</span>
-              <span className="text-[11px] text-[#6B7280]">{companyName}</span>
+              <span className="text-[11px] text-[#6B7280]">
+                {profile?.company_name ?? '—'}
+              </span>
             </div>
 
             <div className="h-6 w-px bg-slate-200" />

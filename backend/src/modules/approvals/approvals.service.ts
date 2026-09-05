@@ -170,8 +170,8 @@ export const approvalsService = {
           newValue: { status: updatedRequest.status, escalatedRequestId },
         });
 
-        return { request: updatedRequest, action: actionRow, escalatedRequestId };
-      });
+      return { request: updatedRequest, action: actionRow, escalatedRequestId };
+    });
     } catch (err) {
       // uq_approval_requests_one_pending_per_quotation (migration 026) is the
       // final backstop against a concurrent discountEngine.checkDiscounts

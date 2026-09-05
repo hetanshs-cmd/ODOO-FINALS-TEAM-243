@@ -36,7 +36,6 @@ import { aiService } from '../services/ai/aiService';
 import { AIInsightPanel } from '../components/ai/AIInsightPanel';
 import { AIDraftEditorModal } from '../components/ai/AIDraftEditorModal';
 import { AIResult, AIAction } from '../services/ai/types';
-import { useDealStore } from '../hooks/useDealStore';
 import { useAuth } from '../hooks/useAuth';
 import { Quotation, QuotationLine, RiskLevel, ApprovalRole, User } from '../types';
 import {
