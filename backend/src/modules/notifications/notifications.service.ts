@@ -1,5 +1,6 @@
 import { Errors } from '../../errors/AppError';
 import { withTransaction } from '../../shared/db/withTransaction';
+import { getPaginationParams, buildPaginatedResult } from '../../utils/pagination';
 import { notificationsRepository } from './notifications.repository';
 
 export const notificationsService = {
@@ -21,14 +22,12 @@ export const notificationsService = {
   },
 
   async list(userId: string, query: { page?: unknown; limit?: unknown }) {
-    const page = Math.max(1, parseInt(String(query.page ?? '1'), 10) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(String(query.limit ?? '20'), 10) || 20));
-    const offset = (page - 1) * limit;
+    const pagination = getPaginationParams(query);
     const [items, total] = await Promise.all([
-      notificationsRepository.listForUser(userId, limit, offset),
+      notificationsRepository.listForUser(userId, pagination.limit, pagination.offset),
       notificationsRepository.countForUser(userId),
     ]);
-    return { items, total, page, limit };
+    return buildPaginatedResult(items, total, pagination);
   },
 
   async markRead(id: string, userId: string) {

@@ -12,7 +12,12 @@ import { db } from '../../src/config/database';
 describe('POST /api/v1/auth/login', () => {
   const activeEmail = 'integration-auth-active@example.com';
   const inactiveEmail = 'integration-auth-inactive@example.com';
-  const password = 'Test-Password-123!';
+  // Fixture password, not a real credential — read from .env per
+  // docs/security.md's "no hardcoded secrets" rule. See backend/.env.example.
+  const password = process.env.TEST_USER_PASSWORD;
+  if (!password) {
+    throw new Error('TEST_USER_PASSWORD must be set in backend/.env to run this test suite');
+  }
 
   beforeAll(async () => {
     const passwordHash = await bcrypt.hash(password, 4);
@@ -36,7 +41,9 @@ describe('POST /api/v1/auth/login', () => {
   });
 
   it('returns an access token and safe user fields for valid credentials', async () => {
-    const response = await request(app).post('/api/v1/auth/login').send({ email: activeEmail, password });
+    const response = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ email: activeEmail, password });
 
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
