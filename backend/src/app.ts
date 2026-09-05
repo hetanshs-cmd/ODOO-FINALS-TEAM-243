@@ -42,6 +42,12 @@ import { portalResourcesRouter } from './modules/portal/portal.routes';
 
 const app = express();
 
+// Trust the first hop's X-Forwarded-For/CF-Connecting-IP (Cloudflare tunnel
+// or any other reverse proxy in front of this process). Without this,
+// req.ip is always the proxy's loopback address, which collapses every
+// distinct client behind the proxy into a single rate-limit bucket below.
+app.set('trust proxy', 1);
+
 // ── Security Middleware ──────────────────────────────────────────────────────
 app.use(helmet());
 
