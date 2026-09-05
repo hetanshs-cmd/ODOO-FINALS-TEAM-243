@@ -2,24 +2,10 @@ import { Errors } from '../../errors/AppError';
 import { withTransaction } from '../../shared/db/withTransaction';
 import { roundMoney } from '../../shared/money';
 import { getPaginationParams, buildPaginatedResult, PaginatedResult } from '../../utils/pagination';
-import { BillingFrequency } from '../billing/billingDates';
+import { BillingFrequency, computeNextBillingDate } from '../billing/billingDates';
 import { calculateRefund } from './creditNoteCalculator';
 import { subscriptionsRepository } from './subscriptions.repository';
 import { Subscription } from './subscriptions.model';
-
-// Approximate cycle length per billing_frequency, used only to size the
-// denominator of the proration fraction — the same rough-days approach
-// Ghost uses for its "days_remaining / total_days * price_delta" proration
-// (docs/references.md, Ghost entry). Exact calendar-day cycle boundaries
-// aren't tracked on `subscriptions` (only next_billing_date is), so this is
-// a documented approximation, not a bug.
-const CYCLE_DAYS: Record<BillingFrequency, number> = {
-  MONTHLY: 30,
-  QUARTERLY: 91,
-  YEARLY: 365,
-};
-
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
@@ -29,16 +15,25 @@ function todayIso(): string {
  * Ghost-style proration: charge only for the days remaining in the current
  * cycle. Returns 0 (no schedule row created) once next_billing_date has
  * already passed or the delta itself is non-positive.
+ *
+ * Delegates to calculateRefund — an upgrade charge and a downgrade refund are
+ * the same "days_remaining / total_days × amount" calculation applied in
+ * opposite directions, and keeping two copies (each with its own CYCLE_DAYS
+ * and MS_PER_DAY constants) invited them to drift apart.
  */
-function prorateForCycle(priceDelta: number, nextBillingDate: string, frequency: BillingFrequency): number {
+function prorateForCycle(
+  priceDelta: number,
+  nextBillingDate: string,
+  frequency: BillingFrequency,
+): number {
   if (priceDelta <= 0) return 0;
-
-  const totalDays = CYCLE_DAYS[frequency];
-  const next = new Date(`${nextBillingDate}T00:00:00Z`).getTime();
-  const now = Date.now();
-  const daysRemaining = Math.max(0, Math.min(totalDays, Math.round((next - now) / MS_PER_DAY)));
-
-  return roundMoney(priceDelta * (daysRemaining / totalDays));
+  return roundMoney(
+    calculateRefund({
+      amount: priceDelta,
+      nextBillingDate,
+      billingFrequency: frequency,
+    }),
+  );
 }
 
 export const subscriptionsService = {
@@ -67,19 +62,20 @@ export const subscriptionsService = {
    * PATCH /subscriptions/:id
    *
    * Accepts plan_id and/or quantity. current_price is modeled as
-   * plan.price × quantity (quantity defaults to 1 when omitted) — this
-   * module doesn't track a separate top-level quantity column (only
-   * subscription_items do, one row per product), so a bare "change
-   * quantity" request is interpreted against the subscription's current
-   * plan. This is a documented simplification, mirrored on the
-   * billing.service.ts precedent of stating assumptions explicitly rather
-   * than guessing silently.
+   * plan.price × quantity. `subscriptions` has no top-level quantity column
+   * (only subscription_items do, one row per product), so an omitted
+   * `quantity` means "unchanged" and is derived by summing the subscription's
+   * items — it must NOT fall back to 1, which silently collapsed a
+   * multi-seat subscription's price on a plan-only change.
    *
    * An upgrade (price increase) gets an immediate prorated billing_schedules
-   * charge for the remainder of the current cycle. A downgrade takes effect
-   * for future cycles only — billing_schedules.amount has a >= 0 CHECK
-   * constraint, so there's no schedule row to create for a negative delta,
-   * and this module doesn't implement refunds.
+   * charge for the remainder of the current cycle. A downgrade creates a
+   * credit_notes row for the prorated refund (billing_schedules.amount has a
+   * >= 0 CHECK, so it cannot carry a negative delta).
+   *
+   * Changing the plan's billing frequency also re-bases next_billing_date, so
+   * a MONTHLY -> YEARLY move doesn't keep billing on the old monthly cadence
+   * at the new price.
    */
   async modify(id: string, input: { plan_id?: string; quantity?: number }): Promise<Subscription> {
     return withTransaction(async (client) => {
@@ -96,9 +92,31 @@ export const subscriptionsService = {
         throw Errors.businessRuleViolation('Cannot move a subscription to an inactive plan');
       }
 
-      const quantity = input.quantity ?? 1;
+      const currentPlan = await subscriptionsRepository.findPlanById(
+        client,
+        subscription.plan_id,
+      );
+
+      let quantity = input.quantity;
+      if (quantity === undefined) {
+        const derived = await subscriptionsRepository.sumItemQuantity(client, subscription.id);
+        if (derived === null) {
+          throw Errors.businessRuleViolation(
+            'Subscription has no items, so quantity cannot be inferred — supply quantity explicitly',
+          );
+        }
+        quantity = derived;
+      }
+
       const newPrice = roundMoney(Number(plan.price) * quantity);
       const priceDelta = roundMoney(newPrice - Number(subscription.current_price));
+
+      // Only re-base the billing date when the cadence itself changed.
+      const frequencyChanged =
+        currentPlan !== null && currentPlan.billing_frequency !== plan.billing_frequency;
+      const nextBillingDate = frequencyChanged
+        ? computeNextBillingDate(new Date(), plan.billing_frequency)
+        : null;
 
       if (priceDelta > 0 && subscription.next_billing_date) {
         const prorated = prorateForCycle(priceDelta, subscription.next_billing_date, plan.billing_frequency);
@@ -132,6 +150,7 @@ export const subscriptionsService = {
       return subscriptionsRepository.applyModification(client, subscription.id, {
         planId,
         currentPrice: newPrice,
+        nextBillingDate,
       });
     });
   },

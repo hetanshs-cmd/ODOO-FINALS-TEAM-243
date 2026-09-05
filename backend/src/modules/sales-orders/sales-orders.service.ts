@@ -5,40 +5,54 @@ import { getPaginationParams, buildPaginatedResult, PaginatedResult } from '../.
 import { salesOrdersRepository } from './sales-orders.repository';
 import { SalesOrder, SalesOrderWithItems } from './sales-orders.model';
 
-const CONVERTIBLE_STATUSES = new Set(['ACCEPTED']);
+/**
+ * A quotation is convertible once governance has cleared it: either the
+ * approval chain signed it off (APPROVED) or the customer confirmed it
+ * through the portal (ACCEPTED).
+ *
+ * ACCEPTED alone used to be the only accepted status, but nothing in the
+ * codebase ever wrote it — the portal confirm flow that produces it did not
+ * exist — so every convert attempt failed with a 422 and the entire
+ * downstream pipeline (fulfillment, billing, invoicing) was unreachable.
+ * `docs/api.md` has always documented this endpoint as accepting
+ * APPROVED/ACCEPTED; this matches the documented contract.
+ */
+const CONVERTIBLE_STATUSES = new Set(['APPROVED', 'ACCEPTED']);
 
 export const salesOrdersService = {
   /**
-   * Converts an accepted quotation into a sales order — one order line per
-   * quotation line, in one transaction (Medusa Workflows pattern, same as
-   * discount-engine) so a partial failure never leaves a half-created order
-   * or a quotation stuck in CONVERTED with no order behind it.
+   * Converts an approved/accepted quotation into a sales order — one order
+   * line per quotation line, in one transaction (Medusa Workflows pattern,
+   * same as discount-engine) so a partial failure never leaves a half-created
+   * order or a quotation stuck in CONVERTED with no order behind it.
    */
   async convertFromQuotation(quotationId: string): Promise<SalesOrderWithItems> {
-    const quotation = await salesOrdersRepository.findQuotationForConversion(quotationId);
-    if (!quotation) throw Errors.notFound('Quotation');
-
-    if (!CONVERTIBLE_STATUSES.has(quotation.status)) {
-      throw Errors.businessRuleViolation(
-        `Cannot convert a quotation in status ${quotation.status}; it must be ACCEPTED`,
-      );
-    }
-
     const items = await salesOrdersRepository.listQuotationItemsForConversion(quotationId);
-    if (items.length === 0) {
-      throw Errors.businessRuleViolation('Quotation has no items to convert');
-    }
 
     return withTransaction(async (client) => {
+      // Re-read under a row lock: the status check and the insert must not be
+      // separable by a concurrent convert of the same quotation.
+      const quotation = await salesOrdersRepository.findQuotationForConversionForUpdate(
+        client,
+        quotationId,
+      );
+      if (!quotation) throw Errors.notFound('Quotation');
+
+      if (!CONVERTIBLE_STATUSES.has(quotation.status)) {
+        throw Errors.businessRuleViolation(
+          `Cannot convert a quotation in status ${quotation.status}; it must be APPROVED or ACCEPTED`,
+        );
+      }
+
+      if (items.length === 0) {
+        throw Errors.businessRuleViolation('Quotation has no items to convert');
+      }
+
       const order = await salesOrdersRepository.insert(client, {
         order_number: generateDocumentNumber('SO'),
         quotation_id: quotationId,
         customer_id: quotation.customer_id,
         sales_rep_id: quotation.sales_rep_id,
-        subtotal: quotation.subtotal,
-        discount_total: quotation.discount_total,
-        tax_total: quotation.tax_total,
-        grand_total: quotation.grand_total,
       });
 
       const orderItems = await Promise.all(
@@ -49,14 +63,19 @@ export const salesOrdersService = {
             quantity: item.quantity,
             unit_price: item.unit_price,
             discount: item.discount_amount,
-            total: item.line_total,
+            tax_percent: item.tax_percent,
           }),
         ),
       );
 
       await salesOrdersRepository.markQuotationConverted(client, quotationId);
 
-      return { ...order, items: orderItems };
+      // sales_orders stores no totals (011_sales_orders.sql) — read the
+      // just-inserted items back through sales_order_totals so the response
+      // still carries subtotal/discount_total/tax_total/grand_total.
+      const totals = await salesOrdersRepository.findTotals(client, order.id);
+
+      return { ...order, ...totals, items: orderItems };
     });
   },
 
