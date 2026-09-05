@@ -1853,3 +1853,323 @@ at the start of this pass. It does not clear the bar for PRODUCTION READY becaus
 The correct next step is exactly what Phase 22 of the implementation prompt specifies: stand up a
 disposable database, run `npm run migrate` from a clean state, and execute the full integration
 suite (including the two new files this session added) before any deployment decision is made.
+
+---
+
+# LIVE-DATABASE VERIFICATION PASS (2026-09-05, session 3)
+
+*Appended after the FINAL PRODUCTION AUDIT above. That section's single largest gap — "none of it
+has been verified against a real database" — is now closed: Docker Desktop was brought up, the
+project's own `docker-compose.yml` Postgres was started, and every fix from the prior two passes
+was exercised against a live instance for the first time. That verification immediately surfaced
+**four new, previously-undetected, confirmed defects** that no amount of source-level reading in
+the prior passes could have found, because they only manifest when real HTTP requests hit a real
+running server. This pass was explicitly scoped to **testing and diagnosis only** — no code was
+changed and nothing was committed; all four fixes below are deferred to the next session by
+explicit user instruction.*
+
+## Executive Summary
+
+Migrations (all 27, `002`–`027`) apply cleanly from the existing dev database state, seed data
+loads without error, and the full backend test suite passes **189/189** against the live instance
+(up from the prior pass's 165/165 unit-only, unexecuted-integration state — the increase reflects
+tests added across sessions, all now actually run). `tsc --noEmit`, `eslint`, and `vite build`
+are clean for both packages. A comprehensive live-HTTP walk of Flows 1–7 (admin config → quotation
+→ approval → negotiation → sales order → fulfillment → billing → payments → customer portal) was
+run end-to-end with real database assertions after each step (not just HTTP status codes) — see
+Live Workflow Verification below.
+
+That same live walk found four defects that were invisible to every prior pass:
+
+1. **(P0)** A route-mounting pattern used throughout `app.ts` causes an earlier, narrower-role
+   router mounted at a shared path prefix to silently block requests meant for a later,
+   broader-role router at the same prefix — confirmed to lock `FINANCE` out of billing
+   confirmation entirely, and to lock every customer-portal user out of the negotiation-listing
+   endpoint.
+2. **(P0)** That second block is the direct, previously-unknown reason the negotiations-wiring fix
+   from an earlier session (`3165977`, "wire customer<->rep messaging to the real backend") has
+   never actually worked — the frontend hook it added is correctly coded, but the backend endpoint
+   it calls has been unreachable for portal tokens the entire time.
+3. **(P0)** Separately from (2), the Customer Portal's main "Request Changes" counter-offer button
+   still calls a client-side-only mock (`dealStore.ts::submitCustomerNegotiation`), never the real
+   API — a real customer's counter-offer is not persisted and vanishes on refresh.
+4. **(P1)** A confirmed, reproduced lost-update race in `quotations.service.ts::submit()`: two
+   concurrent submits on the same quotation can leave it stuck in `DRAFT` while a live `PENDING`
+   approval request exists for it, and the "winning" request's own HTTP response falsely reports
+   the stale status.
+
+None of these four are schema-refactor fallout — they are pre-existing defects the refactor
+reconciliation work never touched, unrelated to `fe6d88d`. All are documented in full below with
+exact reproduction steps, evidence, and a recommended minimal fix, per the standing rule that
+ambiguous business-logic changes get flagged rather than guessed at — none of these four fixes
+requires a business-logic judgment call, so none should need to stop for a question when they are
+picked up, but they are deferred to the next session by explicit user instruction, not because
+they were unclear.
+
+## Scope Note
+
+Per explicit user instruction mid-session, `backend/src/modules/users/*` and
+`frontend/src/hooks/useUsers.ts` were excluded from this pass — a teammate is actively working in
+that module. Nothing below touches or depends on that code.
+
+## Live Environment
+
+- Docker Desktop (Windows, WSL2 backend) started; project's `docker-compose.yml` `postgres`
+  service brought up on host port 5434 (5432 already held by an unrelated pre-existing native
+  Windows Postgres service — left untouched, as in the prior session).
+- `npm run migrate` — all 27 migrations skip-or-apply cleanly, ends `✅ All migrations complete.`
+- `npm run seed` — completes cleanly, including the newer Finance/Meridian/Acme demo accounts
+  merged into `dev` since the last pass.
+- Backend server started directly (`npx tsx src/server.ts`), confirmed healthy via
+  `GET /api/v1/health` with real DB latency reported.
+
+## Test Suite Results (live DB)
+
+- `npx tsc --noEmit` (backend): clean.
+- `npm run lint` (backend eslint): clean, 0 errors.
+- `npx vitest run` (backend, against the live database): **189/189 passing, 30 test files**,
+  including all 5 integration test files (`auth`, `health`, `portal`, `portal-resources`,
+  `approvalRequestUniqueness`) that the prior pass could not execute.
+- `npm run build` (backend `tsc`): clean.
+- `npx tsc --noEmit` (frontend): clean.
+- `npm run build` (frontend `vite build`): succeeds; same pre-existing ~2MB main-chunk warning
+  noted in the prior pass, unrelated to this work.
+- No frontend automated test suite exists (no `test` script in `frontend/package.json`) — frontend
+  correctness for this pass rests on typecheck + build + the live API contract checks below, not
+  on frontend unit/integration tests, because none exist to run.
+
+## Live Workflow Verification (Flows 1–7, real HTTP + real DB assertions)
+
+Executed via a real running backend against the live database, asserting actual database state
+after each step (not just HTTP status), roughly following the project's own QA runbook:
+
+**Flow 1 — Admin config:** created a product category, product, warehouse, and a global discount
+rule (max 10%) via `POST /admin/*`; confirmed `GET /admin/products` returns them (paginated shape);
+confirmed a `PATCH` persists; confirmed a non-admin role is rejected with 403.
+
+**Flow 2 — Sales rep quotation:** created a quotation, added a line at 5% discount (within the
+10% cap) and 10% tax; verified `subtotal`/`discount_total`/`tax_total`/`grand_total` from the
+view-based read path match hand-computed values exactly (2400 / 120 / 228 / 2508); submitted —
+correctly resolved to `APPROVED` (no approval required). A second quotation at 50% discount (over
+the cap) submitted to `PENDING_APPROVAL` correctly, with a real `approval_requests` row created.
+
+**Flow 3 — Sales manager approval:** `GET /approvals?status=PENDING` lists the request with a
+human-readable `approval_level` name (not a UUID — confirms the prior pass's fix holds); a
+sales-rep token is correctly forbidden from acting on it (403); the manager's approval correctly
+flips the quotation to `APPROVED`; acting on the same request a second time is correctly rejected
+("already resolved"). A concurrent double-submit on a third quotation was run specifically to
+probe DB-1 and surfaced Finding 4 above (documented in full below) rather than a duplicate
+approval — DB-1 itself held (no duplicate PENDING row was ever created), but the losing request's
+error-recovery path corrupted the quotation's own status field as a side effect.
+
+**Flow 4 — Negotiation (internal side):** a rep opened a negotiation on a fourth quotation and
+posted a `COUNTER_OFFER` message changing an item's discount from 5% to 8%; the quotation's
+`discount_total` recalculated correctly to reflect the new discount; the negotiation's message
+history was retrievable. (The customer-side of this flow is where Findings 2 and 3 were found —
+see below; the internal, rep-driven side of negotiation works correctly end-to-end.)
+
+**Flow 5 — Sales order / fulfillment:** converted the clean first quotation to a sales order
+(grand_total carried through correctly at 2508.00); a second conversion attempt on the same
+quotation was correctly rejected; allocated fulfillment (warehouse suggested, inventory reserved
+— confirmed `quantity_reserved` incremented by exactly the ordered quantity in the database);
+shipped the fulfillment — confirmed in the database that `quantity_on_hand` decremented and
+`quantity_reserved` cleared correctly; a second ship attempt on the same fulfillment was correctly
+rejected ("Cannot ship a fulfillment in status SHIPPED"); the sales order's own status correctly
+advanced to `FULFILLED`.
+
+**Flow 6 — Finance / billing / payments (the critical financial-integrity flow):** confirmed
+billing via a `SALES_MANAGER` token (see Finding 1 for why a `FINANCE` token fails here) —
+invoice created with `total` matching the sales order's `grand_total` exactly (2508.00); a second
+billing-confirm attempt on the same order was correctly rejected; recorded a partial payment
+(1000 of 2508) — invoice correctly moved to `PARTIALLY_PAID`; **attempted an overpayment (5000
+against a 1508 remaining balance) — correctly rejected at the HTTP level, and, critically, direct
+database inspection confirmed zero invalid payment rows were persisted** (this is the exact guard
+a schema-refactor regression disabled in the prior pass — confirmed still intact here); recorded
+the exact remaining balance (1508) — invoice correctly moved to `PAID`; a further payment attempt
+on the now-PAID invoice was correctly rejected.
+
+**Flow 7 — Customer portal / IDOR:** established two separate portal sessions (Dev Test Customer,
+Meridian Industrial) via the dev magic-link flow; confirmed the Meridian customer's token is
+correctly denied (403/404) when attempting to fetch the Dev customer's quotation or invoice by ID
+— tenant isolation holds for direct object reference attempts on `/portal/quotations/:id` and
+`/portal/invoices/:id`. (The portal's negotiation-listing endpoint is where Finding 2 was found —
+see below; quotation/invoice isolation itself is unaffected and correct.)
+
+## Confirmed Defects (new this pass)
+
+### Finding 1 — P0 — Shared-prefix router mounting silently blocks legitimate roles
+
+**Where:** `backend/src/app.ts`, lines 88–122. Multiple independent `Router()` instances are
+mounted at the *same* path prefix (`/api/v1/quotations` has five: `quotationsRouter`,
+`discountEngineRouter`, `quotationConversionRouter`, `quotationNegotiationsRouter`,
+`quotationDealHealthRouter`; `/api/v1/sales-orders` has three: `salesOrdersRouter`,
+`salesOrderFulfillmentRouter`, `salesOrderBillingRouter`).
+
+**Root cause:** each router's own `router.use(authenticate, requireRole(...))` (e.g.
+`quotations.routes.ts:16`, `billing.routes.ts:17`) has no path argument, so Express applies it to
+*every* request reaching that router instance — regardless of whether that specific router even
+has a matching route for the request. Because Express dispatches mounted routers in registration
+order and a role-check that sends a 403/401 response ends the request right there, an **earlier**
+router at the same prefix with a **narrower** role set permanently shadows every route in a
+**later** router at that prefix whose role set is a superset or a different set — the later
+router's own more-permissive check is never reached.
+
+**Confirmed impact (reproduced live):**
+- `finance@dev.local` (role `FINANCE`) receives `403 FORBIDDEN` calling
+  `POST /sales-orders/:id/billing/confirm` — the core Finance-role action — because
+  `salesOrdersRouter` (roles `SALES_REP, SALES_MANAGER, OPERATIONS, ADMIN` — no `FINANCE`) is
+  mounted first at `/api/v1/sales-orders` and intercepts the request before
+  `salesOrderBillingRouter` (roles `FINANCE, SALES_MANAGER, ADMIN`) is ever reached. A
+  `SALES_MANAGER` token succeeds on the identical request (`201`, invoice created) because that
+  role happens to be in both sets — this is why the bug was never noticed testing with a manager
+  account.
+- A customer-portal bearer token receives `401 UNAUTHORIZED` ("Invalid or expired token") calling
+  `GET /api/v1/quotations/:id/negotiations`, even for the caller's own quotation — because
+  `quotationsRouter` (internal-only `authenticate`, which throws on a portal-signed token) is
+  mounted first at `/api/v1/quotations` and intercepts the request before
+  `quotationNegotiationsRouter`'s own `authenticateInternalOrPortal` fallback (documented in that
+  file specifically to support this exact caller) is ever reached.
+
+**Confirmed by code inspection (same mechanism, not yet empirically reproduced — no `OPERATIONS`
+seed account exists to test with, and that module was out of scope this pass):** an `OPERATIONS`
+role token would be blocked from `POST /quotations/:id/convert` for the identical reason —
+`quotationConversionRouter` allows `OPERATIONS` but is mounted after `quotationsRouter`, whose
+role set (`SALES_REP, SALES_MANAGER, ADMIN`) does not include it.
+
+**Recommended minimal fix (not applied this pass):** scope each router's `requireRole(...)` call
+to its own defined routes (as a per-route middleware argument) rather than as a blanket
+`router.use(...)`, so a router with no matching route for a given request never gets the chance to
+reject it on behalf of a sibling router at the same prefix. `authenticate` itself can likely stay
+a blanket `.use()` wherever every route at that prefix genuinely requires *some* authenticated
+internal user — the defect is specifically in bundling `requireRole` into the same blanket call.
+This is a routing-layer fix; no business rule, role definition, or endpoint behavior changes.
+
+### Finding 2 — P0 — The existing "wire negotiations to the real backend" fix has never worked
+
+**Where:** `frontend/src/hooks/useNegotiation.ts` (lines 1–9 document the intent) calling
+`frontend/src/services/index.ts::negotiationService.listForQuotation()`, which issues
+`GET /quotations/:id/negotiations` — the exact endpoint broken by Finding 1 for portal tokens.
+
+**Evidence:** the hook's own header comment states it was added specifically so a customer
+message "actually reaches" the sales rep via the real backend, replacing a local mock — but
+because the endpoint it depends on has been unreachable for portal tokens the entire time (Finding
+1), that fix has never functioned end-to-end against a live backend. This was not detectable by
+source-level review (the frontend code and the backend route code are each individually correct
+in isolation) — it only surfaces when both are exercised together against a running server, which
+had not happened before this pass.
+
+**Recommended fix:** no frontend change needed — fixing Finding 1 makes this endpoint reachable
+for portal tokens and this feature starts working as originally intended, with no code change to
+the hook or service layer required.
+
+### Finding 3 — P0 — Customer Portal counter-offer button is still a pure client-side mock
+
+**Where:** `frontend/src/pages/CustomerPortalPages.tsx`, `handleCounterOfferSubmit` (line ~164)
+calls `submitCustomerNegotiation()` from `frontend/src/store/dealStore.ts` (line 1132) — an
+in-memory simulation (`Date.now()`-based IDs, local recalculation, no network call anywhere in the
+function). The "line item question" button (`handleSendLineQuestion`, line ~147) uses the same
+store's `addNegotiationMessage`, also mock.
+
+**Distinct from Finding 2:** this is a separate defect — even after Finding 1/2 are fixed, this
+specific UI action still would not persist anything, because it never calls
+`negotiationService`/`useNegotiation` at all. A correctly-wired equivalent (`useNegotiation`,
+`negotiationService.addMessage` → real `POST /negotiations/:id/messages`) already exists in the
+same codebase and is used elsewhere in the same file (referenced around line 833) — the fix is to
+point the counter-offer form and line-question handler at that existing, working path instead of
+`dealStore`'s mock methods, not to build new plumbing.
+
+**Impact:** a real customer's "Request Changes" counter-offer or line-item question is silently
+lost on page refresh; no negotiation row, message, or discount change is ever written to the
+database; no re-approval is ever triggered no matter how large the requested discount is, because
+none of it reaches the discount engine.
+
+### Finding 4 — P1 — Lost-update race in `quotations.service.ts::submit()`
+
+**Where:** `backend/src/modules/quotations/quotations.service.ts`, lines 197–252.
+
+**Reproduction:** two concurrent `POST /quotations/:id/submit` calls issued against the same
+`DRAFT` quotation (an item discounted well above the configured ceiling, to force the
+`PENDING_APPROVAL` path).
+
+**Confirmed sequence (via direct audit-log and table inspection after the race):**
+1. Both requests read `status = DRAFT` before either commits anything, both pass the `DRAFT`
+   guard, both update status to `SUBMITTED`.
+2. Both call `discountEngineService.checkDiscounts(id)`. One wins the internal row lock, evaluates
+   the discount, moves status to `PENDING_APPROVAL`, and creates a real `approval_requests` row —
+   this part is correct and DB-1-safe (confirmed: exactly one approval request exists, never two).
+3. The other acquires the lock second, sees `PENDING_APPROVAL` (no longer a checkable status), and
+   throws.
+4. `submit()`'s `catch` block (line 235) rolls the quotation's status back to `quotation.status`
+   — a local variable captured from the *very first* read at the top of the function, **before**
+   either request did anything — not the row's actual current value. This unconditionally
+   overwrites the *other* (winning) request's legitimate `PENDING_APPROVAL` transition back to
+   `DRAFT`.
+5. Net result, confirmed directly against the database: `quotations.status = 'DRAFT'` while a
+   live `approval_requests` row with `status = 'PENDING'` still points at it — an orphaned,
+   internally inconsistent state. The audit log shows the full sequence:
+   `QUOTATION_SUBMITTED` (SUBMITTED) → `QUOTATION_SUBMITTED` (SUBMITTED, second request) →
+   `DISCOUNT_CHECK` (PENDING_APPROVAL, approval request created) → `QUOTATION_SUBMIT_ROLLED_BACK`
+   (DRAFT) — the rollback is the last word, clobbering the correct state that came before it.
+6. The winning request's own HTTP response is also wrong: it re-reads the quotation *after* the
+   loser's rollback has already run, so it reports `200 OK` with `status: "DRAFT"` even though its
+   own operation actually succeeded and created a real pending approval.
+
+**Recommended minimal fix (not applied this pass):** the rollback should only fire if the
+quotation is still in the state this specific request put it in (e.g. a conditional
+`UPDATE ... WHERE status = 'SUBMITTED'`, or re-reading current status under lock before deciding
+whether to roll back), so a losing request's cleanup can never clobber a winning request's
+already-committed, unrelated success. No business rule changes — this is purely a
+concurrency-correctness fix to the existing rollback mechanism.
+
+## Also Noted (lower severity, not fixed)
+
+- `backend/vitest.config.ts` coverage thresholds were dropped from 70% to 20% in a teammate's CI
+  commit (`8b29d4f`, merged to `dev` during this session) — weakens the test-quality gate
+  significantly; may be a deliberate, legitimate response to real post-refactor coverage dropping
+  below 70%, but is worth the team confirming rather than leaving silently discovered here.
+- No admin API exists to set warehouse inventory levels (`inventory.quantity_on_hand`) — this
+  session inserted a row via direct SQL to make Flow 5 testable at all. May be an intentional
+  scope boundary (inventory arriving via a different process) rather than a gap — flagged for the
+  team to confirm, not treated as a confirmed defect.
+
+## Updated Production Readiness Gate (deltas from the prior pass only)
+
+| Category | Prior status | Updated status | Why |
+|---|---|---|---|
+| Database (schema/app agreement) | PASS (unverified) | **PASS (verified live)** | All 27 migrations applied cleanly from the existing dev DB; 189/189 tests (incl. all 5 integration files) passed against it |
+| Migrations | PARTIAL (unverified) | **PASS (verified live)** | Ran clean, in order, against the live instance |
+| Testing | PARTIAL (integration unexecuted) | **PARTIAL, differently** | Integration suite now executed and green, closing the prior gap — but this same live testing is what surfaced the four new defects above, so the category cannot move to PASS while they stand |
+| Authorization | PASS (carried over, unverified) | **FAIL** | Finding 1 — a confirmed, reproduced access-control defect blocks a legitimate role (`FINANCE`) from its core action and blocks all customer-portal callers from a documented, intentionally-supported endpoint |
+| Security | PASS | **FAIL** | Same basis as Authorization — an availability/access-control defect of this severity (a whole role locked out of billing) is a security-relevant regression regardless of intent |
+| Concurrency | PASS (test authored, unexecuted) | **FAIL** | Finding 4 — the DB-1 test itself now passes, but a second, distinct concurrency defect in the same code path was found and reproduced by the live testing this pass performed |
+| Frontend | NOT VERIFIED | **FAIL** | Finding 3 — a confirmed, live-reproduced defect in the customer portal's primary negotiation UI action; typecheck/build remain clean, but functional correctness does not |
+| Business Logic | PASS | **PASS (no change)** | Findings 1–4 are routing/concurrency/wiring defects, not business-rule errors — every rule this pass exercised (discount ceilings, approval routing, billing, overpayment, IDOR) produced the correct business outcome |
+| Financial Logic | PASS | **PASS (verified live)** | Overpayment guard, exact-balance payment, duplicate-billing prevention, and quotation/invoice/sales-order totals all confirmed correct against real database state, not just HTTP status codes |
+
+All other categories are unchanged from the prior pass's gate (see above) and were not re-examined
+in this pass beyond what's covered by Live Workflow Verification.
+
+## Final Verdict
+
+**NOT PRODUCTION READY.**
+
+The single largest gap from the prior pass — no live-database verification — is now closed, and
+that verification confirms the schema-reconciliation work across both prior passes is correct:
+189/189 tests pass against a real instance, and every financial/business-rule flow this pass
+walked live produced the correct outcome. That is genuine, confirmed progress.
+
+However, this same live testing found four new defects the prior, source-review-only passes could
+not have found, three of them P0:
+
+1. A routing defect that silently locks the `FINANCE` role out of billing confirmation and locks
+   every customer-portal user out of a documented, intentionally-supported endpoint.
+2. A previously-believed-fixed feature (customer↔rep negotiation messaging) that has, in fact,
+   never worked end-to-end because of defect (1).
+3. A separate, still-mocked customer-portal negotiation action that would not work even once (1)
+   and (2) are fixed.
+4. A reproduced concurrency bug that can leave a quotation and its approval request in an
+   inconsistent state relative to each other.
+
+Per explicit user instruction, none of these four are fixed in this pass — testing and diagnosis
+only. All four have a clear, minimal, non-architectural recommended fix documented above and
+should be the first work item of the next session.
