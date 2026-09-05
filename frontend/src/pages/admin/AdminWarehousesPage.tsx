@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { useDealStore } from '../../hooks/useDealStore';
-import { Warehouse } from '../../types';
+import React, { useState, useEffect, useCallback } from 'react';
+import { adminService, isForbiddenError } from '../../services/adminService';
+import { ApiWarehouse } from '../../services/apiTypes';
+import { ApiError } from '../../services/httpClient';
 import {
   Truck,
   Plus,
@@ -8,102 +9,113 @@ import {
   CheckCircle2,
   XCircle,
   MapPin,
-  Package,
-  Layers,
   Sparkles,
   Save,
   X,
-  RefreshCw,
 } from 'lucide-react';
 import { toast } from '../../components/ui/Toast';
 
+// Migrated off the mock store onto the real /admin/warehouses CRUD
+// (adminService.warehouses). The mock's per-product stock ledger (Warehouse
+// .stock[]) and restock action have no backend equivalent yet — no endpoint
+// exists for either per-SKU stock levels on a warehouse or a targeted
+// "restock" write (see adminService.isWarehouseRestockSupported()) — so both
+// are dropped from this admin screen rather than fabricated or silently
+// no-op'd. Facility CRUD (create/edit/toggle) is fully real.
 export const AdminWarehousesPage: React.FC = () => {
-  const { warehouses, products, saveWarehouse, toggleWarehouseActive, restockWarehouse } = useDealStore();
+  const [warehouses, setWarehouses] = useState<ApiWarehouse[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [forbidden, setForbidden] = useState(false);
 
-  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>(warehouses[0]?.id || '');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingWarehouse, setEditingWarehouse] = useState<Partial<Warehouse> | null>(null);
+  const [editingWarehouse, setEditingWarehouse] = useState<Partial<ApiWarehouse> | null>(null);
 
-  // Quick restock modal
-  const [restockItem, setRestockItem] = useState<{ warehouseId: string; productId: string; quantity: number } | null>(null);
+  const loadWarehouses = useCallback(async () => {
+    setLoading(true);
+    setForbidden(false);
+    try {
+      const data = await adminService.warehouses.list();
+      setWarehouses(data);
+    } catch (err) {
+      if (isForbiddenError(err)) {
+        setForbidden(true);
+      } else {
+        toast.warning('Load Failed', err instanceof ApiError ? err.message : 'Could not load warehouses.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const selectedWarehouse =
-    warehouses.find((w) => w.id === selectedWarehouseId) || warehouses[0];
+  useEffect(() => {
+    loadWarehouses();
+  }, [loadWarehouses]);
 
   const handleCreateWarehouse = () => {
     setEditingWarehouse({
-      id: `WH-${Date.now()}`,
-      code: `WH-REG-${Date.now().toString().slice(-3)}`,
       name: '',
-      city: '',
-      location: 'Central Industrial District',
-      shippingCostWeight: 1.2,
+      code: '',
+      location: '',
+      shipping_cost_weight: 1.2,
       active: true,
-      stock: products.map((p) => ({
-        productId: p.id,
-        inStock: 50,
-        reserved: 0,
-      })),
     });
     setIsModalOpen(true);
   };
 
-  const handleEditWarehouse = (wh: Warehouse) => {
+  const handleEditWarehouse = (wh: ApiWarehouse) => {
     setEditingWarehouse({ ...wh });
     setIsModalOpen(true);
   };
 
-  const handleToggleActive = (wh: Warehouse) => {
+  const handleToggleActive = async (wh: ApiWarehouse) => {
     const nextActive = !wh.active;
-    toggleWarehouseActive(wh.id, nextActive);
-    if (nextActive) {
-      toast.success(
-        'Warehouse Status Updated',
-        `${wh.name} is now Active (Eligible for fulfillment routing).`
-      );
-    } else {
-      toast.warning(
-        'Warehouse Status Updated',
-        `${wh.name} is now Disabled (Excluded from new allocation splits).`
-      );
+    try {
+      await adminService.warehouses.update(wh.id, { active: nextActive } as Partial<ApiWarehouse>);
+      await loadWarehouses();
+      if (nextActive) {
+        toast.success('Warehouse Status Updated', `${wh.name} is now Active (Eligible for fulfillment routing).`);
+      } else {
+        toast.warning('Warehouse Status Updated', `${wh.name} is now Disabled (Excluded from new allocation splits).`);
+      }
+    } catch (err) {
+      toast.warning('Update Failed', err instanceof ApiError ? err.message : 'Could not update warehouse.');
     }
   };
 
-  const handleSaveModal = (e: React.FormEvent) => {
+  const handleSaveModal = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingWarehouse || !editingWarehouse.name || !editingWarehouse.code) return;
+    if (!editingWarehouse || !editingWarehouse.name) return;
 
-    const fullWarehouse: Warehouse = {
-      id: editingWarehouse.id || `WH-${Date.now()}`,
-      code: editingWarehouse.code,
+    const payload: Partial<ApiWarehouse> = {
       name: editingWarehouse.name,
-      city: editingWarehouse.city || 'City',
-      location: editingWarehouse.location || editingWarehouse.city || 'Regional Depot',
-      shippingCostWeight: Number(editingWarehouse.shippingCostWeight) || 1.0,
+      code: editingWarehouse.code || null,
+      location: editingWarehouse.location || null,
+      shipping_cost_weight: Number(editingWarehouse.shipping_cost_weight) || 1.0,
       active: editingWarehouse.active !== false,
-      isPrimary: Boolean(editingWarehouse.isPrimary),
-      stock: editingWarehouse.stock || [],
     };
 
-    saveWarehouse(fullWarehouse);
-    toast.success(
-      'Warehouse Saved',
-      `Facility "${fullWarehouse.name}" (${fullWarehouse.code}) saved.`
-    );
-    setIsModalOpen(false);
-    setEditingWarehouse(null);
+    try {
+      if (editingWarehouse.id) {
+        await adminService.warehouses.update(editingWarehouse.id, payload);
+      } else {
+        await adminService.warehouses.create(payload);
+      }
+      await loadWarehouses();
+      toast.success('Warehouse Saved', `Facility "${payload.name}" saved.`);
+      setIsModalOpen(false);
+      setEditingWarehouse(null);
+    } catch (err) {
+      toast.warning('Save Failed', err instanceof ApiError ? err.message : 'Could not save warehouse.');
+    }
   };
 
-  const handleQuickRestockSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!restockItem) return;
-    restockWarehouse(restockItem.warehouseId, restockItem.productId, restockItem.quantity);
-    toast.success(
-      'Stock Replenished',
-      `Added ${restockItem.quantity} units to inventory at facility.`
+  if (forbidden) {
+    return (
+      <div className="p-6 bg-white rounded-lg border border-[#E5E7EB] text-xs text-[#6B7280]">
+        You don't have access to warehouse administration.
+      </div>
     );
-    setRestockItem(null);
-  };
+  }
 
   return (
     <div id="admin-warehouses-container" className="space-y-4">
@@ -158,99 +170,81 @@ export const AdminWarehousesPage: React.FC = () => {
                 <th className="py-2.5 px-4">Facility Code / Name</th>
                 <th className="py-2.5 px-4">Location</th>
                 <th className="py-2.5 px-4 text-center">Shipping Cost Weight</th>
-                <th className="py-2.5 px-4 text-center">Stock Items</th>
                 <th className="py-2.5 px-4 text-center">Eligibility Status</th>
                 <th className="py-2.5 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#E5E7EB]">
-              {warehouses.map((w) => {
-                const isActive = w.active !== false;
-                const totalStock = w.stock.reduce((sum, s) => sum + s.inStock, 0);
-                const totalReserved = w.stock.reduce((sum, s) => sum + s.reserved, 0);
+              {loading ? (
+                <tr>
+                  <td colSpan={5} className="py-8 text-center text-[#9CA3AF] italic">
+                    Loading facilities…
+                  </td>
+                </tr>
+              ) : warehouses.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="py-8 text-center text-[#9CA3AF] italic">
+                    No facilities configured yet.
+                  </td>
+                </tr>
+              ) : (
+                warehouses.map((w) => {
+                  const isActive = w.active !== false;
 
-                return (
-                  <tr
-                    key={w.id}
-                    id={`warehouse-row-${w.id}`}
-                    className={`hover:bg-[#F9FAFB] transition-colors ${
-                      !isActive ? 'opacity-55 bg-[#FAFAFA]' : ''
-                    }`}
-                  >
-                    <td className="py-2.5 px-4">
-                      <div className="font-semibold text-[#1F2937] flex items-center gap-1.5">
-                        <Truck className="w-3.5 h-3.5 text-[#714B67]" />
-                        <span>{w.name}</span>
-                        {w.isPrimary && (
-                          <span className="text-[10px] font-bold px-1.5 py-0.2 bg-[#E0E7FF] text-[#3730A3] rounded">
-                            Primary
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-[11px] font-mono text-[#6B7280]">{w.code || w.id}</div>
-                    </td>
+                  return (
+                    <tr
+                      key={w.id}
+                      id={`warehouse-row-${w.id}`}
+                      className={`hover:bg-[#F9FAFB] transition-colors ${
+                        !isActive ? 'opacity-55 bg-[#FAFAFA]' : ''
+                      }`}
+                    >
+                      <td className="py-2.5 px-4">
+                        <div className="font-semibold text-[#1F2937] flex items-center gap-1.5">
+                          <Truck className="w-3.5 h-3.5 text-[#714B67]" />
+                          <span>{w.name}</span>
+                        </div>
+                        <div className="text-[11px] font-mono text-[#6B7280]">{w.code || w.id}</div>
+                      </td>
 
-                    <td className="py-2.5 px-4 text-[#374151]">
-                      <div className="flex items-center gap-1">
-                        <MapPin className="w-3 h-3 text-[#9CA3AF]" />
-                        <span>
-                          {w.city || w.location || 'Central Facility'}
+                      <td className="py-2.5 px-4 text-[#374151]">
+                        <div className="flex items-center gap-1">
+                          <MapPin className="w-3 h-3 text-[#9CA3AF]" />
+                          <span>{w.location || '—'}</span>
+                        </div>
+                      </td>
+
+                      <td className="py-2.5 px-4 text-center">
+                        <span className="px-2 py-0.5 rounded font-mono font-bold text-xs bg-[#F3F4F6] text-[#1F2937] border border-[#E5E7EB]">
+                          {w.shipping_cost_weight ?? 1.0}x
                         </span>
-                      </div>
-                    </td>
+                      </td>
 
-                    <td className="py-2.5 px-4 text-center">
-                      <span className="px-2 py-0.5 rounded font-mono font-bold text-xs bg-[#F3F4F6] text-[#1F2937] border border-[#E5E7EB]">
-                        {w.shippingCostWeight || 1.0}x
-                      </span>
-                    </td>
-
-                    <td className="py-2.5 px-4 text-center">
-                      <span className="text-xs font-mono font-semibold text-[#1F2937]">
-                        {totalStock - totalReserved} avail
-                      </span>
-                      <span className="text-[10px] text-[#6B7280] ml-1">
-                        ({totalReserved} rsvd / {totalStock} total)
-                      </span>
-                    </td>
-
-                    <td className="py-2.5 px-4 text-center">
-                      <button
-                        id={`btn-toggle-wh-${w.id}`}
-                        onClick={() => handleToggleActive(w)}
-                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-xs font-semibold cursor-pointer transition-colors ${
-                          isActive
-                            ? 'bg-[#ECFDF5] text-[#065F46] border border-[#A7F3D0] hover:bg-[#D1FAE5]'
-                            : 'bg-[#FEE2E2] text-[#991B1B] border border-[#FECACA] hover:bg-[#FCD34D]'
-                        }`}
-                      >
-                        {isActive ? (
-                          <>
-                            <CheckCircle2 className="w-3 h-3 text-[#059669]" />
-                            <span>Active / Routed</span>
-                          </>
-                        ) : (
-                          <>
-                            <XCircle className="w-3 h-3 text-[#DC2626]" />
-                            <span>Disabled / Excluded</span>
-                          </>
-                        )}
-                      </button>
-                    </td>
-
-                    <td className="py-2.5 px-4 text-right">
-                      <div className="inline-flex items-center gap-1.5">
+                      <td className="py-2.5 px-4 text-center">
                         <button
-                          id={`btn-view-stock-${w.id}`}
-                          onClick={() => setSelectedWarehouseId(w.id)}
-                          className={`px-2 py-1 text-xs rounded transition-colors cursor-pointer ${
-                            selectedWarehouse.id === w.id
-                              ? 'bg-[#714B67] text-white font-semibold'
-                              : 'text-[#6B7280] hover:bg-[#F3F4F6]'
+                          id={`btn-toggle-wh-${w.id}`}
+                          onClick={() => handleToggleActive(w)}
+                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-xs font-semibold cursor-pointer transition-colors ${
+                            isActive
+                              ? 'bg-[#ECFDF5] text-[#065F46] border border-[#A7F3D0] hover:bg-[#D1FAE5]'
+                              : 'bg-[#FEE2E2] text-[#991B1B] border border-[#FECACA] hover:bg-[#FCD34D]'
                           }`}
                         >
-                          Stock
+                          {isActive ? (
+                            <>
+                              <CheckCircle2 className="w-3 h-3 text-[#059669]" />
+                              <span>Active / Routed</span>
+                            </>
+                          ) : (
+                            <>
+                              <XCircle className="w-3 h-3 text-[#DC2626]" />
+                              <span>Disabled / Excluded</span>
+                            </>
+                          )}
                         </button>
+                      </td>
+
+                      <td className="py-2.5 px-4 text-right">
                         <button
                           id={`btn-edit-wh-${w.id}`}
                           onClick={() => handleEditWarehouse(w)}
@@ -258,90 +252,21 @@ export const AdminWarehousesPage: React.FC = () => {
                         >
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Selected Facility Inventory Details */}
-      {selectedWarehouse && (
-        <div className="bg-white rounded-lg border border-[#E5E7EB] shadow-2xs overflow-hidden">
-          <div className="p-3.5 bg-[#F9FAFB] border-b border-[#E5E7EB] flex items-center justify-between">
-            <div>
-              <h3 className="text-xs font-bold text-[#1F2937] uppercase tracking-wide flex items-center gap-1.5">
-                <Package className="w-4 h-4 text-[#714B67]" />
-                <span>Inventory Ledger: {selectedWarehouse.name} ({selectedWarehouse.code || selectedWarehouse.id})</span>
-              </h3>
-              <p className="text-xs text-[#6B7280]">
-                Real-time on-hand, reserved, and available physical quantities at this distribution center.
-              </p>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="border-b border-[#E5E7EB] bg-[#F3F4F6] text-[#4B5563] font-semibold">
-                  <th className="py-2 px-4">Product Name / SKU</th>
-                  <th className="py-2 px-4 text-right">Total In Stock</th>
-                  <th className="py-2 px-4 text-right">Reserved (Active Deals)</th>
-                  <th className="py-2 px-4 text-right">Available to Promise</th>
-                  <th className="py-2 px-4 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#E5E7EB]">
-                {products
-                  .filter((p) => !p.isSubscription && p.status !== 'Archived')
-                  .map((p) => {
-                    const stockRecord = selectedWarehouse.stock.find((s) => s.productId === p.id);
-                    const inStock = stockRecord?.inStock || 0;
-                    const reserved = stockRecord?.reserved || 0;
-                    const available = Math.max(0, inStock - reserved);
-
-                    return (
-                      <tr key={p.id} className="hover:bg-[#F9FAFB] transition-colors">
-                        <td className="py-2 px-4">
-                          <div className="font-semibold text-[#1F2937]">{p.name}</div>
-                          <div className="text-[11px] font-mono text-[#6B7280]">{p.sku || p.id}</div>
-                        </td>
-                        <td className="py-2 px-4 text-right font-mono font-semibold text-[#1F2937]">
-                          {inStock}
-                        </td>
-                        <td className="py-2 px-4 text-right font-mono text-[#9CA3AF]">
-                          {reserved}
-                        </td>
-                        <td className="py-2 px-4 text-right font-mono font-bold text-[#059669]">
-                          {available}
-                        </td>
-                        <td className="py-2 px-4 text-right">
-                          <button
-                            id={`btn-restock-${selectedWarehouse.id}-${p.id}`}
-                            onClick={() =>
-                              setRestockItem({
-                                warehouseId: selectedWarehouse.id,
-                                productId: p.id,
-                                quantity: 25,
-                              })
-                            }
-                            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-[#714B67] hover:bg-[#F5EEF4] rounded transition-colors cursor-pointer"
-                          >
-                            <RefreshCw className="w-3 h-3" />
-                            <span>Quick Restock</span>
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      {/* Per-product inventory ledger removed — no backend endpoint exists
+          for per-SKU stock levels on a warehouse yet. See the Fulfillment
+          page's Stock tab for the equivalent facility list. Restock is
+          likewise unavailable server-side (adminService.isWarehouseRestockSupported()
+          returns false) so no restock control is offered here. */}
 
       {/* Edit Warehouse Modal */}
       {isModalOpen && editingWarehouse && (
@@ -382,12 +307,11 @@ export const AdminWarehousesPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-[#374151] mb-1">
-                    Facility Code *
+                    Facility Code
                   </label>
                   <input
                     id="wh-modal-code"
                     type="text"
-                    required
                     value={editingWarehouse.code || ''}
                     onChange={(e) => setEditingWarehouse({ ...editingWarehouse, code: e.target.value })}
                     placeholder="e.g. WH-PUNE"
@@ -404,11 +328,11 @@ export const AdminWarehousesPage: React.FC = () => {
                     type="number"
                     step="0.1"
                     min="0.1"
-                    value={editingWarehouse.shippingCostWeight ?? 1.0}
+                    value={editingWarehouse.shipping_cost_weight ?? 1.0}
                     onChange={(e) =>
                       setEditingWarehouse({
                         ...editingWarehouse,
-                        shippingCostWeight: parseFloat(e.target.value) || 1.0,
+                        shipping_cost_weight: parseFloat(e.target.value) || 1.0,
                       })
                     }
                     className="w-full px-2.5 py-1.5 font-mono border border-[#D1D5DB] rounded-md text-xs text-[#1F2937] focus:outline-hidden focus:border-[#714B67]"
@@ -416,33 +340,17 @@ export const AdminWarehousesPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-[#374151] mb-1">
-                    City *
-                  </label>
-                  <input
-                    id="wh-modal-city"
-                    type="text"
-                    required
-                    value={editingWarehouse.city || ''}
-                    onChange={(e) => setEditingWarehouse({ ...editingWarehouse, city: e.target.value })}
-                    className="w-full px-2.5 py-1.5 border border-[#D1D5DB] rounded-md text-xs text-[#1F2937] focus:outline-hidden focus:border-[#714B67]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-[#374151] mb-1">
-                    Location / Area
-                  </label>
-                  <input
-                    id="wh-modal-location"
-                    type="text"
-                    value={editingWarehouse.location || ''}
-                    onChange={(e) => setEditingWarehouse({ ...editingWarehouse, location: e.target.value })}
-                    className="w-full px-2.5 py-1.5 border border-[#D1D5DB] rounded-md text-xs text-[#1F2937] focus:outline-hidden focus:border-[#714B67]"
-                  />
-                </div>
+              <div>
+                <label className="block text-xs font-semibold text-[#374151] mb-1">
+                  Location / Area
+                </label>
+                <input
+                  id="wh-modal-location"
+                  type="text"
+                  value={editingWarehouse.location || ''}
+                  onChange={(e) => setEditingWarehouse({ ...editingWarehouse, location: e.target.value })}
+                  className="w-full px-2.5 py-1.5 border border-[#D1D5DB] rounded-md text-xs text-[#1F2937] focus:outline-hidden focus:border-[#714B67]"
+                />
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#E5E7EB]">
@@ -461,59 +369,6 @@ export const AdminWarehousesPage: React.FC = () => {
                 >
                   <Save className="w-3.5 h-3.5" />
                   <span>Save Facility</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Quick Restock Dialog */}
-      {restockItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-lg border border-[#E5E7EB] shadow-xl w-full max-w-sm overflow-hidden p-4 space-y-3">
-            <h3 className="text-xs font-bold text-[#1F2937] uppercase tracking-wide">
-              Replenish Facility Stock
-            </h3>
-            <p className="text-xs text-[#6B7280]">
-              Add units to on-hand physical stock for {products.find((p) => p.id === restockItem.productId)?.name}.
-            </p>
-
-            <form onSubmit={handleQuickRestockSubmit} className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-[#374151] mb-1">
-                  Quantity to Add
-                </label>
-                <input
-                  id="input-restock-qty"
-                  type="number"
-                  min="1"
-                  step="1"
-                  required
-                  value={restockItem.quantity}
-                  onChange={(e) =>
-                    setRestockItem({
-                      ...restockItem,
-                      quantity: parseInt(e.target.value) || 1,
-                    })
-                  }
-                  className="w-full px-2.5 py-1.5 font-mono border border-[#D1D5DB] rounded-md text-xs text-[#1F2937] focus:outline-hidden focus:border-[#714B67]"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E5E7EB]">
-                <button
-                  type="button"
-                  onClick={() => setRestockItem(null)}
-                  className="px-3 py-1.5 text-xs text-[#4B5563] hover:bg-[#F3F4F6] rounded-md transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-3 py-1.5 bg-[#059669] hover:bg-[#047857] text-white text-xs font-semibold rounded-md shadow-2xs transition-colors cursor-pointer"
-                >
-                  Confirm Restock
                 </button>
               </div>
             </form>
