@@ -8,6 +8,6 @@ const router = Router();
 
 router.use(authenticate);
 router.get('/', validate({ query: listNotificationsQuerySchema }), notificationsController.list);
-router.post('/:id/read', validate({ params: idParamSchema }), notificationsController.markRead);
+router.patch('/:id/read', validate({ params: idParamSchema }), notificationsController.markRead);
 
 export { router as notificationsRouter };

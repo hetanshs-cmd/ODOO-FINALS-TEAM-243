@@ -2,6 +2,7 @@ import { Errors } from '../../errors/AppError';
 import { roundMoney } from '../../shared/money';
 import { generateDocumentNumber } from '../../shared/documentNumber';
 import { mapDbError } from '../../shared/crud/dbErrors';
+import { getPaginationParams, buildPaginatedResult, PaginatedResult } from '../../utils/pagination';
 import { quotationsRepository } from './quotations.repository';
 import { Quotation, QuotationItem, QuotationWithItems } from './quotations.model';
 import { AuthenticatedUser } from '../auth/auth.types';
@@ -56,6 +57,43 @@ export const quotationsService = {
     assertCanAccessQuotation(quotation, requester);
     const items = await quotationsRepository.listItems(id);
     return { ...quotation, items };
+  },
+
+  /** A sales rep only sees their own quotations; managers/admins see everything. */
+  async list(
+    query: { status?: string; customer_id?: string; page?: unknown; limit?: unknown },
+    requester: AuthenticatedUser,
+  ): Promise<PaginatedResult<Quotation>> {
+    const pagination = getPaginationParams(query);
+    const filters = {
+      status: query.status,
+      customerId: query.customer_id,
+      salesRepId: requester.role === 'SALES_REP' ? requester.id : undefined,
+    };
+    const [items, total] = await Promise.all([
+      quotationsRepository.list(filters, pagination.limit, pagination.offset),
+      quotationsRepository.count(filters),
+    ]);
+    return buildPaginatedResult(items, total, pagination);
+  },
+
+  /** Only DRAFT quotations are editable — matches addItem's own rule. */
+  async update(
+    id: string,
+    dto: { price_list_id?: string | null; currency?: string; valid_until?: string | null },
+    requester: AuthenticatedUser,
+  ): Promise<Quotation> {
+    const quotation = await quotationsRepository.findById(id);
+    if (!quotation) throw Errors.notFound('Quotation');
+    assertCanAccessQuotation(quotation, requester);
+    if (quotation.status !== 'DRAFT') {
+      throw Errors.businessRuleViolation(
+        `Cannot edit a quotation in status ${quotation.status}; only DRAFT quotations are editable`,
+      );
+    }
+    const updated = await quotationsRepository.update(id, dto);
+    if (!updated) throw Errors.notFound('Quotation');
+    return updated;
   },
 
   /**

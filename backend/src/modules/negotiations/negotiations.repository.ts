@@ -1,6 +1,11 @@
 import { PoolClient } from 'pg';
 import { db } from '../../config/database';
-import { Negotiation, NegotiationChange, NegotiationMessage, NegotiationMessageType } from './negotiations.model';
+import {
+  Negotiation,
+  NegotiationChange,
+  NegotiationMessage,
+  NegotiationMessageType,
+} from './negotiations.model';
 
 export interface QuotationForNegotiation {
   id: string;
@@ -22,15 +27,18 @@ export const negotiationsRepository = {
   async findQuotationForNegotiation(quotationId: string): Promise<QuotationForNegotiation | null> {
     const { rows } = await db.query(
       'SELECT id, status, sales_rep_id, customer_id FROM quotations WHERE id = $1',
-      [quotationId]
+      [quotationId],
     );
     return (rows[0] as QuotationForNegotiation | undefined) ?? null;
   },
 
-  async insertNegotiation(input: { quotationId: string; initiatedBy: string }): Promise<Negotiation> {
+  async insertNegotiation(input: {
+    quotationId: string;
+    initiatedBy: string;
+  }): Promise<Negotiation> {
     const { rows } = await db.query(
       `INSERT INTO negotiations (quotation_id, initiated_by) VALUES ($1, $2) RETURNING *`,
-      [input.quotationId, input.initiatedBy]
+      [input.quotationId, input.initiatedBy],
     );
     return rows[0] as Negotiation;
   },
@@ -46,7 +54,7 @@ export const negotiationsRepository = {
        FROM negotiations n
        JOIN quotations q ON q.id = n.quotation_id
        WHERE n.id = $1`,
-      [id]
+      [id],
     );
     return (rows[0] as (Negotiation & { customer_id: string }) | undefined) ?? null;
   },
@@ -62,12 +70,12 @@ export const negotiationsRepository = {
       senderUserId: string;
       message: string;
       messageType: NegotiationMessageType;
-    }
+    },
   ): Promise<NegotiationMessage> {
     const { rows } = await client.query(
       `INSERT INTO negotiation_messages (negotiation_id, sender_user_id, message, message_type)
        VALUES ($1, $2, $3, $4) RETURNING *`,
-      [input.negotiationId, input.senderUserId, input.message, input.messageType]
+      [input.negotiationId, input.senderUserId, input.message, input.messageType],
     );
     return rows[0] as NegotiationMessage;
   },
@@ -75,7 +83,7 @@ export const negotiationsRepository = {
   async listMessages(negotiationId: string): Promise<NegotiationMessage[]> {
     const { rows } = await db.query(
       'SELECT * FROM negotiation_messages WHERE negotiation_id = $1 ORDER BY created_at ASC',
-      [negotiationId]
+      [negotiationId],
     );
     return rows as NegotiationMessage[];
   },
@@ -83,7 +91,7 @@ export const negotiationsRepository = {
   async listChanges(negotiationId: string): Promise<NegotiationChange[]> {
     const { rows } = await db.query(
       'SELECT * FROM negotiation_changes WHERE negotiation_id = $1 ORDER BY created_at ASC',
-      [negotiationId]
+      [negotiationId],
     );
     return rows as NegotiationChange[];
   },
@@ -91,7 +99,7 @@ export const negotiationsRepository = {
   async findQuotationItemForChange(itemId: string): Promise<QuotationItemForChange | null> {
     const { rows } = await db.query(
       'SELECT id, quotation_id, quantity, unit_price, discount_percent, tax_percent FROM quotation_items WHERE id = $1',
-      [itemId]
+      [itemId],
     );
     return (rows[0] as QuotationItemForChange | undefined) ?? null;
   },
@@ -99,11 +107,11 @@ export const negotiationsRepository = {
   async updateQuotationItemDiscount(
     client: PoolClient,
     itemId: string,
-    input: { discountPercent: number; discountAmount: number; lineTotal: number }
+    input: { discountPercent: number; discountAmount: number; lineTotal: number },
   ): Promise<void> {
     await client.query(
       `UPDATE quotation_items SET discount_percent = $2, discount_amount = $3, line_total = $4 WHERE id = $1`,
-      [itemId, input.discountPercent, input.discountAmount, input.lineTotal]
+      [itemId, input.discountPercent, input.discountAmount, input.lineTotal],
     );
   },
 
@@ -116,12 +124,19 @@ export const negotiationsRepository = {
       oldValue: string;
       newValue: string;
       changedBy: string;
-    }
+    },
   ): Promise<NegotiationChange> {
     const { rows } = await client.query(
       `INSERT INTO negotiation_changes (negotiation_id, quotation_item_id, field_name, old_value, new_value, changed_by)
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [input.negotiationId, input.quotationItemId, input.fieldName, input.oldValue, input.newValue, input.changedBy]
+      [
+        input.negotiationId,
+        input.quotationItemId,
+        input.fieldName,
+        input.oldValue,
+        input.newValue,
+        input.changedBy,
+      ],
     );
     return rows[0] as NegotiationChange;
   },
@@ -136,11 +151,15 @@ export const negotiationsRepository = {
          tax_total = COALESCE((SELECT SUM(line_total - (quantity * unit_price - discount_amount)) FROM quotation_items WHERE quotation_id = $1), 0),
          grand_total = COALESCE((SELECT SUM(line_total) FROM quotation_items WHERE quotation_id = $1), 0)
        WHERE id = $1`,
-      [quotationId]
+      [quotationId],
     );
   },
 
-  async updateQuotationStatus(client: PoolClient, quotationId: string, status: string): Promise<void> {
+  async updateQuotationStatus(
+    client: PoolClient,
+    quotationId: string,
+    status: string,
+  ): Promise<void> {
     await client.query('UPDATE quotations SET status = $2 WHERE id = $1', [quotationId, status]);
   },
 };

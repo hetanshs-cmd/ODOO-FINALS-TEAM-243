@@ -13,11 +13,23 @@ import { adminRouter } from './modules/admin/admin.routes';
 import { quotationsRouter } from './modules/quotations/quotations.routes';
 import { discountEngineRouter } from './modules/discount-engine/discount-engine.routes';
 import { approvalsRouter } from './modules/approvals/approvals.routes';
-import { salesOrdersRouter } from './modules/sales-orders/sales-orders.routes';
-import { salesOrderFulfillmentRouter, fulfillmentsRouter } from './modules/fulfillment/fulfillment.routes';
+import {
+  quotationConversionRouter,
+  salesOrdersRouter,
+} from './modules/sales-orders/sales-orders.routes';
+import {
+  salesOrderFulfillmentRouter,
+  fulfillmentsRouter,
+} from './modules/fulfillment/fulfillment.routes';
 import { salesOrderBillingRouter, invoicesRouter } from './modules/billing/billing.routes';
-import { negotiationsRouter } from './modules/negotiations/negotiations.routes';
-import { quotationDealHealthRouter, dealHealthAlertsRouter } from './modules/deal-health/deal-health.routes';
+import {
+  quotationNegotiationsRouter,
+  negotiationsRouter,
+} from './modules/negotiations/negotiations.routes';
+import {
+  quotationDealHealthRouter,
+  dealHealthAlertsRouter,
+} from './modules/deal-health/deal-health.routes';
 import { notificationsRouter } from './modules/notifications/notifications.routes';
 import { upsellRouter } from './modules/upsell/upsell.routes';
 import { reportingRouter } from './modules/reporting/reporting.routes';
@@ -68,15 +80,22 @@ app.use('/api/v1/quotations', quotationsRouter);
 // docs/architecture.md's module boundaries.
 app.use('/api/v1/quotations', discountEngineRouter);
 app.use('/api/v1/approvals', approvalsRouter);
+// Converting a quotation into a sales order is a quotation-scoped action
+// (POST /quotations/:id/convert), same "own its own routes but mount
+// alongside quotations" pattern as discount-engine above.
+app.use('/api/v1/quotations', quotationConversionRouter);
 app.use('/api/v1/sales-orders', salesOrdersRouter);
 // fulfillment, billing, and deal-health each contribute routes under both
 // /sales-orders/:id/* (order-scoped actions) and their own top-level base —
-// same "own its own routes but mount alongside quotations" pattern as
-// discount-engine above.
+// same pattern as above.
 app.use('/api/v1/sales-orders', salesOrderFulfillmentRouter);
 app.use('/api/v1/fulfillments', fulfillmentsRouter);
 app.use('/api/v1/sales-orders', salesOrderBillingRouter);
 app.use('/api/v1/invoices', invoicesRouter);
+// Opening a negotiation is a quotation-scoped action (POST
+// /quotations/:id/negotiations); everything else on an existing negotiation
+// (read, post a message) lives under /negotiations/:id/*.
+app.use('/api/v1/quotations', quotationNegotiationsRouter);
 app.use('/api/v1/negotiations', negotiationsRouter);
 app.use('/api/v1/quotations', quotationDealHealthRouter);
 app.use('/api/v1/deal-health', dealHealthAlertsRouter);

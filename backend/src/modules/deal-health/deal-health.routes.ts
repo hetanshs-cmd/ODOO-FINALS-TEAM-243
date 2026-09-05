@@ -18,26 +18,26 @@ quotationDealHealthRouter.use(authenticate, requireRole(...DEAL_HEALTH_ROLES));
 quotationDealHealthRouter.get(
   '/:id/deal-health',
   validate({ params: idParamSchema }),
-  dealHealthController.getLatest
+  dealHealthController.getLatest,
 );
 quotationDealHealthRouter.post(
   '/:id/deal-health/recalculate',
   validate({ params: idParamSchema }),
-  dealHealthController.recalculate
+  dealHealthController.recalculate,
 );
 
 // Mounted at /api/v1/deal-health — the dashboard-wide open-alerts feed.
 const dealHealthAlertsRouter = Router();
 dealHealthAlertsRouter.use(authenticate, requireRole(...DEAL_HEALTH_ROLES));
 dealHealthAlertsRouter.get(
-  '/alerts',
+  '/',
   validate({ query: listAlertsQuerySchema }),
-  dealHealthController.listAlerts
+  dealHealthController.listAlerts,
 );
 dealHealthAlertsRouter.post(
-  '/alerts/:alertId',
+  '/:alertId',
   validate({ params: alertIdParamSchema, body: updateAlertStatusSchema }),
-  dealHealthController.updateAlertStatus
+  dealHealthController.updateAlertStatus,
 );
 
 export { quotationDealHealthRouter, dealHealthAlertsRouter };

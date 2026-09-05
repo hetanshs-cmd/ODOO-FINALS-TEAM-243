@@ -36,7 +36,7 @@ export const quotationsRepository = {
         input.price_list_id,
         input.currency,
         input.valid_until,
-      ]
+      ],
     );
     return rows[0] as Quotation;
   },
@@ -49,7 +49,7 @@ export const quotationsRepository = {
   async listItems(quotationId: string): Promise<QuotationItem[]> {
     const { rows } = await db.query(
       'SELECT * FROM quotation_items WHERE quotation_id = $1 ORDER BY created_at ASC',
-      [quotationId]
+      [quotationId],
     );
     return rows as QuotationItem[];
   },
@@ -72,9 +72,83 @@ export const quotationsRepository = {
         input.tax_percent,
         input.line_total,
         input.billing_type,
-      ]
+      ],
     );
     return rows[0] as QuotationItem;
+  },
+
+  async list(
+    filters: { status?: string; salesRepId?: string; customerId?: string },
+    limit: number,
+    offset: number,
+  ): Promise<Quotation[]> {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (filters.status) {
+      params.push(filters.status);
+      conditions.push(`status = $${params.length}`);
+    }
+    if (filters.salesRepId) {
+      params.push(filters.salesRepId);
+      conditions.push(`sales_rep_id = $${params.length}`);
+    }
+    if (filters.customerId) {
+      params.push(filters.customerId);
+      conditions.push(`customer_id = $${params.length}`);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    params.push(limit, offset);
+    const { rows } = await db.query(
+      `SELECT * FROM quotations ${where}
+       ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params,
+    );
+    return rows as Quotation[];
+  },
+
+  async count(filters: {
+    status?: string;
+    salesRepId?: string;
+    customerId?: string;
+  }): Promise<number> {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (filters.status) {
+      params.push(filters.status);
+      conditions.push(`status = $${params.length}`);
+    }
+    if (filters.salesRepId) {
+      params.push(filters.salesRepId);
+      conditions.push(`sales_rep_id = $${params.length}`);
+    }
+    if (filters.customerId) {
+      params.push(filters.customerId);
+      conditions.push(`customer_id = $${params.length}`);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const { rows } = await db.query(
+      `SELECT COUNT(*)::int AS count FROM quotations ${where}`,
+      params,
+    );
+    return (rows[0] as { count: number }).count;
+  },
+
+  /** Only DRAFT-safe fields — never customer_id/sales_rep_id/status (those change via dedicated flows). */
+  async update(
+    id: string,
+    fields: Partial<{ price_list_id: string | null; currency: string; valid_until: string | null }>,
+  ): Promise<Quotation | null> {
+    const entries = Object.entries(fields).filter(([, value]) => value !== undefined);
+    if (entries.length === 0) {
+      return this.findById(id);
+    }
+    const params: unknown[] = entries.map(([, value]) => value);
+    const setClause = entries.map(([key], i) => `${key} = $${i + 2}`).join(', ');
+    const { rows } = await db.query(
+      `UPDATE quotations SET ${setClause} WHERE id = $1 RETURNING *`,
+      [id, ...params],
+    );
+    return (rows[0] as Quotation | undefined) ?? null;
   },
 
   /**
@@ -99,7 +173,7 @@ export const quotationsRepository = {
          ), 0)
        WHERE id = $1
        RETURNING *`,
-      [quotationId]
+      [quotationId],
     );
     return rows[0] as Quotation;
   },

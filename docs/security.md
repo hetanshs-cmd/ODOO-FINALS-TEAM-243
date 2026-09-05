@@ -1,6 +1,6 @@
-# Security
+# Security — DealFlow360
 
-This document describes the security architecture and requirements for this project.
+This document describes the security architecture for DealFlow360.
 
 ---
 
@@ -35,25 +35,36 @@ const hash = await bcrypt.hash(plainPassword, SALT_ROUNDS);
 const isValid = await bcrypt.compare(plainPassword, storedHash);
 ```
 
-### JWT Strategy
+### Auth Schemes (Confirmed — Two Fully Separate Schemes)
 
-If JWT is used (to be confirmed during Phase 0):
+**Internal staff (rep/manager/admin/finance):**
 
 | Property | Value |
 |----------|-------|
-| Algorithm | HS256 (or RS256 if keys available) |
-| Secret | Environment variable `JWT_SECRET` — never hardcoded |
-| Access token lifetime | 15–60 minutes |
-| Refresh token | Stored securely (httpOnly cookie or secure storage) |
+| Algorithm | HS256 |
+| Secret | `JWT_SECRET` env variable — min 32 chars, enforced by Zod at startup |
+| Token lifetime | 15 minutes (`JWT_ACCESS_EXPIRY`) |
+| Scope claim | `scope: "internal"` — rejected on any portal endpoint |
+| Usage | `Authorization: Bearer <token>` on all `/api/v1/*` internal routes |
+
+**Customer portal:**
+
+| Property | Value |
+|----------|-------|
+| Scheme | Magic-link (one-time 64-char hex token, 15 min TTL) |
+| Token storage | In-memory `Map` (stub phase) — would move to DB for production |
+| JWT scope | `scope: "portal"` — rejected on any internal endpoint |
+| Customer binding | JWT carries `customerId`; every portal query enforces row-level match |
+
+The `scope` claim is what prevents a customer token from being used on internal endpoints
+(and vice versa) — `verifyInternalToken` throws if `scope !== "internal"`.
 
 ```typescript
 // NEVER DO THIS
 const token = jwt.sign(payload, 'my-hardcoded-secret');
 
 // ALWAYS DO THIS
-const token = jwt.sign(payload, process.env.JWT_SECRET!, {
-  expiresIn: '15m'
-});
+const token = jwt.sign(payload, config.JWT_SECRET, { expiresIn: '15m' });
 ```
 
 ---
@@ -184,10 +195,13 @@ Safe error responses:
 
 Authentication (who you are) is separate from Authorization (what you can do).
 
-If roles are required (determined in Phase 0):
-- Implement RBAC (Role-Based Access Control)
-- Check permissions in Service layer
-- Do not check permissions in Routes alone
+RBAC is implemented via the `roles` table (6 roles: `SALES_REP`, `SALES_MANAGER`,
+`FINANCE`, `OPERATIONS`, `CUSTOMER`, `ADMIN`) and `role_permissions` junction table.
+
+- Permission checks happen in the **Service layer** — not in routes alone
+- Portal endpoints enforce customer-level row isolation: every query checks `customer_id`
+  from the JWT, not from client-supplied parameters
+- A customer cannot access another customer's quotation regardless of UI
 
 ---
 
@@ -244,4 +258,4 @@ See also: [`SECURITY.md`](../SECURITY.md)
 
 ---
 
-*Last updated: scaffold initialization*
+*Last updated: Phase 0 complete — DealFlow360*

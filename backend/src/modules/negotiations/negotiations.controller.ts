@@ -5,12 +5,12 @@ import { negotiationsService } from './negotiations.service';
 export const negotiationsController = {
   async open(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const { quotation_id } = req.body as { quotation_id: string };
+      const quotationId = req.params['id'] as string;
       const initiatedBy = req.user?.id ?? (req.portalUser?.id as string);
       const negotiation = await negotiationsService.open(
-        quotation_id,
+        quotationId,
         initiatedBy,
-        req.portalUser?.customerId
+        req.portalUser?.customerId,
       );
       sendCreated({ res, data: negotiation, message: 'Negotiation opened' });
     } catch (err) {
@@ -22,7 +22,7 @@ export const negotiationsController = {
     try {
       const detail = await negotiationsService.getDetail(
         req.params['id'] as string,
-        req.portalUser?.customerId
+        req.portalUser?.customerId,
       );
       sendSuccess({ res, data: detail, message: 'Negotiation retrieved successfully' });
     } catch (err) {
