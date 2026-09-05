@@ -7,7 +7,11 @@ export const billingController = {
   async generate(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { plan_id } = req.body as { plan_id?: string };
-      const result = await billingService.generateBillingForOrder(req.params['id'] as string, plan_id);
+      const result = await billingService.generateBillingForOrder(
+        req.params['id'] as string,
+        plan_id,
+        req.user?.id ?? null,
+      );
       sendCreated({ res, data: result, message: 'Billing generated for sales order' });
     } catch (err) {
       next(err);
@@ -41,11 +45,15 @@ export const billingController = {
         payment_method: string;
         transaction_reference?: string;
       };
-      const result = await paymentsService.recordPayment(req.params['id'] as string, {
-        amount,
-        paymentMethod: payment_method,
-        transactionReference: transaction_reference,
-      });
+      const result = await paymentsService.recordPayment(
+        req.params['id'] as string,
+        {
+          amount,
+          paymentMethod: payment_method,
+          transactionReference: transaction_reference,
+        },
+        req.user?.id ?? null,
+      );
       sendCreated({ res, data: result, message: 'Payment recorded successfully' });
     } catch (err) {
       next(err);

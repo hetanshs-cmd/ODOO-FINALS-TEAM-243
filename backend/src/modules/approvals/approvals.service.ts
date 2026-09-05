@@ -1,6 +1,7 @@
 import { Errors } from '../../errors/AppError';
 import { withTransaction } from '../../shared/db/withTransaction';
 import { findApprovalLevelsAscending } from '../../shared/approvalLevels';
+import { insertAuditLog } from '../../shared/auditLog';
 import { getPaginationParams, buildPaginatedResult, PaginatedResult } from '../../utils/pagination';
 import { approvalsRepository } from './approvals.repository';
 import { ApprovalAction, ApprovalActionRow, ApprovalRequest } from './approvals.model';
@@ -132,6 +133,15 @@ export const approvalsService = {
         });
       }
       // COMMENTED: the action log entry itself is the only effect.
+
+      await insertAuditLog(client, {
+        entityType: 'quotation',
+        entityId: request.quotation_id,
+        action: `APPROVAL_${dto.action}`,
+        actorId: dto.userId,
+        oldValue: { status: request.status },
+        newValue: { status: updatedRequest.status, escalatedRequestId },
+      });
 
       return { request: updatedRequest, action: actionRow, escalatedRequestId };
     });

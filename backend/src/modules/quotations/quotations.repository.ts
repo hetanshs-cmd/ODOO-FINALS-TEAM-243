@@ -1,3 +1,4 @@
+import { PoolClient } from 'pg';
 import { db } from '../../config/database';
 import { Quotation, QuotationItem } from './quotations.model';
 
@@ -46,12 +47,29 @@ export const quotationsRepository = {
     return (rows[0] as Quotation | undefined) ?? null;
   },
 
+  /**
+   * margin_percent is computed here (not stored) from the product's current
+   * cost_price, mirroring upsell.repository's margin CASE — null when the
+   * product has no cost_price on record, never a guessed value.
+   */
   async listItems(quotationId: string): Promise<QuotationItem[]> {
     const { rows } = await db.query(
-      'SELECT * FROM quotation_items WHERE quotation_id = $1 ORDER BY created_at ASC',
+      `SELECT qi.*,
+              CASE WHEN p.cost_price IS NULL OR qi.unit_price = 0 THEN NULL
+                   ELSE ROUND(((qi.unit_price - p.cost_price) / qi.unit_price * 100)::numeric, 2)
+              END AS margin_percent
+       FROM quotation_items qi
+       JOIN products p ON p.id = qi.product_id
+       WHERE qi.quotation_id = $1
+       ORDER BY qi.created_at ASC`,
       [quotationId],
     );
     return rows as QuotationItem[];
+  },
+
+  async findProductCostPrice(productId: string): Promise<string | null> {
+    const { rows } = await db.query('SELECT cost_price FROM products WHERE id = $1', [productId]);
+    return (rows[0] as { cost_price: string | null } | undefined)?.cost_price ?? null;
   },
 
   async addItem(input: CreateQuotationItemInput): Promise<QuotationItem> {
@@ -147,6 +165,24 @@ export const quotationsRepository = {
     const { rows } = await db.query(
       `UPDATE quotations SET ${setClause} WHERE id = $1 RETURNING *`,
       [id, ...params],
+    );
+    return (rows[0] as Quotation | undefined) ?? null;
+  },
+
+  async listTimeline(quotationId: string): Promise<Record<string, unknown>[]> {
+    const { rows } = await db.query(
+      `SELECT * FROM audit_logs WHERE entity_type = 'quotation' AND entity_id = $1
+       ORDER BY created_at ASC`,
+      [quotationId],
+    );
+    return rows;
+  },
+
+  /** Dedicated status-transition flow (e.g. DRAFT -> SUBMITTED on submit). */
+  async updateStatus(client: PoolClient, id: string, status: string): Promise<Quotation | null> {
+    const { rows } = await client.query(
+      'UPDATE quotations SET status = $2 WHERE id = $1 RETURNING *',
+      [id, status],
     );
     return (rows[0] as Quotation | undefined) ?? null;
   },
