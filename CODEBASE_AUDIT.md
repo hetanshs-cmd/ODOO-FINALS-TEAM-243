@@ -80,6 +80,57 @@ per explicit user instruction for this session.
 
 ---
 
+## 1b. Third Pass — Live Database Verification (same day, this session)
+
+Docker **was** available this time, making this the first pass able to actually run migrations and
+the integration suite against a real PostgreSQL instance rather than reasoning from source alone.
+
+**What had already been reconciled by the time this pass started (verified by reading current
+source, not assumed from §9.1/§9.2 above):** `auth.repository.ts.findActiveCustomerLink` correctly
+reads `users.customer_id` (no `customer_users` reference remains); `quotations.repository.ts`,
+`sales-orders.repository.ts`, `billing.repository.ts`, `negotiations.repository.ts`, and
+`reporting.repository.ts` all correctly join `quotation_totals`/`sales_order_totals`/
+`invoice_totals` instead of reading dropped stored columns; `approval_requests.approval_level_id`
+rename fully propagated. **§9.2's "top-priority blockers" are therefore stale — someone completed
+that reconciliation after §9.1–§9.3 were written.** Migrations `025_restore_app_compatible_
+timestamps.sql` and `026_approval_requests_one_pending_per_quotation.sql` (fixing DB-1) were also
+already present and are well-targeted.
+
+**New findings from this pass (found by actually running the DB, not by reading migration SQL):**
+
+| ID | Sev | Finding | Fix |
+|---|---|---|---|
+| DB-18 | **P0** | `fulfillment.repository.ts` read/wrote `inventory.quantity_available` in 4 queries (`lockInventoryForProducts`, `lockInventoryAtWarehouse`, `reserveInventory`, `releaseReservation`) as if it were a stored column. The schema-minimization refactor removed it (it's `quantity_on_hand - quantity_reserved`, computed, not stored). Every allocate/reserve/release/override call would 500 with "column quantity_available does not exist." Not caught by the unit suite because those tests mock the repository layer entirely. | Reads now compute `i.quantity_on_hand - i.quantity_reserved AS quantity_available` inline; writes now touch only `quantity_reserved`. Interface shape (`InventoryForUpdateRow.quantity_available`) unchanged, so no service-layer or test changes needed. |
+| DB-19 | **P0** | `quotation_item_amounts`, `sales_order_item_amounts`, and `invoice_item_amounts` (006/011/015) were created via `SELECT qi.*, ...` **before** migration 025 added `created_at` to their base tables. Postgres expands `*` into a concrete, frozen column list at `CREATE VIEW` time — a later `ALTER TABLE ADD COLUMN` does not propagate into an existing view regardless of the view's stored query text. Confirmed via `pg_get_viewdef`: none of the three exposed `created_at` even after 025 ran. Broke every "list items" and "add item" call in quotations, sales-orders, billing, and portal — reproduced live via `tests/integration/portal-resources.test.ts` (500, "column created_at does not exist"). | New migration `027_fix_item_amounts_views_missing_created_at.sql`: `DROP`/`CREATE` (not `CREATE OR REPLACE`, which only permits appending columns at the very end — `created_at` needs to sit ahead of the computed columns) all three item-amount views plus the three totals views that depend on them, in dependency order. |
+| DB-20 | P2 | While fixing DB-19: migration 025 restored `created_at` on `invoices` (header) but missed `invoice_items` (lines) — yet `billing.repository.ts` (`listInvoiceItems`/`insertInvoiceItem`/`findInvoiceItemById`) explicitly selects `created_at` from `invoice_item_amounts`. | Folded into 027: `ALTER TABLE invoice_items ADD COLUMN created_at ...` before recreating the view. |
+
+**Verification performed (against a real database this time):**
+1. Reset the local Docker Postgres (`odoo_hackathon_db`, port 5435) — it held only trivial seed data
+   (4 users, 1 customer, 0 transactions) left over from *before* migrations 003–022 were rewritten
+   in place; `schema_migrations` tracks by filename, so it had silently skipped re-running the
+   rewritten content and the live schema had drifted from what the files on disk now describe. This
+   is itself worth flagging: **any environment that ran `npm run migrate` before the 2026-09-05
+   schema-minimization commit is now permanently out of sync and cannot self-heal** — the only fix
+   is what was done here (drop and re-migrate from empty), which is safe only because no real data
+   existed yet.
+2. `node scripts/migrate.js` — all 26 migrations (002–027, skipping the deleted 001/023) applied
+   cleanly to an empty database.
+3. Confirmed via `information_schema` that the live schema now matches source exactly: `quotations`
+   has no stored total columns, `inventory` has no `quantity_available`, all 6 derived views exist
+   with the correct column sets.
+4. `node scripts/seed.js` — succeeded against the new schema.
+5. `npx tsc --noEmit` — clean.
+6. `npx vitest run` (full suite, **including integration tests**, against the live database) —
+   **189/189 passing**, once `ALLOW_DEV_MAGIC_LINK=true` was set for the run (its absence in the
+   local `.env` caused 4 pre-existing failures — `auth.test.ts` ×2, `portal.test.ts` ×2 — that are
+   the AUD-002 fix working as designed, not a bug: `devToken` is correctly withheld without the
+   explicit opt-in).
+
+**Not done this pass (out of the stated scope of "database"):** the frontend split-brain (A2),
+the CI coverage gate, and every non-DB finding in §26 remain as documented above.
+
+---
+
 ## 1. Executive Summary
 
 DealFlow360 is a genuinely ambitious, well-structured B2B quote-to-cash platform. The backend layering
