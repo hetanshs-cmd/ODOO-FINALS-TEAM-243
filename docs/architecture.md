@@ -321,9 +321,11 @@ never trust client-side math for that decision.
 
 1. **Admin** configures `discount_rules`, `warehouses`, `subscription_plans` via Admin
    screens → `/admin/*` → lands in the respective tables.
+   
 2. **Rep** builds a quote → each `quotation_items` edit fires `check-discounts` → engine
    reads `discount_rules`, inserts a `discount_evaluations` row per item (append-only),
    computes the quotation's blended risk.
+
 3. If risk `!= LOW` → an `approval_requests` row is created → visible in Manager's Approvals
    List.
 4. Manager approves (`approval_actions` + `audit_logs`); on final approval → quotation
@@ -332,14 +334,17 @@ never trust client-side math for that decision.
 5. Rep/Finance accepts the split or overrides it → order ready for billing confirmation.
 6. **Confirm** splits `sales_order_items` by `billing_type` (one-time → `invoices`; recurring
    → `subscriptions` + `billing_schedules`).
+
 7. Customer negotiates via portal → counter-offer creates `negotiation_messages` +
    `negotiation_changes` → on **Confirm Quotation**, the portal endpoint re-runs
    `check-discounts`; if still over threshold, a new `approval_requests` row is created and
    status flips back to `PENDING_APPROVAL` (loop to step 3) — otherwise proceeds to sales
    order conversion and billing.
+
 8. **Deal Health job** runs continuously in the background, independent of the main flow,
    writing `deal_health_scores` history and `deal_alerts` rows off `updated_at` timestamps
    and rep-relative discount stats.
+   
 9. **Reports** module queries the accumulated operational tables directly — no separate
    reporting data model; this is what "live data, not static charts" means in practice.
 
