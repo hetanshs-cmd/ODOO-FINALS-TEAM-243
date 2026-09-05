@@ -15,13 +15,9 @@ import {
   Sliders,
   RotateCw,
   RefreshCw,
-  User,
   X,
   Plus,
 } from 'lucide-react';
-import { useAuth } from '../../hooks/useAuth';
-import { UserRole } from '../../types';
-
 export interface CommandPaletteProps {
   isOpen: boolean;
   onClose: () => void;
@@ -32,7 +28,7 @@ export interface CommandPaletteProps {
 interface CommandItem {
   id: string;
   label: string;
-  category: 'Navigation' | 'Actions' | 'Role Switch';
+  category: 'Navigation' | 'Actions';
   icon: React.ReactNode;
   shortcut?: string;
   action: () => void;
@@ -45,7 +41,6 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   onReset,
 }) => {
   const navigate = useNavigate();
-  const { switchRole } = useAuth();
   const [search, setSearch] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -198,58 +193,6 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       action: () => {
         onClose();
         onReset();
-      },
-    },
-    // Role Switching
-    {
-      id: 'role_sales_rep',
-      label: 'Switch to Sarah Chen (Sales Rep)',
-      category: 'Role Switch',
-      icon: <User className="w-4 h-4 text-blue-500" />,
-      action: () => {
-        switchRole('SalesRep');
-        onClose();
-      },
-    },
-    {
-      id: 'role_sales_manager',
-      label: 'Switch to David Vance (Sales Manager)',
-      category: 'Role Switch',
-      icon: <User className="w-4 h-4 text-amber-500" />,
-      action: () => {
-        switchRole('SalesManager');
-        onClose();
-      },
-    },
-    {
-      id: 'role_finance',
-      label: 'Switch to Elena Rostova (Finance Director)',
-      category: 'Role Switch',
-      icon: <User className="w-4 h-4 text-emerald-500" />,
-      action: () => {
-        switchRole('Finance');
-        onClose();
-      },
-    },
-    {
-      id: 'role_admin',
-      label: 'Switch to Marcus Sterling (Admin)',
-      category: 'Role Switch',
-      icon: <User className="w-4 h-4 text-purple-500" />,
-      action: () => {
-        switchRole('Admin');
-        onClose();
-      },
-    },
-    {
-      id: 'role_customer',
-      label: 'Switch to Vikram Mehta (Customer Portal)',
-      category: 'Role Switch',
-      icon: <User className="w-4 h-4 text-rose-500" />,
-      action: () => {
-        switchRole('Customer');
-        navigate('/portal/quotation');
-        onClose();
       },
     },
   ];

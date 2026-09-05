@@ -550,7 +550,7 @@ export const ApprovalsListPage: React.FC = () => {
 export const ApprovalDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user: currentUser, switchRole } = useAuth();
+  const { user: currentUser } = useAuth();
   const {
     quotations,
     approvalSteps,
@@ -1239,7 +1239,7 @@ export const ApprovalDetailPage: React.FC = () => {
         className="border-slate-200"
       >
         <div className="space-y-4">
-          {/* Identity Bar & Test Role Switcher */}
+          {/* Identity Bar */}
           <div className="p-3 bg-purple-50/60 rounded-lg border border-purple-200 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
             <div className="flex items-center gap-2">
               <UserCheck className="w-4 h-4 text-purple-700" />
@@ -1247,55 +1247,6 @@ export const ApprovalDetailPage: React.FC = () => {
                 Currently acting as: <strong>{currentUser?.name}</strong>{' '}
                 <span className="text-purple-800 font-mono">({currentUser?.role})</span>
               </span>
-            </div>
-
-            {/* Quick switcher to test different roles effortlessly */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] text-slate-500 font-medium">Test Role Switch:</span>
-              <button
-                type="button"
-                onClick={() => switchRole('sales_rep')}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium border transition-colors ${
-                  currentUser?.role.toLowerCase().includes('rep')
-                    ? 'bg-[#714B67] text-white border-[#714B67]'
-                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-                }`}
-              >
-                Sarah (Sales Rep)
-              </button>
-              <button
-                type="button"
-                onClick={() => switchRole('sales_manager')}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium border transition-colors ${
-                  currentUser?.role.toLowerCase().includes('manager')
-                    ? 'bg-[#714B67] text-white border-[#714B67]'
-                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-                }`}
-              >
-                David (Sales Mgr)
-              </button>
-              <button
-                type="button"
-                onClick={() => switchRole('finance')}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium border transition-colors ${
-                  currentUser?.role.toLowerCase().includes('finance')
-                    ? 'bg-[#714B67] text-white border-[#714B67]'
-                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-                }`}
-              >
-                Elena (Finance)
-              </button>
-              <button
-                type="button"
-                onClick={() => switchRole('admin')}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium border transition-colors ${
-                  currentUser?.role.toLowerCase() === 'admin'
-                    ? 'bg-[#714B67] text-white border-[#714B67]'
-                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-                }`}
-              >
-                Marcus (Admin)
-              </button>
             </div>
           </div>
 
