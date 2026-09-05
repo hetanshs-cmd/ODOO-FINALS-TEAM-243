@@ -73,6 +73,22 @@ export const fulfillmentRepository = {
     );
   },
 
+  /** Inverse of reserveInventory — used when an override-split reduces a line's quantity. */
+  async releaseReservation(
+    client: PoolClient,
+    warehouseId: string,
+    productId: string,
+    quantity: number
+  ): Promise<void> {
+    await client.query(
+      `UPDATE inventory
+       SET quantity_reserved = quantity_reserved - $3,
+           quantity_available = quantity_available + $3
+       WHERE warehouse_id = $1 AND product_id = $2`,
+      [warehouseId, productId, quantity]
+    );
+  },
+
   async releaseAndConsumeInventory(
     client: PoolClient,
     warehouseId: string,
@@ -148,9 +164,55 @@ export const fulfillmentRepository = {
     await client.query('UPDATE sales_orders SET status = $2 WHERE id = $1', [salesOrderId, status]);
   },
 
+  /** Deal-health scores are keyed by quotation, not sales order — resolve the link. */
+  async findQuotationIdForSalesOrder(salesOrderId: string): Promise<string | null> {
+    const { rows } = await db.query('SELECT quotation_id FROM sales_orders WHERE id = $1', [
+      salesOrderId,
+    ]);
+    return (rows[0] as { quotation_id: string } | undefined)?.quotation_id ?? null;
+  },
+
   async findById(id: string): Promise<Fulfillment | null> {
     const { rows } = await db.query('SELECT * FROM fulfillments WHERE id = $1', [id]);
     return (rows[0] as Fulfillment | undefined) ?? null;
+  },
+
+  async findByIdForUpdate(client: PoolClient, id: string): Promise<Fulfillment | null> {
+    const { rows } = await client.query('SELECT * FROM fulfillments WHERE id = $1 FOR UPDATE', [id]);
+    return (rows[0] as Fulfillment | undefined) ?? null;
+  },
+
+  async updateStatus(client: PoolClient, id: string, status: string): Promise<Fulfillment> {
+    const { rows } = await client.query(
+      'UPDATE fulfillments SET status = $2 WHERE id = $1 RETURNING *',
+      [id, status],
+    );
+    return rows[0] as Fulfillment;
+  },
+
+  /** Item + its product_id, for override-split's inventory-delta math. */
+  async findItemForFulfillment(
+    client: PoolClient,
+    fulfillmentId: string,
+    salesOrderItemId: string,
+  ): Promise<(FulfillmentItem & { product_id: string }) | null> {
+    const { rows } = await client.query(
+      `SELECT fi.*, soi.product_id
+       FROM fulfillment_items fi
+       JOIN sales_order_items soi ON soi.id = fi.sales_order_item_id
+       WHERE fi.fulfillment_id = $1 AND fi.sales_order_item_id = $2
+       FOR UPDATE OF fi`,
+      [fulfillmentId, salesOrderItemId],
+    );
+    return (rows[0] as (FulfillmentItem & { product_id: string }) | undefined) ?? null;
+  },
+
+  async updateItemQuantity(client: PoolClient, id: string, quantity: number): Promise<FulfillmentItem> {
+    const { rows } = await client.query(
+      'UPDATE fulfillment_items SET quantity = $2 WHERE id = $1 RETURNING *',
+      [id, quantity],
+    );
+    return rows[0] as FulfillmentItem;
   },
 
   async listItems(fulfillmentId: string): Promise<FulfillmentItem[]> {

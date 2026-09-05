@@ -38,4 +38,23 @@ export const fulfillmentController = {
       next(err);
     }
   },
+
+  async acceptSplit(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const fulfillment = await fulfillmentService.acceptSplit(req.params['id'] as string);
+      sendSuccess({ res, data: fulfillment, message: 'Fulfillment split accepted' });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async overrideSplit(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { items } = req.body as { items: { sales_order_item_id: string; quantity: number }[] };
+      const fulfillment = await fulfillmentService.overrideSplit(req.params['id'] as string, items);
+      sendSuccess({ res, data: fulfillment, message: 'Fulfillment split overridden' });
+    } catch (err) {
+      next(err);
+    }
+  },
 };
