@@ -1,6 +1,7 @@
 import { Errors } from '../../errors/AppError';
 import { withTransaction } from '../../shared/db/withTransaction';
 import { roundMoney } from '../../shared/money';
+import { insertAuditLog } from '../../shared/auditLog';
 import { discountEngineService } from '../discount-engine/discount-engine.service';
 import { notificationsService } from '../notifications/notifications.service';
 import { negotiationsRepository } from './negotiations.repository';
@@ -122,6 +123,14 @@ export const negotiationsService = {
         'NEGOTIATION',
       );
       await negotiationsRepository.updateStatus(client, negotiationId, 'IN_PROGRESS');
+
+      await insertAuditLog(client, {
+        entityType: 'quotation',
+        entityId: negotiation.quotation_id,
+        action: 'NEGOTIATION_COUNTER_OFFER',
+        actorId: dto.senderUserId,
+        newValue: { negotiationId, changes },
+      });
 
       return negotiationsRepository.insertMessage(client, {
         negotiationId,

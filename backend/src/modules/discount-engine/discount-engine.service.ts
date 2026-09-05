@@ -1,6 +1,8 @@
 import { Errors } from '../../errors/AppError';
 import { withTransaction } from '../../shared/db/withTransaction';
 import { findApprovalLevelsAscending, ApprovalLevelRef } from '../../shared/approvalLevels';
+import { dealHealthService } from '../deal-health/deal-health.service';
+import { insertAuditLog } from '../../shared/auditLog';
 import { evaluateQuotationDiscounts, RiskLevel } from './discountEngine';
 import { discountEngineRepository } from './discount-engine.repository';
 import { CheckDiscountsResult } from './discount-engine.model';
@@ -67,7 +69,7 @@ export const discountEngineService = {
 
     // Step 3 — persist: evaluations + status + (conditionally) approval
     // request, atomically. See withTransaction for the rollback guarantee.
-    return withTransaction(async (client) => {
+    const result = await withTransaction(async (client) => {
       const evaluations = await Promise.all(
         evaluation.items.map((item) =>
           discountEngineRepository.insertEvaluation(client, quotationId, item)
@@ -87,6 +89,19 @@ export const discountEngineService = {
         });
       }
 
+      await insertAuditLog(client, {
+        entityType: 'quotation',
+        entityId: quotationId,
+        action: 'DISCOUNT_CHECK',
+        actorId: quotation.sales_rep_id,
+        newValue: {
+          status: newStatus,
+          blendedScore: evaluation.blendedScore,
+          riskLevel: evaluation.riskLevel,
+          approvalRequestId,
+        },
+      });
+
       return {
         quotationId,
         status: newStatus,
@@ -96,5 +111,11 @@ export const discountEngineService = {
         approvalRequestId,
       };
     });
+
+    // Post-commit: the discount outcome is itself a deal-health signal, so
+    // refresh the score/alerts once the new evaluation/status is durable.
+    await dealHealthService.recalculate(quotationId);
+
+    return result;
   },
 };
