@@ -1,5 +1,6 @@
 -- Migration: 004_customers.sql
--- Description: Customer tiers, customers, customer portal users, and addresses.
+-- Description: Customer tiers, customers, and addresses. Also wires the
+--              users.customer_id FK now that `customers` exists.
 -- Depends on: 003_rbac.sql (users)
 
 CREATE TABLE customer_tiers (
@@ -9,15 +10,10 @@ CREATE TABLE customer_tiers (
     discount_limit NUMERIC(5,2) NOT NULL,
     priority       INTEGER      NOT NULL,
     status         VARCHAR(20)  NOT NULL DEFAULT 'ACTIVE',
-    created_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    updated_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),
     CONSTRAINT chk_customer_tiers_discount_limit CHECK (discount_limit >= 0 AND discount_limit <= 100),
     CONSTRAINT chk_customer_tiers_priority CHECK (priority >= 0),
     CONSTRAINT chk_customer_tiers_status CHECK (status IN ('ACTIVE', 'INACTIVE'))
 );
-CREATE TRIGGER trg_customer_tiers_updated_at
-    BEFORE UPDATE ON customer_tiers
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- customer_tier_id: RESTRICT — a tier that customers depend on for their
 -- discount governance must not be deletable out from under them.
@@ -42,25 +38,14 @@ CREATE TRIGGER trg_customers_updated_at
     BEFORE UPDATE ON customers
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
--- customer_users: the tenant-isolation join table for the customer portal.
--- A customer_user's `customer_id` is the scoping key the backend authorization
--- layer must filter every customer-portal query by.
-CREATE TABLE customer_users (
-    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    customer_id  UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
-    user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    designation  VARCHAR(100),
-    status       VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT uq_customer_users UNIQUE (customer_id, user_id),
-    CONSTRAINT chk_customer_users_status CHECK (status IN ('ACTIVE', 'INACTIVE'))
-);
-CREATE INDEX idx_customer_users_customer_id ON customer_users(customer_id);
-CREATE INDEX idx_customer_users_user_id ON customer_users(user_id);
-CREATE TRIGGER trg_customer_users_updated_at
-    BEFORE UPDATE ON customer_users
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+-- users.customer_id is the tenant-isolation key for the customer portal: the
+-- backend authorization layer scopes every portal query by it, never the
+-- frontend alone. RESTRICT so a customer with portal users cannot be deleted
+-- out from under them.
+ALTER TABLE users
+    ADD CONSTRAINT fk_users_customer_id
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT;
+CREATE INDEX idx_users_customer_id ON users(customer_id);
 
 CREATE TABLE addresses (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -73,12 +58,7 @@ CREATE TABLE addresses (
     country         VARCHAR(100) NOT NULL,
     postal_code     VARCHAR(20)  NOT NULL,
     is_default      BOOLEAN      NOT NULL DEFAULT false,
-    created_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    updated_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
     CONSTRAINT chk_addresses_type CHECK (type IN ('BILLING', 'SHIPPING', 'OFFICE'))
 );
 CREATE INDEX idx_addresses_customer_id ON addresses(customer_id);
 CREATE INDEX idx_addresses_type ON addresses(type);
-CREATE TRIGGER trg_addresses_updated_at
-    BEFORE UPDATE ON addresses
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();

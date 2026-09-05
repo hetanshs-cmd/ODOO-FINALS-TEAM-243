@@ -76,12 +76,12 @@ async function seed() {
       roleName: 'CUSTOMER',
     });
 
-    await client.query(
-      `INSERT INTO customer_users (customer_id, user_id, designation, status)
-       VALUES ($1, $2, 'Primary Contact', 'ACTIVE')
-       ON CONFLICT (customer_id, user_id) DO NOTHING`,
-      [customerId, portalUserId],
-    );
+    // customer_users was folded into users.customer_id by the 2026-09-05
+    // schema refactor — link the portal user directly on the users row.
+    await client.query('UPDATE users SET customer_id = $1 WHERE id = $2', [
+      customerId,
+      portalUserId,
+    ]);
 
     console.log(`✅ Seeds complete. Dev password for all seeded users: ${DEV_PASSWORD}`);
   } catch (err) {
