@@ -16,7 +16,7 @@ import { config } from './env';
  */
 export const db = new Pool({
   connectionString: config.DATABASE_URL,
-  max: 20,              // Maximum connections in pool
+  max: 20, // Maximum connections in pool
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 2_000,
 });

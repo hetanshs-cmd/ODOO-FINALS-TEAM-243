@@ -18,12 +18,7 @@ interface SuccessOptions<T> {
   message: string;
 }
 
-export function sendSuccess<T>({
-  res,
-  statusCode = 200,
-  data,
-  message,
-}: SuccessOptions<T>): void {
+export function sendSuccess<T>({ res, statusCode = 200, data, message }: SuccessOptions<T>): void {
   res.status(statusCode).json({
     success: true,
     data: data ?? {},

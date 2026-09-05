@@ -16,16 +16,8 @@ import { AppError } from '../errors/AppError';
  *     usersController.createUser
  *   );
  */
-export function validate(schemas: {
-  body?: ZodSchema;
-  params?: ZodSchema;
-  query?: ZodSchema;
-}) {
-  return async (
-    req: Request,
-    res: Response,
-    next: NextFunction
-  ): Promise<void> => {
+export function validate(schemas: { body?: ZodSchema; params?: ZodSchema; query?: ZodSchema }) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       if (schemas.body) {
         req.body = schemas.body.parse(req.body);
@@ -43,14 +35,7 @@ export function validate(schemas: {
           field: e.path.join('.'),
           message: e.message,
         }));
-        next(
-          new AppError(
-            'VALIDATION_ERROR',
-            400,
-            'Request validation failed',
-            details
-          )
-        );
+        next(new AppError('VALIDATION_ERROR', 400, 'Request validation failed', details));
       } else {
         next(err);
       }

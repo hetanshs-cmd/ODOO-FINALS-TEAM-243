@@ -7,10 +7,14 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov', 'html'],
+      all: true,
+      include: ['src/**/*.ts'],
       exclude: [
         'node_modules/**',
         'dist/**',
         'tests/**',
+        'scripts/**',
+        '*.cjs',
         'src/server.ts',          // Bootstrap — not unit-testable
         'src/config/database.ts', // DB connection — tested via integration
       ],

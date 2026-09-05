@@ -33,14 +33,11 @@ export interface PaginatedResult<T> {
 const MAX_LIMIT = 100;
 const DEFAULT_LIMIT = 20;
 
-export function getPaginationParams(query: {
-  page?: unknown;
-  limit?: unknown;
-}): PaginationParams {
+export function getPaginationParams(query: { page?: unknown; limit?: unknown }): PaginationParams {
   const page = Math.max(1, parseInt(String(query.page ?? '1'), 10) || 1);
   const limit = Math.min(
     MAX_LIMIT,
-    Math.max(1, parseInt(String(query.limit ?? DEFAULT_LIMIT), 10) || DEFAULT_LIMIT)
+    Math.max(1, parseInt(String(query.limit ?? DEFAULT_LIMIT), 10) || DEFAULT_LIMIT),
   );
   const offset = (page - 1) * limit;
   return { page, limit, offset };
@@ -49,7 +46,7 @@ export function getPaginationParams(query: {
 export function buildPaginatedResult<T>(
   items: T[],
   total: number,
-  { page, limit }: PaginationParams
+  { page, limit }: PaginationParams,
 ): PaginatedResult<T> {
   const totalPages = Math.ceil(total / limit);
   return {

@@ -14,12 +14,7 @@ import { config } from '../config/env';
  * internals, or secrets in API responses.
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function errorHandler(
-  err: unknown,
-  req: Request,
-  res: Response,
-  _next: NextFunction
-): void {
+export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction): void {
   // ── Zod Validation Errors ──────────────────────────────────────────────────
   if (err instanceof ZodError) {
     const details = err.errors.map((e) => ({

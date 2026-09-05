@@ -12,7 +12,7 @@ describe('GET /api/v1/health', () => {
   it('should return a JSON response with a status field', async () => {
     const response = await request(app).get('/api/v1/health');
 
-    expect(response.status).toBeOneOf([200, 503]);
+    expect([200, 503]).toContain(response.status);
     expect(response.body).toHaveProperty('success');
     expect(response.body).toHaveProperty('data');
     expect(response.body.data).toHaveProperty('status');
