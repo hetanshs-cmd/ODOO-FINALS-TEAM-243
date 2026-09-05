@@ -48,6 +48,7 @@ const DEMO_ROLE_EMAILS: Partial<Record<string, string>> = {
   admin: 'admin@dev.local',
   sales_rep: 'rep@dev.local',
   sales_manager: 'manager@dev.local',
+  finance: 'finance@dev.local',
   customer: 'portal@dev.local',
 };
 const DEMO_PASSWORD = 'DevPassword123!';
@@ -234,10 +235,10 @@ class AuthService {
     const isCustomer = normalized === 'customer';
 
     if (isCustomer) {
-      // Demo customers don't have a real backend account distinct from the
-      // one seeded portal user — route through the magic-link flow using
-      // the seeded portal email so the demo still exercises the real API.
-      const email = DEMO_ROLE_EMAILS.customer!;
+      // Each demo customer button passes its own seeded portal email (e.g.
+      // Meridian's) — fall back to the default portal account only when
+      // none is given, so multiple customer demos stay distinct tenants.
+      const email = specificEmailOrId || DEMO_ROLE_EMAILS.customer!;
       const linkResult = await this.requestPortalLink(email);
       if (!linkResult.devToken) {
         return {
