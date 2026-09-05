@@ -107,17 +107,31 @@ describe('fulfillmentService.overrideSplit', () => {
     ).rejects.toMatchObject({ statusCode: 422 });
   });
 
-  it('increases a line quantity and reserves the delta from inventory', async () => {
+  it('increases a line quantity and reserves the delta from inventory at THIS fulfillment\'s warehouse', async () => {
     vi.mocked(fulfillmentRepository.findByIdForUpdate).mockResolvedValue(makeFulfillment());
     vi.mocked(fulfillmentRepository.findItemForFulfillment).mockResolvedValue(makeItem());
+    // Deliberately return a different warehouse from lockInventoryForProducts
+    // than the fulfillment's own ('wh-1') to prove the service no longer
+    // reads from that broad, unfiltered query — it must call
+    // lockInventoryAtWarehouse scoped to the fulfillment's warehouse instead.
     vi.mocked(fulfillmentRepository.lockInventoryForProducts).mockResolvedValue([
-      { warehouse_id: 'wh-1', product_id: 'product-1', quantity_available: '10' },
+      { warehouse_id: 'wh-OTHER', product_id: 'product-1', quantity_available: '999' },
     ]);
+    vi.mocked(fulfillmentRepository.lockInventoryAtWarehouse).mockResolvedValue({
+      warehouse_id: 'wh-1',
+      product_id: 'product-1',
+      quantity_available: '10',
+    });
 
     await fulfillmentService.overrideSplit('ff-1', [
       { sales_order_item_id: 'soi-1', quantity: 5 },
     ]);
 
+    expect(fulfillmentRepository.lockInventoryAtWarehouse).toHaveBeenCalledWith(
+      FAKE_CLIENT,
+      'wh-1',
+      'product-1',
+    );
     expect(fulfillmentRepository.reserveInventory).toHaveBeenCalledWith(
       FAKE_CLIENT,
       'wh-1',
@@ -125,6 +139,22 @@ describe('fulfillmentService.overrideSplit', () => {
       2,
     );
     expect(fulfillmentRepository.updateItemQuantity).toHaveBeenCalledWith(FAKE_CLIENT, 'fi-1', 5);
+  });
+
+  it('rejects the increase when the fulfillment\'s own warehouse lacks the delta, even if another warehouse has stock', async () => {
+    vi.mocked(fulfillmentRepository.findByIdForUpdate).mockResolvedValue(makeFulfillment());
+    vi.mocked(fulfillmentRepository.findItemForFulfillment).mockResolvedValue(makeItem());
+    vi.mocked(fulfillmentRepository.lockInventoryAtWarehouse).mockResolvedValue({
+      warehouse_id: 'wh-1',
+      product_id: 'product-1',
+      quantity_available: '1', // only 1 available, need 2 more
+    });
+
+    await expect(
+      fulfillmentService.overrideSplit('ff-1', [{ sales_order_item_id: 'soi-1', quantity: 5 }]),
+    ).rejects.toMatchObject({ statusCode: 422 });
+
+    expect(fulfillmentRepository.reserveInventory).not.toHaveBeenCalled();
   });
 
   it('decreases a line quantity and releases the delta back to inventory', async () => {

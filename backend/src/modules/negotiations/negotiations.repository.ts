@@ -168,14 +168,19 @@ export const negotiationsRepository = {
     return (rows[0] as QuotationItemForChange | undefined) ?? null;
   },
 
+  /**
+   * discount_amount/line_total are never stored (006_quotations.sql) — only
+   * discount_percent is a real column; `quotation_item_amounts` recomputes
+   * the rest from it on every read, so there is nothing else to write here.
+   */
   async updateQuotationItemDiscount(
     client: PoolClient,
     itemId: string,
-    input: { discountPercent: number; discountAmount: number; lineTotal: number },
+    input: { discountPercent: number },
   ): Promise<void> {
     await client.query(
-      `UPDATE quotation_items SET discount_percent = $2, discount_amount = $3, line_total = $4 WHERE id = $1`,
-      [itemId, input.discountPercent, input.discountAmount, input.lineTotal],
+      `UPDATE quotation_items SET discount_percent = $2 WHERE id = $1`,
+      [itemId, input.discountPercent],
     );
   },
 
@@ -203,20 +208,6 @@ export const negotiationsRepository = {
       ],
     );
     return rows[0] as NegotiationChange;
-  },
-
-  /** Client-scoped mirror of quotationsRepository.recalculateTotals — must run
-   * inside the same transaction as the item updates above to see them. */
-  async recalculateQuotationTotals(client: PoolClient, quotationId: string): Promise<void> {
-    await client.query(
-      `UPDATE quotations SET
-         subtotal = COALESCE((SELECT SUM(quantity * unit_price) FROM quotation_items WHERE quotation_id = $1), 0),
-         discount_total = COALESCE((SELECT SUM(discount_amount) FROM quotation_items WHERE quotation_id = $1), 0),
-         tax_total = COALESCE((SELECT SUM(line_total - (quantity * unit_price - discount_amount)) FROM quotation_items WHERE quotation_id = $1), 0),
-         grand_total = COALESCE((SELECT SUM(line_total) FROM quotation_items WHERE quotation_id = $1), 0)
-       WHERE id = $1`,
-      [quotationId],
-    );
   },
 
   async updateQuotationStatus(

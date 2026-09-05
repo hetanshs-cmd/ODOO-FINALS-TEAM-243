@@ -26,18 +26,16 @@ describe('POST /api/v1/portal/request-link and /api/v1/portal/verify-link', () =
     );
     customerId = customer.rows[0].id;
 
-    const portalUser = await db.query<{ id: string }>(
-      `INSERT INTO users (name, email, password_hash, status, role_id)
-       VALUES ('Integration Portal User', $1, 'unused-hash-not-used-for-magic-link', 'ACTIVE', $2)
+    // customer_users was folded into users.customer_id by the 2026-09-05
+    // schema refactor — the portal link is just that column now.
+    await db.query<{ id: string }>(
+      `INSERT INTO users (name, email, password_hash, status, role_id, customer_id)
+       VALUES ('Integration Portal User', $1, 'unused-hash-not-used-for-magic-link', 'ACTIVE', $2, $3)
        RETURNING id`,
-      [portalEmail, customerRole.rows[0].id],
-    );
-    await db.query(
-      `INSERT INTO customer_users (customer_id, user_id, status) VALUES ($1, $2, 'ACTIVE')`,
-      [customerId, portalUser.rows[0].id],
+      [portalEmail, customerRole.rows[0].id, customerId],
     );
 
-    // An internal user with no customer_users link — used to prove the
+    // An internal user with no customer_id link — used to prove the
     // endpoint doesn't treat "user exists" as "is a portal user".
     await db.query(
       `INSERT INTO users (name, email, password_hash, status, role_id)
@@ -47,7 +45,6 @@ describe('POST /api/v1/portal/request-link and /api/v1/portal/verify-link', () =
   });
 
   afterAll(async () => {
-    await db.query('DELETE FROM customer_users WHERE customer_id = $1', [customerId]);
     await db.query('DELETE FROM users WHERE email IN ($1, $2)', [portalEmail, nonPortalEmail]);
     await db.query('DELETE FROM customers WHERE id = $1', [customerId]);
   });
@@ -69,7 +66,7 @@ describe('POST /api/v1/portal/request-link and /api/v1/portal/verify-link', () =
       expect(response.body.data.devToken).toBeUndefined();
     });
 
-    it('returns the same generic response for a user with no customer_users link', async () => {
+    it('returns the same generic response for a user with no customer_id link', async () => {
       const response = await request(app).post('/api/v1/portal/request-link').send({ email: nonPortalEmail });
 
       expect(response.status).toBe(200);

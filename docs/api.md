@@ -170,8 +170,8 @@ GET /api/v1/health
 ---
 
 > Table/field names below match the definitive schema in
-> [`database/schema/er-diagram.md`](../database/schema/er-diagram.md) (roles/users,
-> customer_users, quotations/quotation_items, discount_rules/discount_evaluations,
+> [`database/schema/er-diagram.md`](../database/schema/er-diagram.md) (roles/users
+> (portal link via `users.customer_id`), quotations/quotation_items, discount_rules/discount_evaluations,
 > approval_requests/approval_actions, negotiations, sales_orders, fulfillments/backorders,
 > invoices/payments, subscriptions/billing_schedules, deal_health_scores/deal_alerts).
 
@@ -181,7 +181,7 @@ GET /api/v1/health
 |---|---|---|---|
 | POST | `/api/v1/auth/login` | `{ email, password }` | Internal users — JWT + role claim (`role_id` → `roles.name`) |
 | POST | `/api/v1/auth/signup` | `{ name, email, password, role? }` | Creates a `users` row (bcrypt-hashed password) and logs in immediately — same response shape as login |
-| POST | `/api/v1/portal/request-link` | `{ email }` | Sends a magic-link to a `customer_users`-linked email |
+| POST | `/api/v1/portal/request-link` | `{ email }` | Sends a magic-link to a `users` row with `customer_id` set |
 | POST | `/api/v1/portal/verify-link` | `{ token }` | Exchanges magic-link token for a portal session scoped to one `customer_id` |
 
 #### POST /api/v1/auth/login
@@ -258,7 +258,7 @@ hashed with bcrypt (`BCRYPT_ROUNDS`), same as login verifies against.
 
 #### POST /api/v1/portal/request-link
 
-Requests a magic login link for a customer portal user (resolved through `customer_users`).
+Requests a magic login link for a customer portal user (resolved through `users.customer_id`).
 **Stub for this phase** — no email is sent yet; outside `NODE_ENV=production` the response
 includes `devToken` so the flow can be exercised without a real inbox.
 
@@ -556,7 +556,7 @@ Cancels an active subscription: sets `status = CANCELLED`, `end_date` to today, 
 
 ### Customer Portal (`/api/v1/portal/...`)
 
-Scoped strictly to the authenticated `customer_users` row — every query filters by
+Scoped strictly to the authenticated user's `users.customer_id` — every query filters by
 `customer_id`, never trusts a client-supplied id (NFR2).
 
 | Method | Path | Notes |
