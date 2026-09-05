@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertCircle, Clock, TrendingUp, Truck, ArrowRight } from 'lucide-react';
+import { AlertCircle, Clock, TrendingUp, Truck, ArrowRight, Sparkles } from 'lucide-react';
 import { ApiDealAlert } from '../../services/apiTypes';
 import { Button } from '../ui/Button';
 
@@ -10,6 +10,8 @@ export interface DealHealthFlagCardProps {
   onOpenDeal?: (quotationId: string) => void;
   onNudgeRep?: (alertId: string) => void;
   onEscalate?: (alertId: string) => void;
+  /** Opens an AI-drafted nudge message for this alert (review-before-copy, not an automatic send). */
+  onDraftNudge?: (alertId: string) => void;
   className?: string;
 }
 
@@ -38,6 +40,7 @@ export const DealHealthFlagCard: React.FC<DealHealthFlagCardProps> = ({
   onOpenDeal,
   onNudgeRep,
   onEscalate,
+  onDraftNudge,
   className = '',
 }) => {
   const resolvedCustomerName = customerName ?? flag.customer_name;
@@ -72,6 +75,11 @@ export const DealHealthFlagCard: React.FC<DealHealthFlagCardProps> = ({
           Flagged {new Date(flag.created_at).toLocaleDateString()}
         </span>
         <div className="flex items-center gap-1.5">
+          {onDraftNudge && (
+            <Button variant="ghost" size="sm" icon={<Sparkles className="w-3 h-3" />} onClick={() => onDraftNudge(flag.id)}>
+              Draft Nudge
+            </Button>
+          )}
           {onNudgeRep && (
             <Button variant="ghost" size="sm" onClick={() => onNudgeRep(flag.id)}>
               Nudge Rep
