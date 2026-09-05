@@ -939,26 +939,135 @@ Start Phase 0. Produce:
 
 ---
 
-## TECH STACK DEFAULTS
+## TECHNOLOGY SELECTION POLICY
 
-These are **defaults, not absolute requirements**.
+**THE PROBLEM DETERMINES THE STACK. NOT THE OTHER WAY AROUND.**
 
-| Layer | Default |
-|-------|---------|
-| Backend runtime | Node.js + Express |
-| Database | PostgreSQL |
-| Frontend | React + Vite |
-| Language | TypeScript |
-| Validation | Zod |
-| DB client | pg (node-postgres, parameterized queries) |
-| Testing | Vitest / Jest + Supertest |
-| Formatting | Prettier |
-| Linting | ESLint |
-| Containers | Docker Compose (local PostgreSQL) |
-
-**IMPORTANT:** Once the official problem statement is provided, re-evaluate the stack. Do not force a technology simply because it appears in this scaffold.
+There are **no mandatory frameworks, languages, or databases**.
 
 ---
 
-*Last updated: scaffold initialization — problem statement not yet received.*
+### Technology Selection Order
+
+```
+1. Understand the problem
+2. Determine technical requirements
+3. Evaluate possible technologies
+4. Select the technology stack
+5. Justify every choice
+```
+
+Never reverse this order.
+
+---
+
+### Technology Selection Criteria
+
+For every major technology choice, evaluate:
+
+1. Does it solve a real requirement?
+2. Is it appropriate for the scale of the project?
+3. Is it maintainable?
+4. Is it reliable?
+5. Is it secure?
+6. Does it support good testing?
+7. Does it support scalability?
+8. Does the team understand it?
+9. Can the team debug it during the hackathon?
+10. Does it introduce unnecessary dependency risk?
+11. Does it improve development speed without sacrificing quality?
+12. Can the team explain the choice to Odoo reviewers?
+
+---
+
+### What Is Allowed
+
+**Backend:** Any language/framework — Node.js, Python, Java, Go, C#, PHP, etc.
+
+**Frontend:** Any framework — React, Next.js, Vue, Angular, Svelte, Flutter, plain HTML/CSS/JS, etc.
+
+**Database:** Any appropriate database — PostgreSQL, MySQL, MongoDB, SQLite, etc.
+A **local database is strongly preferred** so the team controls the schema and operations.
+
+**Architecture:** Monolith, modular monolith, MVC, clean architecture, microservices (only if genuinely needed), serverless, etc.
+
+**AI/ML:** Allowed when it solves a genuine problem. Document: why, what model, input, output, failure cases, privacy implications.
+
+**Cloud services:** Allowed when they provide genuine value. Document: why required, fallback strategy, data sent, security implications.
+
+---
+
+### Hard Prohibitions
+
+**Do NOT use Firebase or Supabase as the primary backend/database architecture.**
+
+The project must demonstrate that the team can build:
+- Backend APIs and business logic
+- Database schema and operations
+- Authentication and authorization
+- Validation and error handling
+- Data integrity
+
+Third-party services may **complement** the architecture, not **replace** it.
+
+---
+
+### Forbidden Reasoning
+
+```
+❌ "We use X because everyone uses X."
+❌ "We use X because it is modern."
+❌ "We use X because AI recommended it."
+❌ "We use X because it looks impressive."
+❌ "We use X because the hackathon expects it."
+```
+
+### Required Reasoning
+
+```
+✅ "We selected X because requirement Y requires capability Z,
+    and X provides that with these trade-offs: ..."
+```
+
+---
+
+### Technology Decision Document
+
+After analyzing the problem statement, create:
+
+```
+docs/technology-decisions.md
+```
+
+For every major technology:
+
+```
+Technology:
+Purpose:
+Alternatives considered:
+Why selected:
+Advantages:
+Disadvantages:
+Security considerations:
+Scalability considerations:
+Team familiarity:
+Fallback:
+```
+
+---
+
+### No Technology Cargo Cult
+
+Do NOT add without genuine justification:
+- Microservices (complexity without benefit)
+- Redis/Kafka (premature optimization)
+- Blockchain (almost never appropriate)
+- Vector databases (only if genuinely using AI/semantic search)
+- AI/ML (only if it solves a real problem)
+
+Use them only when they **genuinely** solve a documented requirement.
+
+---
+
+*Last updated: tech-stack policy update — problem statement not yet received.*
 *Update this file when the official problem statement is integrated.*

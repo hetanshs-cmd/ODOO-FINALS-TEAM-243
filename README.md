@@ -26,20 +26,22 @@
 
 ## Technology Stack
 
-| Layer | Technology | Justification |
-|-------|-----------|---------------|
-| Backend Runtime | Node.js + Express | Default — will be re-evaluated after problem statement |
-| Database | PostgreSQL | Relational, ACID-compliant, production-grade |
-| Frontend | React + Vite | Default — will be re-evaluated after problem statement |
-| Language | TypeScript | Type safety, better maintainability |
-| Validation | Zod | Schema-first, TypeScript-native |
-| DB Client | pg (node-postgres) | Direct, parameterized queries, no ORM magic |
-| Testing | Vitest + Supertest | Fast unit + integration testing |
-| Formatting | Prettier | Consistent formatting across team |
-| Linting | ESLint | Code quality enforcement |
-| Containers | Docker Compose | Reproducible local PostgreSQL |
+> ⚠️ **Stack is not yet decided.** Technology selection happens during Phase 0, after the problem statement is analyzed.
 
-> **Important:** Stack will be re-evaluated against the actual problem statement before implementation begins.
+**Policy: THE PROBLEM DETERMINES THE STACK.**
+
+There are no mandatory frameworks or languages. The stack will be chosen based on:
+
+1. What the problem actually requires
+2. Team familiarity and ability to debug under pressure
+3. Development speed vs reliability vs maintainability trade-offs
+4. Ability to explain every choice to Odoo reviewers
+
+**Hard constraint:** Build and own the core backend and database. Do not use Firebase or Supabase as the primary backend architecture.
+
+**Preference:** Local database (PostgreSQL, MySQL, MongoDB, etc.) that the team controls.
+
+Full technology decisions will be documented in [`docs/technology-decisions.md`](docs/technology-decisions.md) after Phase 0.
 
 ---
 
