@@ -1,6 +1,12 @@
 import { PoolClient } from 'pg';
 import { db } from '../../config/database';
-import { Invoice, InvoiceItem, Subscription, SubscriptionItem, BillingSchedule } from './billing.model';
+import {
+  Invoice,
+  InvoiceItem,
+  Subscription,
+  SubscriptionItem,
+  BillingSchedule,
+} from './billing.model';
 
 export interface SalesOrderForBilling {
   id: string;
@@ -28,10 +34,43 @@ export interface SubscriptionPlanForBilling {
 }
 
 export const billingRepository = {
+  /** Serialize billing attempts for an order, including duplicate clicks. */
+  async lockOrderForBilling(client: PoolClient, id: string): Promise<SalesOrderForBilling | null> {
+    const { rows } = await client.query(
+      'SELECT id, customer_id, quotation_id, status FROM sales_orders WHERE id = $1 FOR UPDATE',
+      [id],
+    );
+    return (rows[0] as SalesOrderForBilling | undefined) ?? null;
+  },
+
+  async hasBillingForOrder(client: PoolClient, id: string): Promise<boolean> {
+    const { rows } = await client.query(
+      `SELECT EXISTS (SELECT 1 FROM invoices WHERE sales_order_id = $1)
+           OR EXISTS (SELECT 1 FROM subscriptions WHERE sales_order_id = $1) AS exists`,
+      [id],
+    );
+    return rows[0].exists as boolean;
+  },
+
+  /** The current schema has no physical/service discriminator: all ONE_TIME
+   * products conservatively require shipment. Partial invoicing needs explicit
+   * invoice-to-order-line tracking before it can be enabled safely. */
+  async hasUnshippedOneTimeItems(client: PoolClient, id: string): Promise<boolean> {
+    const { rows } = await client.query(
+      `SELECT EXISTS (
+         SELECT 1 FROM sales_order_items soi JOIN products p ON p.id = soi.product_id
+         WHERE soi.sales_order_id = $1 AND p.product_type = 'ONE_TIME'
+           AND soi.fulfilled_quantity < soi.quantity
+       ) AS exists`,
+      [id],
+    );
+    return rows[0].exists as boolean;
+  },
+
   async findSalesOrderForBilling(salesOrderId: string): Promise<SalesOrderForBilling | null> {
     const { rows } = await db.query(
       'SELECT id, customer_id, quotation_id, status FROM sales_orders WHERE id = $1',
-      [salesOrderId]
+      [salesOrderId],
     );
     return (rows[0] as SalesOrderForBilling | undefined) ?? null;
   },
@@ -43,7 +82,7 @@ export const billingRepository = {
        FROM quotation_items qi
        JOIN products p ON p.id = qi.product_id
        WHERE qi.quotation_id = $1`,
-      [quotationId]
+      [quotationId],
     );
     return rows as QuotationItemForBilling[];
   },
@@ -51,7 +90,7 @@ export const billingRepository = {
   async findSubscriptionPlan(planId: string): Promise<SubscriptionPlanForBilling | null> {
     const { rows } = await db.query(
       'SELECT id, billing_frequency, price FROM subscription_plans WHERE id = $1',
-      [planId]
+      [planId],
     );
     return (rows[0] as SubscriptionPlanForBilling | undefined) ?? null;
   },
@@ -67,7 +106,7 @@ export const billingRepository = {
       taxTotal: number;
       total: number;
       dueDate: string;
-    }
+    },
   ): Promise<Invoice> {
     const { rows } = await client.query(
       `INSERT INTO invoices
@@ -84,7 +123,7 @@ export const billingRepository = {
         input.taxTotal,
         input.total,
         input.dueDate,
-      ]
+      ],
     );
     return rows[0] as Invoice;
   },
@@ -99,13 +138,21 @@ export const billingRepository = {
       unitPrice: string;
       tax: number;
       total: string;
-    }
+    },
   ): Promise<InvoiceItem> {
     const { rows } = await client.query(
       `INSERT INTO invoice_items (invoice_id, product_id, description, quantity, unit_price, tax, total)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [input.invoiceId, input.productId, input.description, input.quantity, input.unitPrice, input.tax, input.total]
+      [
+        input.invoiceId,
+        input.productId,
+        input.description,
+        input.quantity,
+        input.unitPrice,
+        input.tax,
+        input.total,
+      ],
     );
     return rows[0] as InvoiceItem;
   },
@@ -120,7 +167,7 @@ export const billingRepository = {
       startDate: string;
       nextBillingDate: string;
       currentPrice: number;
-    }
+    },
   ): Promise<Subscription> {
     const { rows } = await client.query(
       `INSERT INTO subscriptions
@@ -135,33 +182,33 @@ export const billingRepository = {
         input.startDate,
         input.nextBillingDate,
         input.currentPrice,
-      ]
+      ],
     );
     return rows[0] as Subscription;
   },
 
   async insertSubscriptionItem(
     client: PoolClient,
-    input: { subscriptionId: string; productId: string; quantity: string; unitPrice: string }
+    input: { subscriptionId: string; productId: string; quantity: string; unitPrice: string },
   ): Promise<SubscriptionItem> {
     const { rows } = await client.query(
       `INSERT INTO subscription_items (subscription_id, product_id, quantity, unit_price)
        VALUES ($1, $2, $3, $4)
        RETURNING *`,
-      [input.subscriptionId, input.productId, input.quantity, input.unitPrice]
+      [input.subscriptionId, input.productId, input.quantity, input.unitPrice],
     );
     return rows[0] as SubscriptionItem;
   },
 
   async insertBillingSchedule(
     client: PoolClient,
-    input: { subscriptionId: string; billingDate: string; amount: number }
+    input: { subscriptionId: string; billingDate: string; amount: number },
   ): Promise<BillingSchedule> {
     const { rows } = await client.query(
       `INSERT INTO billing_schedules (subscription_id, billing_date, amount)
        VALUES ($1, $2, $3)
        RETURNING *`,
-      [input.subscriptionId, input.billingDate, input.amount]
+      [input.subscriptionId, input.billingDate, input.amount],
     );
     return rows[0] as BillingSchedule;
   },
@@ -170,12 +217,12 @@ export const billingRepository = {
     client: PoolClient,
     invoiceId: string,
     status: 'PARTIALLY_PAID' | 'PAID',
-    paidAt: boolean
+    paidAt: boolean,
   ): Promise<Invoice> {
     const { rows } = await client.query(
       `UPDATE invoices SET status = $2, paid_at = CASE WHEN $3 THEN now() ELSE paid_at END
        WHERE id = $1 RETURNING *`,
-      [invoiceId, status, paidAt]
+      [invoiceId, status, paidAt],
     );
     return rows[0] as Invoice;
   },
@@ -191,14 +238,16 @@ export const billingRepository = {
   },
 
   async listInvoiceItems(invoiceId: string): Promise<InvoiceItem[]> {
-    const { rows } = await db.query('SELECT * FROM invoice_items WHERE invoice_id = $1', [invoiceId]);
+    const { rows } = await db.query('SELECT * FROM invoice_items WHERE invoice_id = $1', [
+      invoiceId,
+    ]);
     return rows as InvoiceItem[];
   },
 
   async listInvoices(
     filters: { status?: string; customerId?: string },
     limit: number,
-    offset: number
+    offset: number,
   ): Promise<Invoice[]> {
     const conditions: string[] = [];
     const params: unknown[] = [];
@@ -214,7 +263,7 @@ export const billingRepository = {
     params.push(limit, offset);
     const { rows } = await db.query(
       `SELECT * FROM invoices ${where} ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
-      params
+      params,
     );
     return rows as Invoice[];
   },

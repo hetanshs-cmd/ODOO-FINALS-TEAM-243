@@ -34,7 +34,7 @@ export async function login(email: string, password: string): Promise<LoginResul
   if (!user) {
     throw invalidCredentials();
   }
-  if (user.status !== 'ACTIVE') {
+  if (user.status !== 'ACTIVE' || user.role_name === 'CUSTOMER') {
     throw invalidCredentials();
   }
 
@@ -71,6 +71,9 @@ export async function signup(input: {
   password: string;
   role?: string;
 }): Promise<LoginResult> {
+  if (input.role && input.role !== DEFAULT_SIGNUP_ROLE) {
+    throw new AppError('FORBIDDEN', 403, 'Public registration only permits the Sales Rep role');
+  }
   const existing = await authRepository.findUserByEmail(input.email);
   if (existing) {
     throw Errors.conflict('An account with this email already exists');
@@ -159,8 +162,7 @@ export async function requestMagicLink(email: string): Promise<RequestMagicLinkR
     expiresAt: Date.now() + MAGIC_LINK_TTL_MS,
   });
 
-  // STUB: log instead of emailing — there's no email service configured yet.
-  console.log(`[portal] magic link for ${email}: token=${token}`);
+  // Delivery is not configured. Never put a bearer credential in server logs.
 
   return {
     ...genericResponse,
