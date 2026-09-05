@@ -16,6 +16,7 @@ import { InvoicesListPage, InvoiceDetailPage } from './pages/InvoicesPages';
 import { DealHealthPage } from './pages/DealHealthPage';
 import { ReportsPage, ProductsPage } from './pages/ReportsAndProductsPages';
 import { CommandCenterPage } from './pages/CommandCenterPage';
+import { NegotiationsInboxPage } from './pages/NegotiationsInboxPage';
 
 import {
   PortalQuotationPage,
@@ -85,6 +86,7 @@ export default function App() {
           <Route path="/invoices" element={<InvoicesListPage />} />
           <Route path="/invoices/:id" element={<InvoiceDetailPage />} />
 
+          <Route path="/negotiations" element={<NegotiationsInboxPage />} />
           <Route path="/deal-health" element={<DealHealthPage />} />
           <Route path="/command-center" element={<CommandCenterPage />} />
           <Route path="/agent" element={<Navigate to="/command-center" replace />} />
