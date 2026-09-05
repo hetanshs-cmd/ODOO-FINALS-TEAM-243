@@ -7,6 +7,8 @@ import { errorHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/requestLogger';
 import { notFoundHandler } from './middleware/notFoundHandler';
 import { healthRouter } from './routes/health.routes';
+import { authRouter } from './modules/auth/auth.routes';
+import { portalRouter } from './modules/auth/portal.routes';
 
 const app = express();
 
@@ -45,10 +47,10 @@ app.use(requestLogger);
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 app.use('/api/v1', healthRouter);
+app.use('/api/v1', authRouter);
+app.use('/api/v1', portalRouter);
 
-// TODO: Register module routers here after Phase 0 analysis
-// Example:
-// app.use('/api/v1/users', usersRouter);
+// TODO: Register remaining module routers as they're built (admin, quotations, ...)
 
 // ── Not Found Handler ─────────────────────────────────────────────────────────
 app.use(notFoundHandler);

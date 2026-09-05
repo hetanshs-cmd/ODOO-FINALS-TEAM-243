@@ -182,6 +182,112 @@ GET /api/v1/health
 | POST | `/api/v1/auth/login` | `{ email, password }` | Internal users — JWT + role claim (`role_id` → `roles.name`) |
 | POST | `/api/v1/portal/request-link` | `{ email }` | Sends a magic-link to a `customer_users`-linked email |
 | POST | `/api/v1/portal/verify-link` | `{ token }` | Exchanges magic-link token for a portal session scoped to one `customer_id` |
+
+#### POST /api/v1/auth/login
+
+Internal (staff) login. Returns a short-lived JWT carrying the user's role.
+
+**Authentication:** None
+
+**Request body:**
+
+```json
+{ "email": "rep@example.com", "password": "correct-horse-battery-staple" }
+```
+
+**Response 200:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "accessToken": "<jwt>",
+    "user": { "id": "...", "name": "...", "email": "...", "role": "SALES_REP" }
+  },
+  "message": "Login successful"
+}
+```
+
+**Errors:**
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | Missing/invalid `email` or missing `password` |
+| 401 | `INVALID_CREDENTIALS` | Unknown email, wrong password, or an inactive user — deliberately identical in all three cases, so the response never reveals whether an email is registered |
+
+Use the token as `Authorization: Bearer <accessToken>` on protected internal routes.
+
+#### POST /api/v1/portal/request-link
+
+Requests a magic login link for a customer portal user (resolved through `customer_users`).
+**Stub for this phase** — no email is sent yet; outside `NODE_ENV=production` the response
+includes `devToken` so the flow can be exercised without a real inbox.
+
+**Authentication:** None
+
+**Request body:**
+
+```json
+{ "email": "buyer@customer.com" }
+```
+
+**Response 200** (identical whether or not the email is a valid, linked portal user — this
+endpoint never reveals which emails exist):
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "If this email is registered for portal access, a login link has been sent.",
+    "devToken": "<only present outside production>"
+  },
+  "message": "If this email is registered for portal access, a login link has been sent."
+}
+```
+
+**Errors:**
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | Missing/invalid `email` |
+
+#### POST /api/v1/portal/verify-link
+
+Exchanges a magic-link token for a portal session JWT scoped to one `customer_id`. The token
+is single-use and expires 15 minutes after being issued.
+
+**Authentication:** None
+
+**Request body:**
+
+```json
+{ "token": "<token from the request-link step>" }
+```
+
+**Response 200:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "accessToken": "<jwt>",
+    "user": { "id": "...", "name": "...", "email": "..." },
+    "customerId": "..."
+  },
+  "message": "Login successful"
+}
+```
+
+**Errors:**
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | Missing/invalid `token` |
+| 401 | `INVALID_TOKEN` | Token doesn't exist, was already used, or its user is no longer active |
+| 401 | `TOKEN_EXPIRED` | Token existed but its 15-minute window has passed |
+
+Use the token as `Authorization: Bearer <accessToken>` on protected `/portal/*` routes.
+
 | GET/POST/PATCH | `/api/v1/admin/products` | | `products` CRUD |
 | GET/POST/PATCH | `/api/v1/admin/product-categories` | | `product_categories` CRUD (supports nesting via `parent_category_id`) |
 | GET/POST/PATCH | `/api/v1/admin/price-lists` | | `price_lists` + `price_list_items` |
