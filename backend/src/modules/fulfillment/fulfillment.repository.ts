@@ -60,7 +60,7 @@ export const fulfillmentRepository = {
   ): Promise<InventoryForUpdateRow[]> {
     if (productIds.length === 0) return [];
     const { rows } = await client.query(
-      `SELECT i.warehouse_id, i.product_id, i.quantity_available
+      `SELECT i.warehouse_id, i.product_id, i.quantity_on_hand - i.quantity_reserved AS quantity_available
        FROM inventory i
        JOIN warehouses w ON w.id = i.warehouse_id AND w.status = 'ACTIVE'
        WHERE i.product_id = ANY($1::uuid[])
@@ -85,7 +85,7 @@ export const fulfillmentRepository = {
     productId: string
   ): Promise<InventoryForUpdateRow | null> {
     const { rows } = await client.query(
-      `SELECT i.warehouse_id, i.product_id, i.quantity_available
+      `SELECT i.warehouse_id, i.product_id, i.quantity_on_hand - i.quantity_reserved AS quantity_available
        FROM inventory i
        WHERE i.warehouse_id = $1 AND i.product_id = $2
        FOR UPDATE`,
@@ -102,8 +102,7 @@ export const fulfillmentRepository = {
   ): Promise<void> {
     await client.query(
       `UPDATE inventory
-       SET quantity_reserved = quantity_reserved + $3,
-           quantity_available = quantity_available - $3
+       SET quantity_reserved = quantity_reserved + $3
        WHERE warehouse_id = $1 AND product_id = $2`,
       [warehouseId, productId, quantity]
     );
@@ -118,8 +117,7 @@ export const fulfillmentRepository = {
   ): Promise<void> {
     await client.query(
       `UPDATE inventory
-       SET quantity_reserved = quantity_reserved - $3,
-           quantity_available = quantity_available + $3
+       SET quantity_reserved = quantity_reserved - $3
        WHERE warehouse_id = $1 AND product_id = $2`,
       [warehouseId, productId, quantity]
     );
