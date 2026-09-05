@@ -180,6 +180,7 @@ GET /api/v1/health
 | Method | Path | Body | Notes |
 |---|---|---|---|
 | POST | `/api/v1/auth/login` | `{ email, password }` | Internal users — JWT + role claim (`role_id` → `roles.name`) |
+| POST | `/api/v1/auth/signup` | `{ name, email, password, role? }` | Creates a `users` row (bcrypt-hashed password) and logs in immediately — same response shape as login |
 | POST | `/api/v1/portal/request-link` | `{ email }` | Sends a magic-link to a `customer_users`-linked email |
 | POST | `/api/v1/portal/verify-link` | `{ token }` | Exchanges magic-link token for a portal session scoped to one `customer_id` |
 
@@ -216,6 +217,44 @@ Internal (staff) login. Returns a short-lived JWT carrying the user's role.
 | 401 | `INVALID_CREDENTIALS` | Unknown email, wrong password, or an inactive user — deliberately identical in all three cases, so the response never reveals whether an email is registered |
 
 Use the token as `Authorization: Bearer <accessToken>` on protected internal routes.
+
+#### POST /api/v1/auth/signup
+
+Creates a new internal (staff) `users` row and immediately returns a session for it —
+identical `{ accessToken, user }` shape to login, so a client can treat signup and login
+responses the same way. `role` is optional and defaults to `SALES_REP` (the least-privileged
+internal role) when omitted; when given, it must be one of the values `roles.name` allows
+(`SALES_REP`, `SALES_MANAGER`, `FINANCE`, `OPERATIONS`, `CUSTOMER`, `ADMIN`). The password is
+hashed with bcrypt (`BCRYPT_ROUNDS`), same as login verifies against.
+
+**Authentication:** None
+
+**Request body:**
+
+```json
+{ "name": "Jane Rep", "email": "jane@example.com", "password": "correct-horse-battery-staple", "role": "SALES_REP" }
+```
+
+**Response 201:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "accessToken": "<jwt>",
+    "user": { "id": "...", "name": "Jane Rep", "email": "jane@example.com", "role": "SALES_REP" }
+  },
+  "message": "Account created successfully"
+}
+```
+
+**Errors:**
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | Missing/invalid `name`, `email`, `password` (min 8 chars), or an unrecognized `role` value |
+| 400 | `INVALID_ROLE` | `role` is a syntactically valid enum value that somehow doesn't exist as a `roles` row |
+| 409 | `CONFLICT` | A user with this email already exists |
 
 #### POST /api/v1/portal/request-link
 
@@ -345,9 +384,85 @@ All admin writes go through `audit_logs`.
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/api/v1/sales-orders/:id/billing/confirm` | Splits items by `billing_type` — `ONE_TIME` → `invoices`/`invoice_items`, `RECURRING` → `subscriptions`/`subscription_items` (FR7) |
-| PATCH | `/api/v1/subscriptions/:id` | Modify qty/plan — prorates `days_remaining / total_days * price_delta` into a new `billing_schedules` row |
-| POST | `/api/v1/subscriptions/:id/cancel` | Sets `subscriptions.status = CANCELLED`; mid-cycle prepaid balance handled via a `payments` refund (`status = REFUNDED`) |
+| PATCH | `/api/v1/subscriptions/:id` | Modify plan/quantity — prorates `days_remaining / total_days * price_delta` into a new `billing_schedules` row on an upgrade |
+| POST | `/api/v1/subscriptions/:id/cancel` | Sets `subscriptions.status = CANCELLED`, `end_date = today`, clears `next_billing_date` |
 | POST | `/api/v1/invoices/:id/payments` | Records a `payments` row against an invoice |
+
+**Authentication (subscriptions & invoices):** `Authorization: Bearer <accessToken>`, role one of
+`FINANCE`, `SALES_MANAGER`, `ADMIN` — same internal-role gate as the rest of billing.
+
+#### PATCH /api/v1/subscriptions/:id
+
+Changes a subscription's plan and/or quantity. `current_price` is modeled as
+`plan.price × quantity` (`quantity` defaults to `1` when omitted). If the new price is higher
+than the current one, the difference is prorated over the days remaining until
+`next_billing_date` (Ghost's proration model — see `docs/references.md`) and billed
+immediately as a one-off `billing_schedules` row; a downgrade takes effect for future cycles
+only (no refund is issued). On success the subscription's `status` moves to `MODIFIED`.
+
+**Request body:**
+
+```json
+{ "plan_id": "b6e6b6d0-....", "quantity": 2 }
+```
+
+At least one of `plan_id` / `quantity` is required.
+
+**Response 200:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "...",
+    "customer_id": "...",
+    "plan_id": "b6e6b6d0-....",
+    "status": "MODIFIED",
+    "current_price": "200.00",
+    "next_billing_date": "2026-10-01",
+    "...": "..."
+  },
+  "message": "Subscription updated successfully"
+}
+```
+
+**Errors:**
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | Neither `plan_id` nor `quantity` given, `plan_id` isn't a UUID, or `quantity` isn't positive |
+| 404 | `NOT_FOUND` | Subscription or `plan_id` doesn't exist |
+| 422 | `BUSINESS_RULE_VIOLATION` | Subscription is already `CANCELLED`, or the target plan is `INACTIVE` |
+
+#### POST /api/v1/subscriptions/:id/cancel
+
+Cancels an active subscription: sets `status = CANCELLED`, `end_date` to today, and clears
+`next_billing_date` so no further `billing_schedules` rows are generated for it.
+
+**Request body:** none
+
+**Response 200:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "...",
+    "status": "CANCELLED",
+    "end_date": "2026-09-05",
+    "next_billing_date": null,
+    "...": "..."
+  },
+  "message": "Subscription cancelled successfully"
+}
+```
+
+**Errors:**
+
+| Status | Code | When |
+|---|---|---|
+| 404 | `NOT_FOUND` | Subscription doesn't exist |
+| 422 | `BUSINESS_RULE_VIOLATION` | Subscription is already `CANCELLED` |
 
 ### Customer Portal (`/api/v1/portal/...`)
 
@@ -365,8 +480,14 @@ Scoped strictly to the authenticated `customer_users` row — every query filter
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/v1/deal-health` | Dashboard over `deal_alerts` (`STALLED`/`DISCOUNT_ANOMALY`/`DELIVERY_SLIPPAGE`) and latest `deal_health_scores` per quotation (FR10) |
-| POST | `/api/v1/deal-health/:id/escalate` | Sets a `deal_alerts` row to `ESCALATED` |
-| POST | `/api/v1/deal-health/:id/nudge` | Sets a `deal_alerts` row to `NUDGED`, fires a `notifications` row |
+| POST | `/api/v1/deal-health/:alertId` | `{ status: ESCALATED\|NUDGED\|RESOLVED }` — updates one `deal_alerts` row's status |
+
+### Notifications
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/notifications` | The authenticated user's `notifications`, paginated |
+| PATCH | `/api/v1/notifications/:id/read` | Marks one `notifications` row read |
 
 ### Reporting
 
