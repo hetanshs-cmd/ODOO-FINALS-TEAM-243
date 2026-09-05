@@ -108,6 +108,29 @@ async function seed() {
       meridianUserId,
     ]);
 
+    // Third demo customer + portal user for the "Customer (Acme Corp)" quick
+    // login button.
+    const acmeResult = await client.query(
+      `INSERT INTO customers (company_name, customer_code, customer_tier_id, status)
+       SELECT 'Acme Corp', 'ACME-001', customer_tiers.id, 'ACTIVE'
+       FROM customer_tiers WHERE customer_tiers.name = 'BRONZE'
+       ON CONFLICT (customer_code) DO NOTHING
+       RETURNING id`,
+    );
+    const acmeId = acmeResult.rows[0]
+      ? acmeResult.rows[0].id
+      : (await client.query("SELECT id FROM customers WHERE customer_code = 'ACME-001'")).rows[0].id;
+
+    const acmeUserId = await seedUser(client, {
+      name: 'Vikram Mehta',
+      email: 'v.mehta@acmecorp.com',
+      roleName: 'CUSTOMER',
+    });
+    await client.query('UPDATE users SET customer_id = $1 WHERE id = $2', [
+      acmeId,
+      acmeUserId,
+    ]);
+
     console.log(`✅ Seeds complete. Dev password for all seeded users: ${DEV_PASSWORD}`);
   } catch (err) {
     console.error('❌ Seed error:', err.message);
