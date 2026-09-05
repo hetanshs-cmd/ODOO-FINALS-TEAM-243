@@ -1089,15 +1089,13 @@ export const LoginPage: React.FC = () => {
               <button
                 id="demo-login-finance"
                 type="button"
-                disabled
-                title="No Finance demo account is seeded"
                 onClick={() => handleQuickLogin('finance')}
                 className="p-2 rounded-md border border-[#E5E7EB] bg-[#F8F9FA] hover:bg-[#F3EDF2] hover:border-[#714B67] transition-all text-left group cursor-pointer"
               >
                 <div className="text-[11px] font-semibold text-[#1F2937] group-hover:text-[#714B67] truncate">
                   Finance
                 </div>
-                <div className="text-[10px] text-[#6B7280] truncate">Not available</div>
+                <div className="text-[10px] text-[#6B7280] truncate">finance@dev.local</div>
               </button>
 
               <button
@@ -1115,8 +1113,6 @@ export const LoginPage: React.FC = () => {
               <button
                 id="demo-login-customer-meridian"
                 type="button"
-                disabled
-                title="No Meridian portal account is seeded"
                 onClick={() => handleQuickLogin('customer', 'priya.nair@meridianindustrial.com')}
                 className="p-2 rounded-md border border-[#E5E7EB] bg-[#F8F9FA] hover:bg-[#F3EDF2] hover:border-[#714B67] transition-all text-left group cursor-pointer"
               >
@@ -1124,13 +1120,13 @@ export const LoginPage: React.FC = () => {
                   <span>Customer (Meridian)</span>
                   <span className="text-[9px] text-[#714B67] bg-[#F3EDF2] px-1 rounded font-medium">Portal</span>
                 </div>
-                <div className="text-[10px] text-[#6B7280] truncate">Not available</div>
+                <div className="text-[10px] text-[#6B7280] truncate">priya.nair@meridianindustrial.com</div>
               </button>
 
               <button
                 id="demo-login-customer"
                 type="button"
-                onClick={() => handleQuickLogin('customer', 'v.mehta@acmecorp.com')}
+                onClick={() => handleQuickLogin('customer', 'portal@dev.local')}
                 className="p-2 rounded-md border border-[#E5E7EB] bg-[#F8F9FA] hover:bg-[#F3EDF2] hover:border-[#714B67] transition-all text-left group cursor-pointer"
               >
                 <div className="text-[11px] font-semibold text-[#1F2937] group-hover:text-[#714B67] truncate flex items-center justify-between">
