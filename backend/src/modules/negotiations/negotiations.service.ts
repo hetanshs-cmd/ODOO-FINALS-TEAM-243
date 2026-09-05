@@ -2,10 +2,12 @@ import { Errors } from '../../errors/AppError';
 import { withTransaction } from '../../shared/db/withTransaction';
 import { roundMoney } from '../../shared/money';
 import { insertAuditLog } from '../../shared/auditLog';
+import { getPaginationParams, buildPaginatedResult, PaginatedResult } from '../../utils/pagination';
 import { discountEngineService } from '../discount-engine/discount-engine.service';
 import { notificationsService } from '../notifications/notifications.service';
 import { negotiationsRepository } from './negotiations.repository';
 import { Negotiation } from './negotiations.model';
+import { AuthenticatedUser } from '../auth/auth.types';
 
 const ACTIONABLE_STATUSES = new Set(['OPEN', 'IN_PROGRESS']);
 
@@ -24,6 +26,25 @@ interface AddMessageDto {
 }
 
 export const negotiationsService = {
+  /**
+   * Sales-rep-facing inbox — every negotiation thread across the caller's
+   * own quotations (or all of them for managers/admins), most recent
+   * first, so a rep can find a customer's message without already knowing
+   * which quotation it's on.
+   */
+  async listAll(
+    query: { page?: unknown; limit?: unknown },
+    requester: AuthenticatedUser,
+  ): Promise<PaginatedResult<Negotiation & { quotation_number: string; customer_id: string }>> {
+    const pagination = getPaginationParams(query);
+    const filters = { salesRepId: requester.role === 'SALES_REP' ? requester.id : undefined };
+    const [items, total] = await Promise.all([
+      negotiationsRepository.listAll(filters, pagination.limit, pagination.offset),
+      negotiationsRepository.countAll(filters),
+    ]);
+    return buildPaginatedResult(items, total, pagination);
+  },
+
   async open(
     quotationId: string,
     initiatedBy: string,
@@ -35,6 +56,28 @@ export const negotiationsService = {
       throw Errors.forbidden();
     }
     return negotiationsRepository.insertNegotiation({ quotationId, initiatedBy });
+  },
+
+  /**
+   * Lets either side (sales rep or portal customer) find the existing
+   * negotiation thread for a quotation without already knowing its id, so
+   * a page load can resume a conversation instead of always creating a new
+   * thread via `open`. Most recent first; each thread's messages are
+   * included so the caller doesn't need a second round-trip per thread.
+   */
+  async listForQuotation(quotationId: string, portalCustomerId?: string) {
+    const quotation = await negotiationsRepository.findQuotationForNegotiation(quotationId);
+    if (!quotation) throw Errors.notFound('Quotation');
+    if (portalCustomerId && quotation.customer_id !== portalCustomerId) {
+      throw Errors.forbidden();
+    }
+    const negotiations = await negotiationsRepository.listByQuotationId(quotationId);
+    return Promise.all(
+      negotiations.map(async (negotiation) => ({
+        ...negotiation,
+        messages: await negotiationsRepository.listMessages(negotiation.id),
+      })),
+    );
   },
 
   async getDetail(id: string, portalCustomerId?: string) {
