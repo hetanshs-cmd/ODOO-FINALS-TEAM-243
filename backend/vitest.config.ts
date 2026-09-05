@@ -11,6 +11,8 @@ export default defineConfig({
         'node_modules/**',
         'dist/**',
         'tests/**',
+        'scripts/**',
+        '*.cjs',
         'src/server.ts',          // Bootstrap — not unit-testable
         'src/config/database.ts', // DB connection — tested via integration
       ],

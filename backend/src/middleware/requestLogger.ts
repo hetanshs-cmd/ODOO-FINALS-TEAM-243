@@ -7,11 +7,7 @@ import { Request, Response, NextFunction } from 'express';
  * Only logs in development and test environments.
  * Production logging should use a proper logging library (pino, winston).
  */
-export function requestLogger(
-  req: Request,
-  res: Response,
-  next: NextFunction
-): void {
+export function requestLogger(req: Request, res: Response, next: NextFunction): void {
   const start = Date.now();
   const { method, url } = req;
 
@@ -24,14 +20,12 @@ export function requestLogger(
       statusCode >= 500
         ? '\x1b[31m' // Red
         : statusCode >= 400
-        ? '\x1b[33m' // Yellow
-        : statusCode >= 300
-        ? '\x1b[36m' // Cyan
-        : '\x1b[32m'; // Green
+          ? '\x1b[33m' // Yellow
+          : statusCode >= 300
+            ? '\x1b[36m' // Cyan
+            : '\x1b[32m'; // Green
 
-    console.log(
-      `${statusColor}[${statusCode}]\x1b[0m ${method} ${url} — ${duration}ms`
-    );
+    console.log(`${statusColor}[${statusCode}]\x1b[0m ${method} ${url} — ${duration}ms`);
   });
 
   next();
