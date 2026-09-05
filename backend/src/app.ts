@@ -39,6 +39,7 @@ import { usersRouter } from './modules/users/users.routes';
 import { creditNotesRouter } from './modules/credit-notes/credit-notes.routes';
 import { backordersRouter } from './modules/fulfillment/backorders.routes';
 import { portalResourcesRouter } from './modules/portal/portal.routes';
+import { aiRouter } from './modules/ai/ai.routes';
 
 const app = express();
 
@@ -120,6 +121,7 @@ app.use('/api/v1/users', usersRouter);
 app.use('/api/v1/credit-notes', creditNotesRouter);
 app.use('/api/v1/backorders', backordersRouter);
 app.use('/api/v1/portal', portalResourcesRouter);
+app.use('/api/v1/ai', aiRouter);
 
 // ── Not Found Handler ─────────────────────────────────────────────────────────
 app.use(notFoundHandler);
