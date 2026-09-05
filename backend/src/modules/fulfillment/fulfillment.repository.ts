@@ -148,6 +148,14 @@ export const fulfillmentRepository = {
     await client.query('UPDATE sales_orders SET status = $2 WHERE id = $1', [salesOrderId, status]);
   },
 
+  /** Deal-health scores are keyed by quotation, not sales order — resolve the link. */
+  async findQuotationIdForSalesOrder(salesOrderId: string): Promise<string | null> {
+    const { rows } = await db.query('SELECT quotation_id FROM sales_orders WHERE id = $1', [
+      salesOrderId,
+    ]);
+    return (rows[0] as { quotation_id: string } | undefined)?.quotation_id ?? null;
+  },
+
   async findById(id: string): Promise<Fulfillment | null> {
     const { rows } = await db.query('SELECT * FROM fulfillments WHERE id = $1', [id]);
     return (rows[0] as Fulfillment | undefined) ?? null;

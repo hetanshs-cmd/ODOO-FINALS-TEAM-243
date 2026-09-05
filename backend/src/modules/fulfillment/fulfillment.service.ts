@@ -1,6 +1,7 @@
 import { Errors } from '../../errors/AppError';
 import { withTransaction } from '../../shared/db/withTransaction';
 import { notificationsService } from '../notifications/notifications.service';
+import { dealHealthService } from '../deal-health/deal-health.service';
 import { allocateAcrossWarehouses, InventoryRow, OrderItemToAllocate } from './warehouseAllocation';
 import { fulfillmentRepository } from './fulfillment.repository';
 import { Fulfillment } from './fulfillment.model';
@@ -105,6 +106,10 @@ export const fulfillmentService = {
           referenceId: salesOrderId,
         });
       }
+      // A backorder/partial allocation is a fulfillment-delay signal that
+      // feeds deal-health — refresh the linked quotation's score.
+      const quotationId = await fulfillmentRepository.findQuotationIdForSalesOrder(salesOrderId);
+      if (quotationId) await dealHealthService.recalculate(quotationId);
       return result;
     });
   },
@@ -158,6 +163,12 @@ export const fulfillmentService = {
         fullyFulfilled ? 'FULFILLED' : 'PARTIALLY_FULFILLED'
       );
 
+      return updated;
+    }).then(async (updated) => {
+      const quotationId = await fulfillmentRepository.findQuotationIdForSalesOrder(
+        fulfillment.sales_order_id,
+      );
+      if (quotationId) await dealHealthService.recalculate(quotationId);
       return updated;
     });
   },

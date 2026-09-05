@@ -1,3 +1,4 @@
+import { PoolClient } from 'pg';
 import { db } from '../../config/database';
 import { Quotation, QuotationItem } from './quotations.model';
 
@@ -147,6 +148,15 @@ export const quotationsRepository = {
     const { rows } = await db.query(
       `UPDATE quotations SET ${setClause} WHERE id = $1 RETURNING *`,
       [id, ...params],
+    );
+    return (rows[0] as Quotation | undefined) ?? null;
+  },
+
+  /** Dedicated status-transition flow (e.g. DRAFT -> SUBMITTED on submit). */
+  async updateStatus(client: PoolClient, id: string, status: string): Promise<Quotation | null> {
+    const { rows } = await client.query(
+      'UPDATE quotations SET status = $2 WHERE id = $1 RETURNING *',
+      [id, status],
     );
     return (rows[0] as Quotation | undefined) ?? null;
   },

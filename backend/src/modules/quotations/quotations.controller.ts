@@ -54,4 +54,13 @@ export const quotationsController = {
       next(err);
     }
   },
+
+  async submit(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const quotation = await quotationsService.submit(req.params['id'] as string, req.user!);
+      sendSuccess({ res, data: quotation, message: 'Quotation submitted successfully' });
+    } catch (err) {
+      next(err);
+    }
+  },
 };
