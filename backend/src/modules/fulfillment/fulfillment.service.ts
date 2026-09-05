@@ -332,10 +332,11 @@ export const fulfillmentService = {
       // AppErrors (NOT_FOUND, BUSINESS_RULE_VIOLATION, ...) are already the
       // right shape — only translate raw driver/constraint errors.
       if (err instanceof AppError) throw err;
-      // A CHECK-constraint violation on inventory (e.g. quantity_available
-      // going negative because the wrong warehouse was validated against —
-      // see lockInventoryAtWarehouse) used to bubble up as a raw 500 instead
-      // of the 422/400 every other module's constraint violations produce.
+      // A CHECK-constraint violation on inventory (e.g. quantity_reserved
+      // exceeding quantity_on_hand because the wrong warehouse was validated
+      // against — see lockInventoryAtWarehouse) used to bubble up as a raw
+      // 500 instead of the 422/400 every other module's constraint
+      // violations produce.
       throw mapDbError(err, 'Fulfillment override');
     }
   },
