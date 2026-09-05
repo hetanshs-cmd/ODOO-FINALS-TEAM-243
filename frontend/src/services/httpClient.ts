@@ -8,7 +8,7 @@
  * No new dependency is introduced here on purpose — fetch is native.
  */
 
-import { getToken } from './tokenStore';
+import { getToken, clearToken } from './tokenStore';
 
 const DEFAULT_BASE_URL = '/api/v1';
 
@@ -146,6 +146,19 @@ export async function request<T = unknown>(
 
   if (!response.ok || !payload || payload.success === false) {
     const errPayload = payload as ApiEnvelopeError | undefined;
+
+    // A 401 on a request that DID carry a token means the session itself is
+    // invalid/expired (not "wrong password" — an unauthenticated login/
+    // portal-verify attempt has no token to send in the first place, and
+    // must surface as a normal form error instead of a forced logout).
+    // Clearing the token and notifying AuthContext (shared across every
+    // consumer, see context/AuthContext.tsx) makes every ProtectedRoute
+    // redirect to /login on its next render — no full-page reload needed.
+    if (response.status === 401 && token) {
+      clearToken();
+      window.dispatchEvent(new Event('auth:unauthorized'));
+    }
+
     throw new ApiError(
       errPayload?.message || `Request failed with status ${response.status}`,
       errPayload?.error || 'UNKNOWN_ERROR',

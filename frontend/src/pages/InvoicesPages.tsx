@@ -29,7 +29,6 @@ import { StatusBadge, Badge } from '../components/ui/Badge';
 import { Card } from '../components/ui/Card';
 import { Modal } from '../components/ui/Modal';
 import { Button } from '../components/ui/Button';
-import { useDealStore } from '../hooks/useDealStore';
 import { Invoice, PaymentRecord, User } from '../types';
 import { reconcileDeliveryAndBilling, calculateInvoiceTotals } from '../domain/billing';
 import { canUserPerformAction } from '../domain/permissions';

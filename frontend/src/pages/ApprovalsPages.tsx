@@ -44,6 +44,7 @@ import {
   formatRelativeTime,
   formatExactDateTime,
   formatWaitingTime,
+  humanizeStatus,
 } from '../utils/formatters';
 import { computeBlendedRiskScore, getEffectiveDiscountLimit } from '../domain/discounts';
 import { canUserPerformAction } from '../domain/permissions';
@@ -630,9 +631,9 @@ export const ApprovalDetailPage: React.FC = () => {
 
   const auditEvents: DealEvent[] = timeline.map((e) => ({
     id: e.id,
-    type: e.event_type,
-    description: e.note || '',
-    user: e.actor_user_id || 'system',
+    type: e.action,
+    description: humanizeStatus(e.action),
+    user: e.user_id || 'system',
     timestamp: e.created_at,
   })) as unknown as DealEvent[];
 

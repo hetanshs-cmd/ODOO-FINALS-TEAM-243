@@ -20,6 +20,7 @@ export interface Quotation {
   price_list_id: string | null;
   status: QuotationStatus;
   currency: string;
+  order_discount_percent: string;
   subtotal: string;
   discount_total: string;
   tax_total: string;

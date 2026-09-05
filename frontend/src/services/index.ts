@@ -26,6 +26,8 @@ import {
   CreateQuotationInput,
   UpdateQuotationInput,
   CreateQuotationItemInput,
+  UpdateQuotationItemInput,
+  ApiQuotationItem,
   ApiApprovalRequest,
   ApiApprovalAction,
   ApiFulfillment,
@@ -47,6 +49,7 @@ import {
   ApiTimelineEvent,
   ApiBackorder,
   ApiCreditNote,
+  ApiProduct,
   ListQuery,
 } from './apiTypes';
 import { SalesOrder } from '../types';
@@ -114,8 +117,18 @@ export const quotationService = {
   async update(id: string, data: UpdateQuotationInput): Promise<ApiQuotation> {
     return httpClient.patch<ApiQuotation>(`/quotations/${id}`, data);
   },
-  async addItem(quotationId: string, item: CreateQuotationItemInput): Promise<ApiQuotationWithItems> {
-    return httpClient.post<ApiQuotationWithItems>(`/quotations/${quotationId}/items`, item);
+  async addItem(quotationId: string, item: CreateQuotationItemInput): Promise<ApiQuotationItem> {
+    return httpClient.post<ApiQuotationItem>(`/quotations/${quotationId}/items`, item);
+  },
+  async updateItem(
+    quotationId: string,
+    itemId: string,
+    data: UpdateQuotationItemInput,
+  ): Promise<ApiQuotationItem> {
+    return httpClient.patch<ApiQuotationItem>(`/quotations/${quotationId}/items/${itemId}`, data);
+  },
+  async removeItem(quotationId: string, itemId: string): Promise<void> {
+    await httpClient.delete<void>(`/quotations/${quotationId}/items/${itemId}`);
   },
   async checkDiscounts(quotationId: string): Promise<unknown> {
     return httpClient.post(`/quotations/${quotationId}/check-discounts`);
@@ -286,11 +299,13 @@ export const creditNoteService = {
 
 // 7. DEAL HEALTH SERVICE
 export const dealHealthService = {
-  async getForQuotation(quotationId: string): Promise<ApiDealHealthScore> {
-    return httpClient.get<ApiDealHealthScore>(`/quotations/${quotationId}/deal-health`);
+  // GET /quotations/:id/deal-health returns { score, alerts } — score is
+  // null until something has triggered a recalculation for this quotation.
+  async getForQuotation(quotationId: string): Promise<{ score: ApiDealHealthScore | null; alerts: ApiDealAlert[] }> {
+    return httpClient.get(`/quotations/${quotationId}/deal-health`);
   },
-  async recalculate(quotationId: string): Promise<ApiDealHealthScore> {
-    return httpClient.post<ApiDealHealthScore>(`/quotations/${quotationId}/deal-health/recalculate`);
+  async recalculate(quotationId: string): Promise<{ score: ApiDealHealthScore; newAlerts: ApiDealAlert[] }> {
+    return httpClient.post(`/quotations/${quotationId}/deal-health/recalculate`);
   },
   async listAlerts(query?: ListQuery): Promise<ApiDealAlert[]> {
     return getListItems<ApiDealAlert>('/deal-health', query);
@@ -350,10 +365,11 @@ export const notificationsService = {
 
 // 10. PRODUCT / UPSELL SERVICE
 export const productService = {
-  // /admin/products is the only product listing endpoint currently exposed
-  // (ADMIN-gated); non-admin roles get a clean 403 rather than a crash.
-  async getAll() {
-    return adminService.products.list();
+  // GET /products — read-only directory for every internal role (mirrors
+  // the /customers and /users directory pattern), distinct from the
+  // ADMIN-only /admin/products CRUD used by AdminProductsConfigPage.
+  async getAll(): Promise<ApiProduct[]> {
+    return httpClient.get<ApiProduct[]>('/products');
   },
   async getById(id: string) {
     return adminService.products.getById(id);
@@ -480,28 +496,6 @@ export interface PortalConfirmResult {
   salesOrder: SalesOrder | null;
   requiresApproval: boolean;
 }
-
-// Directory lookups (customers/users). STOPGAP inline helpers — a parallel
-// workstream is adding proper useCustomers/useUsers hooks + dedicated
-// service methods; these exist only so Group 2/5 detail pages can resolve a
-// display name in the meantime. Flag for reconciliation at merge time to
-// avoid duplicating the other agent's equivalent additions.
-export const directoryService = {
-  async getCustomer(id: string): Promise<ApiCustomer | null> {
-    try {
-      return await httpClient.get<ApiCustomer>(`/customers/${id}`);
-    } catch {
-      return null;
-    }
-  },
-  async getUser(id: string): Promise<ApiUser | null> {
-    try {
-      return await httpClient.get<ApiUser>(`/users/${id}`);
-    } catch {
-      return null;
-    }
-  },
-};
 
 import { reportingService } from './reportingService';
 export { reportingService };

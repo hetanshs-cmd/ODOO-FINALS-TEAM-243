@@ -55,6 +55,29 @@ export const quotationsController = {
     }
   },
 
+  async updateItem(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const item = await quotationsService.updateItem(
+        req.params['id'] as string,
+        req.params['itemId'] as string,
+        req.body,
+        req.user!,
+      );
+      sendSuccess({ res, data: item, message: 'Quotation item updated successfully' });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async removeItem(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      await quotationsService.removeItem(req.params['id'] as string, req.params['itemId'] as string, req.user!);
+      sendSuccess({ res, data: null, message: 'Quotation item removed successfully' });
+    } catch (err) {
+      next(err);
+    }
+  },
+
   async submit(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const quotation = await quotationsService.submit(req.params['id'] as string, req.user!);

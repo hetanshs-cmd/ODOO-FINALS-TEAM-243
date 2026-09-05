@@ -32,6 +32,7 @@ function makeQuotation(overrides: Partial<Quotation> = {}): Quotation {
     price_list_id: null,
     status: 'DRAFT',
     currency: 'USD',
+    order_discount_percent: '0.00',
     subtotal: '100.00',
     discount_total: '0.00',
     tax_total: '0.00',

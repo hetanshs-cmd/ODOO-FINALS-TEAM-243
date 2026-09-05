@@ -4,12 +4,13 @@
  */
 import { Router } from 'express';
 import { validate } from '../../middleware/validate';
+import { authLimiter } from '../../middleware/authRateLimit';
 import { loginSchema, signupSchema } from './auth.validator';
 import * as authController from './auth.controller';
 
 const router = Router();
 
-router.post('/auth/login', validate({ body: loginSchema }), authController.login);
-router.post('/auth/signup', validate({ body: signupSchema }), authController.signup);
+router.post('/auth/login', authLimiter, validate({ body: loginSchema }), authController.login);
+router.post('/auth/signup', authLimiter, validate({ body: signupSchema }), authController.signup);
 
 export { router as authRouter };
