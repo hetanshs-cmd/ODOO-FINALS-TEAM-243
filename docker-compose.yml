@@ -1,0 +1,40 @@
+services:
+  # ── PostgreSQL Database ──────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: odoo_hackathon_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-odoo_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your .env file}
+      POSTGRES_DB: ${POSTGRES_DB:-odoo_hackathon}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-odoo_user} -d ${POSTGRES_DB:-odoo_hackathon}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Test Database (separate from development) ─────────────────────────────
+  postgres_test:
+    image: postgres:15-alpine
+    container_name: odoo_hackathon_test_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-odoo_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your .env file}
+      POSTGRES_DB: ${POSTGRES_TEST_DB:-odoo_hackathon_test}
+    ports:
+      - '${POSTGRES_TEST_PORT:-5433}:5432'  # Different host port to avoid conflict with dev DB
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-odoo_user} -d ${POSTGRES_TEST_DB:-odoo_hackathon_test}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+    name: odoo_hackathon_postgres_data
