@@ -1,10 +1,5 @@
 export type SalesOrderStatus =
-  | 'PENDING'
-  | 'CONFIRMED'
-  | 'PROCESSING'
-  | 'PARTIALLY_FULFILLED'
-  | 'FULFILLED'
-  | 'CANCELLED';
+  'PENDING' | 'CONFIRMED' | 'PROCESSING' | 'PARTIALLY_FULFILLED' | 'FULFILLED' | 'CANCELLED';
 
 export interface SalesOrder {
   id: string;

@@ -16,21 +16,29 @@ const BILLING_ROLES = ['FINANCE', 'SALES_MANAGER', 'ADMIN'];
 const salesOrderBillingRouter = Router();
 salesOrderBillingRouter.use(authenticate, requireRole(...BILLING_ROLES));
 salesOrderBillingRouter.post(
-  '/:id/billing',
+  '/:id/billing/confirm',
   validate({ params: idParamSchema, body: generateBillingSchema }),
-  billingController.generate
+  billingController.generate,
 );
 
 // Mounted at /api/v1/invoices — read invoices and record payments against them.
 const invoicesRouter = Router();
 invoicesRouter.use(authenticate, requireRole(...BILLING_ROLES));
-invoicesRouter.get('/', validate({ query: listInvoicesQuerySchema }), billingController.listInvoices);
+invoicesRouter.get(
+  '/',
+  validate({ query: listInvoicesQuerySchema }),
+  billingController.listInvoices,
+);
 invoicesRouter.get('/:id', validate({ params: idParamSchema }), billingController.getInvoiceById);
-invoicesRouter.get('/:id/payments', validate({ params: idParamSchema }), billingController.listPayments);
+invoicesRouter.get(
+  '/:id/payments',
+  validate({ params: idParamSchema }),
+  billingController.listPayments,
+);
 invoicesRouter.post(
   '/:id/payments',
   validate({ params: idParamSchema, body: recordPaymentSchema }),
-  billingController.recordPayment
+  billingController.recordPayment,
 );
 
 export { salesOrderBillingRouter, invoicesRouter };
