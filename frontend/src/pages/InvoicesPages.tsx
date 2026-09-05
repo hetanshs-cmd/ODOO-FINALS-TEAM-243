@@ -186,7 +186,7 @@ export const InvoicesListPage: React.FC = () => {
           </div>
           <div className="mt-1.5 flex items-baseline gap-2">
             <span className="text-xl font-bold font-mono text-slate-900">
-              ${metrics.totalInvoiced.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ₹{metrics.totalInvoiced.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           </div>
           <div className="mt-1 text-[11px] text-slate-500">Across {metrics.totalCount} issued financial records</div>
@@ -199,7 +199,7 @@ export const InvoicesListPage: React.FC = () => {
           </div>
           <div className="mt-1.5 flex items-baseline gap-2">
             <span className="text-xl font-bold font-mono text-amber-900">
-              ${metrics.totalUnpaid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ₹{metrics.totalUnpaid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           </div>
           <div className="mt-1 text-[11px] text-amber-700">Awaiting customer clearance</div>
@@ -212,7 +212,7 @@ export const InvoicesListPage: React.FC = () => {
           </div>
           <div className="mt-1.5 flex items-baseline gap-2">
             <span className="text-xl font-bold font-mono text-emerald-900">
-              ${metrics.totalPaid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ₹{metrics.totalPaid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           </div>
           <div className="mt-1 text-[11px] text-emerald-700">Settled and reconciled in cash ledger</div>
@@ -227,7 +227,7 @@ export const InvoicesListPage: React.FC = () => {
           </div>
           <div className="mt-1.5 flex items-baseline gap-2">
             <span className="text-xl font-bold font-mono text-purple-900">
-              ${metrics.voidAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ₹{metrics.voidAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           </div>
           <div className="mt-1 text-[11px] text-purple-700">{metrics.voidCount} voided financial records</div>
@@ -429,7 +429,7 @@ export const InvoicesListPage: React.FC = () => {
                       {/* Total Amount */}
                       <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono font-semibold">
                         <span className="text-slate-900">
-                          ${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          ₹{total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </span>
                       </td>
 
@@ -439,7 +439,7 @@ export const InvoicesListPage: React.FC = () => {
                       <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono font-semibold">
                         {balanceDue > 0 ? (
                           <span className={isOverdue ? 'text-rose-600 font-bold' : 'text-amber-800'}>
-                            ${balanceDue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            ₹{balanceDue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                           </span>
                         ) : (
                           <span className="text-emerald-700 font-medium">$0.00</span>
@@ -475,10 +475,10 @@ export const InvoicesListPage: React.FC = () => {
           </div>
           <div className="flex items-center gap-4 font-mono">
             <span>
-              Total Visible: <strong className="text-slate-900">${filteredInvoices.reduce((s, i) => s + (parseFloat(i.total) || 0), 0).toLocaleString()}</strong>
+              Total Visible: <strong className="text-slate-900">₹{filteredInvoices.reduce((s, i) => s + (parseFloat(i.total) || 0), 0).toLocaleString()}</strong>
             </span>
             <span>
-              Unsettled Balance: <strong className="text-amber-800">${filteredInvoices.reduce((s, i) => s + getApproxBalance(i), 0).toLocaleString()}</strong>
+              Unsettled Balance: <strong className="text-amber-800">₹{filteredInvoices.reduce((s, i) => s + getApproxBalance(i), 0).toLocaleString()}</strong>
             </span>
           </div>
         </div>
@@ -586,7 +586,7 @@ export const InvoiceDetailPage: React.FC = () => {
       return;
     }
     if (paymentAmount > totals.balanceDue) {
-      setPaymentError(`Payment amount ($${paymentAmount.toLocaleString()}) cannot exceed the outstanding balance of $${totals.balanceDue.toLocaleString()}.`);
+      setPaymentError(`Payment amount (₹${paymentAmount.toLocaleString()}) cannot exceed the outstanding balance of ₹${totals.balanceDue.toLocaleString()}.`);
       return;
     }
     setIsRecording(true);
@@ -599,7 +599,7 @@ export const InvoiceDetailPage: React.FC = () => {
       };
       await billingService.recordPayment(invoice.id, payload);
       setIsPaymentModalOpen(false);
-      setPaymentSuccessMessage(`Payment of $${paymentAmount.toLocaleString()} successfully recorded for ${invoice.invoice_number}.`);
+      setPaymentSuccessMessage(`Payment of ₹${paymentAmount.toLocaleString()} successfully recorded for ${invoice.invoice_number}.`);
       setTimeout(() => setPaymentSuccessMessage(null), 5000);
       await Promise.all([loadPayments(), refetch()]);
     } catch (err) {
@@ -805,15 +805,15 @@ export const InvoiceDetailPage: React.FC = () => {
                     <tr key={line.id} className="hover:bg-slate-50/50">
                       <td className="py-2.5 px-3.5 font-semibold text-slate-900">{line.description}</td>
                       <td className="py-2.5 px-3 text-right font-mono font-medium text-slate-800">{line.quantity}</td>
-                      <td className="py-2.5 px-3 text-right font-mono text-slate-800">${Number(line.unit_price).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                      <td className="py-2.5 px-3 text-right font-mono text-slate-500">${Number(line.tax).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                      <td className="py-2.5 px-3.5 text-right font-mono font-bold text-slate-900">${Number(line.total).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                      <td className="py-2.5 px-3 text-right font-mono text-slate-800">₹{Number(line.unit_price).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                      <td className="py-2.5 px-3 text-right font-mono text-slate-500">₹{Number(line.tax).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                      <td className="py-2.5 px-3.5 text-right font-mono font-bold text-slate-900">₹{Number(line.total).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                     </tr>
                   ))
                 ) : (
                   <tr>
                     <td colSpan={5} className="py-6 text-center text-slate-400">
-                      No line items on record for invoice {invoice.invoice_number} (total ${totals.total.toLocaleString()}).
+                      No line items on record for invoice {invoice.invoice_number} (total ₹{totals.total.toLocaleString()}).
                     </td>
                   </tr>
                 )}
@@ -825,29 +825,29 @@ export const InvoiceDetailPage: React.FC = () => {
             <div className="w-full sm:w-80 bg-white border border-slate-200 rounded shadow-2xs p-4 space-y-2 text-xs font-sans">
               <div className="flex justify-between text-slate-600">
                 <span>Subtotal:</span>
-                <span className="font-mono font-semibold text-slate-800">${totals.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                <span className="font-mono font-semibold text-slate-800">₹{totals.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
               </div>
               {totals.discountTotal > 0 && (
                 <div className="flex justify-between text-emerald-700">
                   <span>Discount:</span>
-                  <span className="font-mono font-semibold">-${totals.discountTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span className="font-mono font-semibold">-₹{totals.discountTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
               )}
               <div className="flex justify-between text-slate-600">
                 <span>Tax:</span>
-                <span className="font-mono font-semibold text-slate-800">${totals.taxTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                <span className="font-mono font-semibold text-slate-800">₹{totals.taxTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between text-slate-900 font-bold border-t border-slate-200 pt-2">
                 <span>Total:</span>
-                <span className="font-mono">${totals.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                <span className="font-mono">₹{totals.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between text-emerald-700">
                 <span>Paid:</span>
-                <span className="font-mono font-semibold">${totals.paidAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                <span className="font-mono font-semibold">₹{totals.paidAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between text-rose-700 font-bold border-t border-slate-200 pt-2">
                 <span>Balance Due:</span>
-                <span className="font-mono">${totals.balanceDue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                <span className="font-mono">₹{totals.balanceDue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
               </div>
             </div>
           </div>
@@ -875,7 +875,7 @@ export const InvoiceDetailPage: React.FC = () => {
                 <tbody className="divide-y divide-slate-100">
                   {payments.map((p) => (
                     <tr key={p.id} className="hover:bg-slate-50/50">
-                      <td className="py-2.5 px-3 font-mono font-bold text-slate-900">${Number(p.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                      <td className="py-2.5 px-3 font-mono font-bold text-slate-900">₹{Number(p.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                       <td className="py-2.5 px-3">{p.payment_method}</td>
                       <td className="py-2.5 px-3 font-mono text-slate-600">{p.transaction_reference || '—'}</td>
                       <td className="py-2.5 px-3"><StatusBadge status={p.status} size="sm" /></td>

@@ -328,7 +328,7 @@ export const FulfillmentOverrideModal: React.FC<FulfillmentOverrideModalProps> =
                 <DollarSign className="w-3.5 h-3.5 text-slate-400" />
                 Est. Freight & Handling:{' '}
                 <strong className="text-slate-900">
-                  ${totalCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  ₹{totalCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </strong>
               </span>
             </div>

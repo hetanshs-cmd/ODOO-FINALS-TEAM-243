@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { NavLink, Outlet, useNavigate, Navigate, Link } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate, useLocation, Navigate, Link } from 'react-router-dom';
 import {
   LayoutDashboard,
   FileText,
@@ -13,9 +13,9 @@ import {
   Search,
   RotateCw,
   Plus,
-  Sliders,
   UserCheck,
   LogOut,
+  ArrowLeft,
   Bell,
   Menu,
   X,
@@ -36,6 +36,7 @@ export const InternalShell: React.FC = () => {
   const { quotations, refetch: refetchQuotations } = useQuotations();
   const { alerts, refetch: refetchAlerts } = useDealHealthAlerts();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
@@ -211,16 +212,6 @@ export const InternalShell: React.FC = () => {
             <span className="hidden lg:inline">Reload</span>
           </button>
 
-          {/* Go to Back-end Link */}
-          <Link
-            to="/admin/products"
-            title="Go to Back-end / Admin Configuration"
-            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-[#4B5563] hover:text-[#1F2937] hover:bg-[#F8F9FA] rounded-[6px] border border-transparent hover:border-[#E5E7EB] transition-colors"
-          >
-            <Sliders className="w-3.5 h-3.5" />
-            <span className="hidden lg:inline">Back-end</span>
-          </Link>
-
           {/* Notifications Icon with pending approvals indicator */}
           <Link
             to="/approvals"
@@ -235,8 +226,14 @@ export const InternalShell: React.FC = () => {
 
           {/* User Profile Area (Section 12: Sarah Chen / Sales Rep) */}
           <div className="flex items-center gap-2 pl-1 sm:pl-2 border-l border-[#E5E7EB]">
-            <div className="w-7 h-7 rounded-[6px] bg-[#F4EEF3] text-[#714B67] border border-[#E8DCE7] flex items-center justify-center font-bold text-xs">
-              {user.name.split(' ').map((n) => n[0]).join('').slice(0, 2)}
+            <div className="relative w-7 h-7 rounded-[6px] bg-[#F4EEF3] text-[#714B67] border border-[#E8DCE7] flex items-center justify-center font-bold text-xs">
+              <span>{user.name.split(' ').map((n) => n[0]).join('').slice(0, 2)}</span>
+              <span
+                className="absolute -bottom-1 -right-1 text-[11px] leading-none bg-white rounded-full ring-1 ring-[#E8DCE7] px-[1px]"
+                aria-hidden="true"
+              >
+                😎
+              </span>
             </div>
             <div className="hidden md:block text-left leading-tight">
               <div className="text-xs font-semibold text-[#1F2937] truncate max-w-[110px]">
@@ -394,6 +391,16 @@ export const InternalShell: React.FC = () => {
         {/* Operational Page Content Area (Section 10) */}
         <main className="flex-1 min-w-0 bg-[#F8F9FA] overflow-y-auto">
           <div className="max-w-[1600px] w-full mx-auto p-4 sm:p-5 lg:p-6">
+            {location.pathname !== '/dashboard' && (
+              <button
+                type="button"
+                onClick={() => navigate(-1)}
+                className="inline-flex items-center gap-1.5 mb-3 text-xs font-semibold text-[#4B5563] hover:text-[#714B67] hover:bg-white border border-[#E5E7EB] px-2.5 py-1.5 rounded-[6px] transition-colors cursor-pointer shadow-2xs"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Back</span>
+              </button>
+            )}
             <Outlet />
           </div>
         </main>

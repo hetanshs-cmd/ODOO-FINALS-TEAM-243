@@ -76,7 +76,7 @@ export const AdminSubscriptionsPage: React.FC = () => {
     saveSubscriptionPlan(fullPlan);
     toast.success(
       'Subscription Plan Saved',
-      `Plan "${fullPlan.name}" configured at $${fullPlan.price}/${fullPlan.cycle}.`
+      `Plan "${fullPlan.name}" configured at ₹${fullPlan.price}/${fullPlan.cycle}.`
     );
     setIsModalOpen(false);
     setEditingPlan(null);
@@ -187,7 +187,7 @@ export const AdminSubscriptionsPage: React.FC = () => {
                       </td>
 
                       <td className="py-2.5 px-4 text-right font-mono font-semibold text-[#1F2937]">
-                        ${plan.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        ₹{plan.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         <span className="text-[10px] text-[#6B7280]">/{plan.cycle}</span>
                       </td>
 

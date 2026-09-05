@@ -296,10 +296,10 @@ export const AdminProductsConfigPage: React.FC = () => {
                         </span>
                       </td>
                       <td className="py-2.5 px-4 text-right font-mono font-semibold text-[#1F2937]">
-                        ${price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        ₹{price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                       </td>
                       <td className="py-2.5 px-4 text-right font-mono text-[#6B7280]">
-                        {costBasis}% (${((price * costBasis) / 100).toFixed(2)})
+                        {costBasis}% (₹{((price * costBasis) / 100).toFixed(2)})
                       </td>
                       <td className="py-2.5 px-4 text-right font-mono font-semibold text-[#059669]">
                         {targetMargin}%
@@ -477,7 +477,7 @@ export const AdminProductsConfigPage: React.FC = () => {
                             </div>
                           </td>
                           <td className="py-2.5 px-4 text-right font-mono text-[#6B7280]">
-                            ${standardPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            ₹{standardPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                           </td>
                           <td className="py-2.5 px-4 text-right">
                             <div className="inline-flex items-center gap-1 justify-end">

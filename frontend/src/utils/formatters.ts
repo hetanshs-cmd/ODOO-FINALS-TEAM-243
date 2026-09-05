@@ -4,10 +4,10 @@
  */
 
 export function formatCurrency(val?: number): string {
-  if (val === undefined || val === null || isNaN(val)) return '$0';
-  return new Intl.NumberFormat('en-US', {
+  if (val === undefined || val === null || isNaN(val)) return '₹0';
+  return new Intl.NumberFormat('en-IN', {
     style: 'currency',
-    currency: 'USD',
+    currency: 'INR',
     minimumFractionDigits: val % 1 !== 0 ? 2 : 0,
     maximumFractionDigits: 2,
   }).format(val);

@@ -321,14 +321,14 @@ export const PortalQuotationPage: React.FC = () => {
                     )}
                   </div>
                   <div className="flex flex-wrap items-center gap-x-3 text-xs text-gray-500 mt-1">
-                    <span>{line.quantity} × ${Number(line.unit_price).toLocaleString()}</span>
+                    <span>{line.quantity} × ₹{Number(line.unit_price).toLocaleString()}</span>
                     {Number(line.discount_percent) > 0 && (
                       <span className="text-[#059669] font-medium">Discount: {line.discount_percent}%</span>
                     )}
                   </div>
                 </div>
                 <div className="text-right">
-                  <span className="text-sm font-extrabold text-gray-900">${Number(line.line_total).toLocaleString()}</span>
+                  <span className="text-sm font-extrabold text-gray-900">₹{Number(line.line_total).toLocaleString()}</span>
                   <div className="text-[10px] text-gray-400">Line Total</div>
                 </div>
               </div>
@@ -356,19 +356,19 @@ export const PortalQuotationPage: React.FC = () => {
           <div className="space-y-2 text-xs">
             <div className="flex justify-between text-gray-600">
               <span>Subtotal:</span>
-              <span className="font-semibold text-gray-800">${Number(quote.subtotal).toLocaleString()}</span>
+              <span className="font-semibold text-gray-800">₹{Number(quote.subtotal).toLocaleString()}</span>
             </div>
             <div className="flex justify-between text-[#059669] font-medium">
               <span>Discount:</span>
-              <span className="font-bold">-${discountTotal.toLocaleString()}</span>
+              <span className="font-bold">-₹{discountTotal.toLocaleString()}</span>
             </div>
             <div className="flex justify-between text-gray-600">
               <span>Tax:</span>
-              <span className="font-semibold text-gray-800">${taxTotal.toLocaleString()}</span>
+              <span className="font-semibold text-gray-800">₹{taxTotal.toLocaleString()}</span>
             </div>
             <div className="pt-2.5 border-t border-gray-200 flex justify-between items-baseline">
               <span className="text-sm font-extrabold text-gray-900">Total Contract Value:</span>
-              <span className="text-lg font-black text-[#714B67]">${grandTotal.toLocaleString()}</span>
+              <span className="text-lg font-black text-[#714B67]">₹{grandTotal.toLocaleString()}</span>
             </div>
           </div>
         </div>
@@ -394,7 +394,7 @@ export const PortalQuotationPage: React.FC = () => {
             <div className="bg-gray-50 p-3 rounded border border-gray-200 text-xs space-y-1">
               <div className="flex justify-between">
                 <span className="text-gray-500">Total Contract Amount:</span>
-                <strong className="text-gray-900">${grandTotal.toLocaleString()}</strong>
+                <strong className="text-gray-900">₹{grandTotal.toLocaleString()}</strong>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Authorizing Representative:</span>

@@ -267,7 +267,7 @@ export const FulfillmentListPage: React.FC = () => {
 
                         {/* Order Value */}
                         <td className="py-2.5 px-3.5 text-right font-mono text-slate-800">
-                          ${(parseFloat(o.grand_total) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          ₹{(parseFloat(o.grand_total) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </td>
 
                         {/* Fulfillment Status Badge — driven directly by the
@@ -621,7 +621,7 @@ export const FulfillmentDetailPage: React.FC = () => {
           </div>
           <div className="p-2.5 bg-slate-50 rounded border border-slate-200">
             <div className="text-[10px] text-slate-500 uppercase">Grand Total</div>
-            <div className="text-sm font-bold text-blue-900 mt-0.5">${Number(salesOrder.grand_total).toLocaleString()}</div>
+            <div className="text-sm font-bold text-blue-900 mt-0.5">₹{Number(salesOrder.grand_total).toLocaleString()}</div>
           </div>
         </div>
       </div>
@@ -745,7 +745,7 @@ export const FulfillmentDetailPage: React.FC = () => {
                       <td className="py-2 px-3 text-right font-bold text-slate-900">{line.quantity}</td>
                       <td className="py-2 px-3 text-right text-emerald-700">{line.fulfilled_quantity}</td>
                       <td className="py-2 px-3 text-right text-amber-700">{line.backordered_quantity}</td>
-                      <td className="py-2 px-3 text-right text-slate-900">${Number(line.total).toLocaleString()}</td>
+                      <td className="py-2 px-3 text-right text-slate-900">₹{Number(line.total).toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -771,7 +771,7 @@ export const FulfillmentDetailPage: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Grand Total:</span>
-                <span className="font-mono font-bold text-blue-900">${Number(salesOrder.grand_total).toLocaleString()}</span>
+                <span className="font-mono font-bold text-blue-900">₹{Number(salesOrder.grand_total).toLocaleString()}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Status:</span>

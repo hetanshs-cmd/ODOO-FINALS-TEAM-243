@@ -527,7 +527,7 @@ export const ReportsPage: React.FC = () => {
                 <YAxis
                   tick={{ fontSize: 9 }}
                   stroke="#94A3B8"
-                  tickFormatter={(val) => (val >= 1000 ? `$${val / 1000}k` : `$${val}`)}
+                  tickFormatter={(val) => (val >= 1000 ? `₹${val / 1000}k` : `₹${val}`)}
                 />
                 <Tooltip
                   formatter={(value: any, name: any) => [
@@ -565,7 +565,7 @@ export const ReportsPage: React.FC = () => {
                 <YAxis
                   tick={{ fontSize: 9 }}
                   stroke="#94A3B8"
-                  tickFormatter={(val) => (val >= 1000 ? `$${val / 1000}k` : `$${val}`)}
+                  tickFormatter={(val) => (val >= 1000 ? `₹${val / 1000}k` : `₹${val}`)}
                 />
                 <Tooltip
                   formatter={(value: any, name: any) => [
@@ -604,7 +604,7 @@ export const ReportsPage: React.FC = () => {
                 <YAxis
                   tick={{ fontSize: 9 }}
                   stroke="#94A3B8"
-                  tickFormatter={(val) => (val >= 1000 ? `$${val / 1000}k` : `$${val}`)}
+                  tickFormatter={(val) => (val >= 1000 ? `₹${val / 1000}k` : `₹${val}`)}
                 />
                 <Tooltip
                   formatter={(value: any, name: any) => [
