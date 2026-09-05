@@ -48,16 +48,18 @@ export const salesOrdersRepository = {
     const { rows } = await db.query(
       `SELECT id, status, customer_id, sales_rep_id, subtotal, discount_total, tax_total, grand_total
        FROM quotations WHERE id = $1`,
-      [quotationId]
+      [quotationId],
     );
     return (rows[0] as QuotationForConversion | undefined) ?? null;
   },
 
-  async listQuotationItemsForConversion(quotationId: string): Promise<QuotationItemForConversion[]> {
+  async listQuotationItemsForConversion(
+    quotationId: string,
+  ): Promise<QuotationItemForConversion[]> {
     const { rows } = await db.query(
       `SELECT id, product_id, quantity, unit_price, discount_amount, line_total, billing_type
        FROM quotation_items WHERE quotation_id = $1`,
-      [quotationId]
+      [quotationId],
     );
     return rows as QuotationItemForConversion[];
   },
@@ -77,7 +79,7 @@ export const salesOrdersRepository = {
         input.discount_total,
         input.tax_total,
         input.grand_total,
-      ]
+      ],
     );
     return rows[0] as SalesOrder;
   },
@@ -87,7 +89,14 @@ export const salesOrdersRepository = {
       `INSERT INTO sales_order_items (sales_order_id, product_id, quantity, unit_price, discount, total)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
-      [input.sales_order_id, input.product_id, input.quantity, input.unit_price, input.discount, input.total]
+      [
+        input.sales_order_id,
+        input.product_id,
+        input.quantity,
+        input.unit_price,
+        input.discount,
+        input.total,
+      ],
     );
     return rows[0] as SalesOrderItem;
   },
@@ -96,7 +105,11 @@ export const salesOrdersRepository = {
     await client.query(`UPDATE quotations SET status = 'CONVERTED' WHERE id = $1`, [quotationId]);
   },
 
-  async updateStatus(client: PoolClient, salesOrderId: string, status: SalesOrderStatus): Promise<void> {
+  async updateStatus(
+    client: PoolClient,
+    salesOrderId: string,
+    status: SalesOrderStatus,
+  ): Promise<void> {
     await client.query('UPDATE sales_orders SET status = $2 WHERE id = $1', [salesOrderId, status]);
   },
 
@@ -108,7 +121,7 @@ export const salesOrdersRepository = {
   async listItems(salesOrderId: string): Promise<SalesOrderItem[]> {
     const { rows } = await db.query(
       'SELECT * FROM sales_order_items WHERE sales_order_id = $1 ORDER BY created_at ASC',
-      [salesOrderId]
+      [salesOrderId],
     );
     return rows as SalesOrderItem[];
   },
@@ -116,7 +129,7 @@ export const salesOrdersRepository = {
   async list(
     filters: { status?: string; customerId?: string },
     limit: number,
-    offset: number
+    offset: number,
   ): Promise<SalesOrder[]> {
     const conditions: string[] = [];
     const params: unknown[] = [];
@@ -132,7 +145,7 @@ export const salesOrdersRepository = {
     params.push(limit, offset);
     const { rows } = await db.query(
       `SELECT * FROM sales_orders ${where} ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
-      params
+      params,
     );
     return rows as SalesOrder[];
   },
@@ -149,7 +162,10 @@ export const salesOrdersRepository = {
       conditions.push(`customer_id = $${params.length}`);
     }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    const { rows } = await db.query(`SELECT COUNT(*)::int AS count FROM sales_orders ${where}`, params);
+    const { rows } = await db.query(
+      `SELECT COUNT(*)::int AS count FROM sales_orders ${where}`,
+      params,
+    );
     return (rows[0] as { count: number }).count;
   },
 };

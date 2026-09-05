@@ -1,4 +1,27 @@
 import { z } from 'zod';
+import {
+  createCrudController,
+  createCrudRepository,
+  createCrudRouter,
+  createCrudService,
+} from '../../shared/crud';
+
+export interface DiscountRule {
+  id: string;
+  name: string;
+  priority: number;
+  product_id: string | null;
+  category_id: string | null;
+  customer_tier_id: string | null;
+  sales_role: string | null;
+  min_discount: string;
+  max_discount: string;
+  approval_required: boolean;
+  approval_level: number | null;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
 
 // Scope fields (product_id/category_id/customer_tier_id) are all optional —
 // a rule may be scoped at any single level, or be global when all three are
@@ -37,4 +60,36 @@ export const updateDiscountRuleSchema = z.object({
   approval_required: z.coerce.boolean().optional(),
   approval_level: z.coerce.number().int().optional().nullable(),
   active: z.coerce.boolean().optional(),
+});
+
+const COLUMNS = [
+  'name',
+  'priority',
+  'product_id',
+  'category_id',
+  'customer_tier_id',
+  'sales_role',
+  'min_discount',
+  'max_discount',
+  'approval_required',
+  'approval_level',
+  'active',
+] as const;
+
+const repository = createCrudRepository<DiscountRule>({
+  table: 'discount_rules',
+  columns: COLUMNS,
+});
+
+const service = createCrudService(repository, {
+  resourceName: 'Discount rule',
+  entityType: 'discount_rule',
+});
+
+const controller = createCrudController(service, 'Discount rule');
+
+export const discountRulesRouter = createCrudRouter({
+  controller,
+  createSchema: createDiscountRuleSchema,
+  updateSchema: updateDiscountRuleSchema,
 });

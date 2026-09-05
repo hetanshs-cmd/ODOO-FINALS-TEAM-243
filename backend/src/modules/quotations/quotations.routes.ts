@@ -7,6 +7,8 @@ import {
   createQuotationItemSchema,
   createQuotationSchema,
   idParamSchema,
+  listQuotationsQuerySchema,
+  updateQuotationSchema,
 } from './quotations.validator';
 
 const router = Router();
@@ -15,12 +17,18 @@ const router = Router();
 // can also act on any quotation (escalation, oversight).
 router.use(authenticate, requireRole('SALES_REP', 'SALES_MANAGER', 'ADMIN'));
 
+router.get('/', validate({ query: listQuotationsQuerySchema }), quotationsController.list);
 router.post('/', validate({ body: createQuotationSchema }), quotationsController.create);
 router.get('/:id', validate({ params: idParamSchema }), quotationsController.getById);
+router.patch(
+  '/:id',
+  validate({ params: idParamSchema, body: updateQuotationSchema }),
+  quotationsController.update,
+);
 router.post(
   '/:id/items',
   validate({ params: idParamSchema, body: createQuotationItemSchema }),
-  quotationsController.addItem
+  quotationsController.addItem,
 );
 
 export { router as quotationsRouter };

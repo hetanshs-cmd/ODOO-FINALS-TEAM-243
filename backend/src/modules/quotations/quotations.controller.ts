@@ -21,6 +21,31 @@ export const quotationsController = {
     }
   },
 
+  async list(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const result = await quotationsService.list(
+        req.query as { status?: string; customer_id?: string },
+        req.user!,
+      );
+      sendSuccess({ res, data: result, message: 'Quotations retrieved successfully' });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async update(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const quotation = await quotationsService.update(
+        req.params['id'] as string,
+        req.body,
+        req.user!,
+      );
+      sendSuccess({ res, data: quotation, message: 'Quotation updated successfully' });
+    } catch (err) {
+      next(err);
+    }
+  },
+
   async addItem(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const item = await quotationsService.addItem(req.params['id'] as string, req.body, req.user!);

@@ -26,7 +26,7 @@ export const negotiationsService = {
   async open(
     quotationId: string,
     initiatedBy: string,
-    portalCustomerId?: string
+    portalCustomerId?: string,
   ): Promise<Negotiation> {
     const quotation = await negotiationsRepository.findQuotationForNegotiation(quotationId);
     if (!quotation) throw Errors.notFound('Quotation');
@@ -65,7 +65,7 @@ export const negotiationsService = {
     }
     if (!ACTIONABLE_STATUSES.has(negotiation.status)) {
       throw Errors.businessRuleViolation(
-        `Cannot post a message on a negotiation in status ${negotiation.status}`
+        `Cannot post a message on a negotiation in status ${negotiation.status}`,
       );
     }
 
@@ -76,7 +76,7 @@ export const negotiationsService = {
           senderUserId: dto.senderUserId,
           message: dto.message,
           messageType: dto.messageType,
-        })
+        }),
       );
       return { message, reEvaluation: null };
     }
@@ -84,10 +84,12 @@ export const negotiationsService = {
     const changes = dto.changes ?? [];
     const message = await withTransaction(async (client) => {
       for (const change of changes) {
-        const item = await negotiationsRepository.findQuotationItemForChange(change.quotation_item_id);
+        const item = await negotiationsRepository.findQuotationItemForChange(
+          change.quotation_item_id,
+        );
         if (!item || item.quotation_id !== negotiation.quotation_id) {
           throw Errors.businessRuleViolation(
-            `Quotation item ${change.quotation_item_id} does not belong to this negotiation's quotation`
+            `Quotation item ${change.quotation_item_id} does not belong to this negotiation's quotation`,
           );
         }
 
@@ -114,7 +116,11 @@ export const negotiationsService = {
       }
 
       await negotiationsRepository.recalculateQuotationTotals(client, negotiation.quotation_id);
-      await negotiationsRepository.updateQuotationStatus(client, negotiation.quotation_id, 'NEGOTIATION');
+      await negotiationsRepository.updateQuotationStatus(
+        client,
+        negotiation.quotation_id,
+        'NEGOTIATION',
+      );
       await negotiationsRepository.updateStatus(client, negotiationId, 'IN_PROGRESS');
 
       return negotiationsRepository.insertMessage(client, {
@@ -125,7 +131,9 @@ export const negotiationsService = {
       });
     });
 
-    const quotation = await negotiationsRepository.findQuotationForNegotiation(negotiation.quotation_id);
+    const quotation = await negotiationsRepository.findQuotationForNegotiation(
+      negotiation.quotation_id,
+    );
     if (quotation) {
       await notificationsService.notify({
         userId: quotation.sales_rep_id,

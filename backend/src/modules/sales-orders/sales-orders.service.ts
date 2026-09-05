@@ -20,7 +20,7 @@ export const salesOrdersService = {
 
     if (!CONVERTIBLE_STATUSES.has(quotation.status)) {
       throw Errors.businessRuleViolation(
-        `Cannot convert a quotation in status ${quotation.status}; it must be ACCEPTED`
+        `Cannot convert a quotation in status ${quotation.status}; it must be ACCEPTED`,
       );
     }
 
@@ -50,8 +50,8 @@ export const salesOrdersService = {
             unit_price: item.unit_price,
             discount: item.discount_amount,
             total: item.line_total,
-          })
-        )
+          }),
+        ),
       );
 
       await salesOrdersRepository.markQuotationConverted(client, quotationId);

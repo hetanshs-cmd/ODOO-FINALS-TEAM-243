@@ -2,7 +2,7 @@ import { NextFunction, Request, Response, Router } from 'express';
 import { authenticate, authenticatePortal } from '../../middleware/authenticate';
 import { validate } from '../../middleware/validate';
 import { negotiationsController } from './negotiations.controller';
-import { addMessageSchema, idParamSchema, openNegotiationSchema } from './negotiations.validator';
+import { addMessageSchema, idParamSchema } from './negotiations.validator';
 
 /**
  * Negotiations are the one resource both internal sales reps AND portal
@@ -23,16 +23,23 @@ function authenticateInternalOrPortal(req: Request, res: Response, next: NextFun
   });
 }
 
-const router = Router();
-
-router.use(authenticateInternalOrPortal);
-
-router.post('/', validate({ body: openNegotiationSchema }), negotiationsController.open);
-router.get('/:id', validate({ params: idParamSchema }), negotiationsController.getById);
-router.post(
-  '/:id/messages',
-  validate({ params: idParamSchema, body: addMessageSchema }),
-  negotiationsController.addMessage
+// Mounted at /api/v1/quotations — opening a negotiation is an action on a quotation.
+const quotationNegotiationsRouter = Router();
+quotationNegotiationsRouter.use(authenticateInternalOrPortal);
+quotationNegotiationsRouter.post(
+  '/:id/negotiations',
+  validate({ params: idParamSchema }),
+  negotiationsController.open,
 );
 
-export { router as negotiationsRouter };
+// Mounted at /api/v1/negotiations — inspect + post messages on an existing negotiation.
+const negotiationsRouter = Router();
+negotiationsRouter.use(authenticateInternalOrPortal);
+negotiationsRouter.get('/:id', validate({ params: idParamSchema }), negotiationsController.getById);
+negotiationsRouter.post(
+  '/:id/messages',
+  validate({ params: idParamSchema, body: addMessageSchema }),
+  negotiationsController.addMessage,
+);
+
+export { quotationNegotiationsRouter, negotiationsRouter };

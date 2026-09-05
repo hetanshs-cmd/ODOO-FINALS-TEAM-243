@@ -1,16 +1,16 @@
 import { Router } from 'express';
 import { authenticate } from '../../middleware/authenticate';
 import { requireRole } from '../../middleware/authorize';
-import { productCategoriesRouter } from './product-categories/product-categories.routes';
-import { productsRouter } from './products/products.routes';
-import { priceListsRouter } from './price-lists/price-lists.routes';
-import { customersRouter } from './customers/customers.routes';
-import { customerTiersRouter } from './customer-tiers/customer-tiers.routes';
-import { discountRulesRouter } from './discount-rules/discount-rules.routes';
-import { approvalLevelsRouter } from './approval-levels/approval-levels.routes';
-import { warehousesRouter } from './warehouses/warehouses.routes';
-import { subscriptionPlansRouter } from './subscription-plans/subscription-plans.routes';
-import { recommendationRulesRouter } from './recommendation-rules/recommendation-rules.routes';
+import { productCategoriesRouter } from './product-categories';
+import { productsRouter } from './products';
+import { priceListsRouter } from './price-lists';
+import { customersRouter } from './customers';
+import { customerTiersRouter } from './customer-tiers';
+import { discountRulesRouter } from './discount-rules';
+import { approvalLevelsRouter } from './approval-levels';
+import { warehousesRouter } from './warehouses';
+import { subscriptionPlansRouter } from './subscription-plans';
+import { recommendationRulesRouter } from './recommendation-rules';
 
 /**
  * Admin Module Router
@@ -18,8 +18,8 @@ import { recommendationRulesRouter } from './recommendation-rules/recommendation
  * Mounts every admin config resource under /api/v1/admin/*. Each resource is
  * a thin instantiation of the shared generic CRUD factory (src/shared/crud) —
  * see docs/references.md (Strapi: one generic CRUD shape reused across
- * resources) — so adding a new admin resource means adding a model +
- * validator + a few lines of wiring here, not a new controller/service.
+ * resources) — so each resource is one flat file (model + validator + a few
+ * lines of wiring), not a new controller/service.
  *
  * All routes require an authenticated internal user with the ADMIN role.
  */

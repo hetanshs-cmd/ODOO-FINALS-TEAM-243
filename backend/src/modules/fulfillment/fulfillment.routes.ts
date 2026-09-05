@@ -11,20 +11,24 @@ const OPS_ROLES = ['OPERATIONS', 'SALES_MANAGER', 'ADMIN'];
 const salesOrderFulfillmentRouter = Router();
 salesOrderFulfillmentRouter.use(authenticate, requireRole(...OPS_ROLES));
 salesOrderFulfillmentRouter.post(
-  '/:id/allocate',
+  '/:id/suggest-fulfillment',
   validate({ params: idParamSchema }),
-  fulfillmentController.allocate
+  fulfillmentController.allocate,
 );
 salesOrderFulfillmentRouter.get(
   '/:id/fulfillments',
   validate({ params: idParamSchema }),
-  fulfillmentController.listBySalesOrder
+  fulfillmentController.listBySalesOrder,
 );
 
 // Mounted at /api/v1/fulfillments — inspect + ship an individual fulfillment.
 const fulfillmentsRouter = Router();
 fulfillmentsRouter.use(authenticate, requireRole(...OPS_ROLES));
 fulfillmentsRouter.get('/:id', validate({ params: idParamSchema }), fulfillmentController.getById);
-fulfillmentsRouter.post('/:id/ship', validate({ params: idParamSchema }), fulfillmentController.ship);
+fulfillmentsRouter.post(
+  '/:id/ship',
+  validate({ params: idParamSchema }),
+  fulfillmentController.ship,
+);
 
 export { salesOrderFulfillmentRouter, fulfillmentsRouter };
