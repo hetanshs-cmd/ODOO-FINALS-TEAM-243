@@ -22,6 +22,7 @@ import {
   fulfillmentsRouter,
 } from './modules/fulfillment/fulfillment.routes';
 import { salesOrderBillingRouter, invoicesRouter } from './modules/billing/billing.routes';
+import { subscriptionsRouter } from './modules/subscriptions/subscriptions.routes';
 import {
   quotationNegotiationsRouter,
   negotiationsRouter,
@@ -92,6 +93,7 @@ app.use('/api/v1/sales-orders', salesOrderFulfillmentRouter);
 app.use('/api/v1/fulfillments', fulfillmentsRouter);
 app.use('/api/v1/sales-orders', salesOrderBillingRouter);
 app.use('/api/v1/invoices', invoicesRouter);
+app.use('/api/v1/subscriptions', subscriptionsRouter);
 // Opening a negotiation is a quotation-scoped action (POST
 // /quotations/:id/negotiations); everything else on an existing negotiation
 // (read, post a message) lives under /negotiations/:id/*.
