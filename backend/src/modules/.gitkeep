@@ -1,0 +1,11 @@
+// Modules will be created here after Phase 0 analysis.
+// Each domain module follows the structure:
+//
+// modules/<module-name>/
+//   <module>.routes.ts
+//   <module>.controller.ts
+//   <module>.service.ts
+//   <module>.repository.ts
+//   <module>.validator.ts
+//   <module>.model.ts
+//   <module>.test.ts
