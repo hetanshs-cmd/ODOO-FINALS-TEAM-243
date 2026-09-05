@@ -15,7 +15,15 @@ export type UserRole =
   | 'SalesManager'
   | 'Finance'
   | 'Admin'
-  | 'Customer';
+  | 'Customer'
+  // Real backend role names (roles.name), as returned by POST /auth/login
+  // and encoded in the internal JWT's `role` claim.
+  | 'SALES_REP'
+  | 'SALES_MANAGER'
+  | 'FINANCE'
+  | 'OPERATIONS'
+  | 'ADMIN'
+  | 'CUSTOMER';
 
 export interface User {
   id: string;
@@ -917,6 +925,59 @@ export interface ConfigAuditEvent {
   oldValue?: string;
   newValue?: string;
   details?: string;
+}
+
+// ============================================================================
+// REAL BACKEND ENTITIES
+// ============================================================================
+// The types above model the legacy mock/localStorage store's richer,
+// UI-computed Quotation/Invoice shapes. SalesOrder has no mock-store
+// equivalent — it is a real, distinct entity on the backend (see
+// backend/src/modules/sales-orders/sales-orders.model.ts), created only via
+// POST /quotations/:id/convert. Its field names intentionally mirror the
+// backend's snake_case column names (all monetary values are decimal
+// strings, as Postgres numeric columns are serialized) rather than being
+// forced into the mock model's camelCase/number conventions, so a value
+// from the API can be used here without silent precision loss or a
+// mapping layer masking what the server actually returned.
+export type SalesOrderStatus =
+  | 'PENDING'
+  | 'CONFIRMED'
+  | 'PROCESSING'
+  | 'PARTIALLY_FULFILLED'
+  | 'FULFILLED'
+  | 'CANCELLED';
+
+export interface SalesOrderItem {
+  id: string;
+  sales_order_id: string;
+  product_id: string;
+  quantity: string;
+  unit_price: string;
+  discount: string;
+  total: string;
+  fulfilled_quantity: string;
+  backordered_quantity: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SalesOrder {
+  id: string;
+  order_number: string;
+  quotation_id: string;
+  customer_id: string;
+  sales_rep_id: string;
+  status: SalesOrderStatus;
+  subtotal: string;
+  discount_total: string;
+  tax_total: string;
+  grand_total: string;
+  order_date: string;
+  created_at: string;
+  updated_at: string;
+  /** Present on GET /sales-orders/:id; absent on the GET /sales-orders list. */
+  items?: SalesOrderItem[];
 }
 
 
