@@ -345,8 +345,54 @@ All admin writes go through `audit_logs`.
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/api/v1/quotations` | Create a `DRAFT` quotation |
-| POST | `/api/v1/quotations/:id/items` | Add/edit a `quotation_items` row |
-| POST | `/api/v1/quotations/:id/check-discounts` | Evaluates every item against `discount_rules` (strictest applicable), writes a `discount_evaluations` row per item (append-only, FR2/FR3) — may create an `approval_requests` row and move status to `PENDING_APPROVAL` |
+| POST | `/api/v1/quotations/:id/items` | Add/edit a `quotation_items` row — response includes a computed `margin_percent` per item (null-safe on `products.cost_price`) |
+| POST | `/api/v1/quotations/:id/submit` | **New.** `DRAFT` → `SUBMITTED`, then automatically runs the same evaluation as `check-discounts` (see below) — the frontend no longer needs to call `check-discounts` separately after submitting |
+| POST | `/api/v1/quotations/:id/check-discounts` | Evaluates every item against `discount_rules` (strictest applicable), writes a `discount_evaluations` row per item (append-only, FR2/FR3) — may create an `approval_requests` row and move status to `PENDING_APPROVAL`. Also runs automatically as part of `submit` above |
+| GET | `/api/v1/quotations/:id/timeline` | **New.** `audit_logs` rows for this quotation (`entity_type = 'quotation'`), ordered oldest-first — same auth as other quotation reads |
+
+**Authentication:** `Authorization: Bearer <accessToken>`, role one of `SALES_REP`, `SALES_MANAGER`, `ADMIN`. A `SALES_REP` only sees/acts on their own quotations.
+
+#### POST /api/v1/quotations/:id/submit
+
+**Request body:** none
+
+**Response 200:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "...",
+    "status": "PENDING_APPROVAL",
+    "items": [ { "...": "...", "margin_percent": 34.5 } ]
+  },
+  "message": "Quotation submitted successfully"
+}
+```
+
+**Errors:**
+
+| Status | Code | When |
+|---|---|---|
+| 404 | `NOT_FOUND` | Quotation doesn't exist |
+| 403 | `FORBIDDEN` | Caller is a `SALES_REP` who doesn't own this quotation |
+| 422 | `BUSINESS_RULE_VIOLATION` | Quotation isn't `DRAFT`, or has no items |
+
+#### GET /api/v1/quotations/:id/timeline
+
+**Response 200:**
+
+```json
+{
+  "success": true,
+  "data": [
+    { "id": "...", "action": "QUOTATION_CREATED", "user_id": "...", "old_value": null, "new_value": { "...": "..." }, "created_at": "..." },
+    { "id": "...", "action": "QUOTATION_SUBMITTED", "...": "..." },
+    { "id": "...", "action": "DISCOUNT_CHECK", "...": "..." }
+  ],
+  "message": "Quotation timeline retrieved successfully"
+}
+```
 
 ### Approvals
 
@@ -370,23 +416,55 @@ All admin writes go through `audit_logs`.
 |---|---|---|
 | GET | `/api/v1/quotations/:id/recommendations` | Ranked list from `recommendation_rules`, filtered by margin threshold (FR5) |
 
+### Customers & Users Directory
+
+**New.** Read-only lookups used by the sales org for customer/name display — distinct from
+the ADMIN-only `/admin/customers` CRUD, which is unchanged.
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `/api/v1/customers` | `SALES_REP`, `SALES_MANAGER`, `ADMIN` | Paginated `id`/`company_name`/`customer_tier_id`/`status` list |
+| GET | `/api/v1/users` | Any authenticated internal role | Full (unpaginated) `id`/`name`/`role` directory of `ACTIVE` users — no email or other sensitive fields |
+
 ### Sales Orders & Fulfillment
 
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/api/v1/quotations/:id/convert` | Converts an `APPROVED`/`ACCEPTED` quotation into a `sales_orders` row (1:1, unique `quotation_id`) |
 | POST | `/api/v1/sales-orders/:id/suggest-fulfillment` | Computes warehouse split into `fulfillments`/`fulfillment_items` — minimize shipment count, shortfall → `backorders` (FR6) |
-| POST | `/api/v1/fulfillments/:id/accept` | Marks a `fulfillments` row `ACCEPTED` |
-| POST | `/api/v1/fulfillments/:id/override` | Manual per-warehouse quantity override |
+| POST | `/api/v1/fulfillments/:id/accept-split` | **New.** Confirms the system-suggested warehouse allocation as final: `PENDING` → `IN_PROGRESS` |
+| POST | `/api/v1/fulfillments/:id/override-split` | **New.** `{ items: [{ sales_order_item_id, quantity }] }` — manually adjusts already-allocated line quantities on a still-`PENDING` fulfillment; each change is validated against that warehouse's current available inventory and the reservation is adjusted by the delta |
+| GET | `/api/v1/backorders` | **New.** Paginated list, scoped `OPERATIONS`, `SALES_MANAGER`, `ADMIN` |
+| POST | `/api/v1/backorders/:id/consolidate` | **New.** Once a warehouse has enough available inventory to fully cover an `OPEN`/`PARTIALLY_FULFILLED` backorder, creates a `fulfillments`/`fulfillment_items` row for it, reserves the inventory, reduces the sales order item's `backordered_quantity`, and marks the backorder `FULFILLED`. 422s if no single warehouse can cover the full remaining quantity |
+
+#### POST /api/v1/fulfillments/:id/override-split
+
+**Request body:**
+
+```json
+{ "items": [ { "sales_order_item_id": "...", "quantity": 5 } ] }
+```
+
+**Errors:**
+
+| Status | Code | When |
+|---|---|---|
+| 404 | `NOT_FOUND` | Fulfillment doesn't exist |
+| 422 | `BUSINESS_RULE_VIOLATION` | Fulfillment isn't `PENDING`, an item isn't part of this fulfillment, or the increase exceeds available inventory at this warehouse |
 
 ### Billing
 
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/api/v1/sales-orders/:id/billing/confirm` | Splits items by `billing_type` — `ONE_TIME` → `invoices`/`invoice_items`, `RECURRING` → `subscriptions`/`subscription_items` (FR7) |
-| PATCH | `/api/v1/subscriptions/:id` | Modify plan/quantity — prorates `days_remaining / total_days * price_delta` into a new `billing_schedules` row on an upgrade |
-| POST | `/api/v1/subscriptions/:id/cancel` | Sets `subscriptions.status = CANCELLED`, `end_date = today`, clears `next_billing_date` |
+| GET | `/api/v1/subscriptions` | **New.** Paginated list, filterable by `status`/`customer_id` |
+| GET | `/api/v1/subscriptions/:id` | **New.** Single subscription |
+| PATCH | `/api/v1/subscriptions/:id` | Modify plan/quantity — prorates `days_remaining / total_days * price_delta` into a new `billing_schedules` row on an upgrade; a downgrade now creates a `credit_notes` row for the prorated refund instead of silently skipping |
+| POST | `/api/v1/subscriptions/:id/cancel` | Sets `subscriptions.status = CANCELLED`, `end_date = today`, clears `next_billing_date`; also creates a `credit_notes` row for the unused portion of the current cycle, if any |
 | POST | `/api/v1/invoices/:id/payments` | Records a `payments` row against an invoice |
+| GET | `/api/v1/credit-notes` | **New.** Paginated list, filterable by `status`/`customer_id`/`subscription_id` |
+| GET | `/api/v1/credit-notes/:id` | **New.** Single credit note |
+| PATCH | `/api/v1/credit-notes/:id/status` | **New.** `{ status: APPLIED\|VOIDED }` — one-way transition from `PENDING` only |
 
 **Authentication (subscriptions & invoices):** `Authorization: Bearer <accessToken>`, role one of
 `FINANCE`, `SALES_MANAGER`, `ADMIN` — same internal-role gate as the rest of billing.
@@ -471,7 +549,10 @@ Scoped strictly to the authenticated `customer_users` row — every query filter
 
 | Method | Path | Notes |
 |---|---|---|
+| GET | `/portal/quotations` | **New.** All of the caller's own quotations, filtered by the portal JWT's `customer_id` |
 | GET | `/portal/quotations/:id` | Read-only view of own quotation (`customer_id` match enforced server-side) |
+| GET | `/portal/invoices` | **New.** All of the caller's own invoices, filtered by `customer_id` |
+| GET | `/portal/invoices/:id` | **New.** Read-only view of own invoice (`customer_id` match enforced server-side) |
 | POST | `/portal/quotations/:id/negotiations/messages` | Comment / counter-offer (FR8) |
 | POST | `/portal/quotations/:id/confirm` | Applies accepted discount, re-runs FR2/FR3; re-enters approval if still over threshold, else moves to `ACCEPTED` and triggers order conversion (FR9) |
 
