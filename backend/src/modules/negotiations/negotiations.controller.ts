@@ -3,6 +3,18 @@ import { sendCreated, sendSuccess } from '../../utils/response';
 import { negotiationsService } from './negotiations.service';
 
 export const negotiationsController = {
+  async listAll(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const result = await negotiationsService.listAll(
+        req.query as { page?: unknown; limit?: unknown },
+        req.user!,
+      );
+      sendSuccess({ res, data: result, message: 'Negotiations retrieved successfully' });
+    } catch (err) {
+      next(err);
+    }
+  },
+
   async open(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const quotationId = req.params['id'] as string;
@@ -13,6 +25,18 @@ export const negotiationsController = {
         req.portalUser?.customerId,
       );
       sendCreated({ res, data: negotiation, message: 'Negotiation opened' });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async listForQuotation(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const negotiations = await negotiationsService.listForQuotation(
+        req.params['id'] as string,
+        req.portalUser?.customerId,
+      );
+      sendSuccess({ res, data: negotiations, message: 'Negotiations retrieved successfully' });
     } catch (err) {
       next(err);
     }

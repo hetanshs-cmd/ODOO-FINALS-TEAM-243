@@ -11,7 +11,14 @@
  */
 
 import { httpClient, ApiError } from './httpClient';
-import type { ListQuery } from './apiTypes';
+import type {
+  ListQuery,
+  ApiWarehouse,
+  ApiProduct,
+  ApiRecommendationRule,
+  ApiDiscountRule,
+  ApiApprovalLevel,
+} from './apiTypes';
 
 export function createAdminResource<T extends { id: string }>(resourcePath: string) {
   const base = `/admin/${resourcePath}`;
@@ -36,17 +43,25 @@ export function createAdminResource<T extends { id: string }>(resourcePath: stri
 
 export const adminService = {
   productCategories: createAdminResource('product-categories'),
-  products: createAdminResource('products'),
+  products: createAdminResource<ApiProduct>('products'),
   priceLists: createAdminResource('price-lists'),
   customers: createAdminResource('customers'),
   customerTiers: createAdminResource('customer-tiers'),
-  discountRules: createAdminResource('discount-rules'),
-  approvalLevels: createAdminResource('approval-levels'),
-  warehouses: createAdminResource('warehouses'),
+  discountRules: createAdminResource<ApiDiscountRule>('discount-rules'),
+  approvalLevels: createAdminResource<ApiApprovalLevel>('approval-levels'),
+  warehouses: createAdminResource<ApiWarehouse>('warehouses'),
   subscriptionPlans: createAdminResource('subscription-plans'),
-  recommendationRules: createAdminResource('recommendation-rules'),
+  recommendationRules: createAdminResource<ApiRecommendationRule>('recommendation-rules'),
 };
 
 export function isForbiddenError(err: unknown): err is ApiError {
   return err instanceof ApiError && err.isForbidden;
+}
+
+// TODO: no backend endpoint exists yet for a targeted "restock" action on a
+// warehouse (only generic PATCH /admin/warehouses/:id for whole-record
+// updates). Surfaced explicitly here so callers can disable/hide restock UI
+// rather than silently no-op or fabricate a write.
+export function isWarehouseRestockSupported(): boolean {
+  return false;
 }
