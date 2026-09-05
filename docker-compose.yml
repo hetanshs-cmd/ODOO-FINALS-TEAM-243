@@ -1,0 +1,42 @@
+version: '3.9'
+
+services:
+  # ── PostgreSQL Database ──────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: odoo_hackathon_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: odoo_user
+      POSTGRES_PASSWORD: odoo_password
+      POSTGRES_DB: odoo_hackathon
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U odoo_user -d odoo_hackathon']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Test Database (separate from development) ─────────────────────────────
+  postgres_test:
+    image: postgres:15-alpine
+    container_name: odoo_hackathon_test_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: odoo_user
+      POSTGRES_PASSWORD: odoo_password
+      POSTGRES_DB: odoo_hackathon_test
+    ports:
+      - '5433:5432'  # Different host port to avoid conflict with dev DB
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U odoo_user -d odoo_hackathon_test']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+    name: odoo_hackathon_postgres_data
