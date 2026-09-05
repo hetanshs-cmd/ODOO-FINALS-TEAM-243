@@ -63,4 +63,13 @@ export const quotationsController = {
       next(err);
     }
   },
+
+  async getTimeline(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const timeline = await quotationsService.getTimeline(req.params['id'] as string, req.user!);
+      sendSuccess({ res, data: timeline, message: 'Quotation timeline retrieved successfully' });
+    } catch (err) {
+      next(err);
+    }
+  },
 };

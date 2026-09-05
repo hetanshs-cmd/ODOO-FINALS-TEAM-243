@@ -34,6 +34,8 @@ import {
 import { notificationsRouter } from './modules/notifications/notifications.routes';
 import { upsellRouter } from './modules/upsell/upsell.routes';
 import { reportingRouter } from './modules/reporting/reporting.routes';
+import { customersRouter } from './modules/customers/customers.routes';
+import { usersRouter } from './modules/users/users.routes';
 
 const app = express();
 
@@ -104,6 +106,8 @@ app.use('/api/v1/deal-health', dealHealthAlertsRouter);
 app.use('/api/v1/notifications', notificationsRouter);
 app.use('/api/v1/products', upsellRouter);
 app.use('/api/v1/reports', reportingRouter);
+app.use('/api/v1/customers', customersRouter);
+app.use('/api/v1/users', usersRouter);
 
 // ── Not Found Handler ─────────────────────────────────────────────────────────
 app.use(notFoundHandler);

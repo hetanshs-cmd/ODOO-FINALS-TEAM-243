@@ -16,7 +16,7 @@ vi.mock('./quotations.repository');
 vi.mock('../discount-engine/discount-engine.service');
 vi.mock('../deal-health/deal-health.service');
 
-const FAKE_CLIENT = {} as never;
+const FAKE_CLIENT = { query: vi.fn().mockResolvedValue({ rows: [] }) } as never;
 vi.mock('../../shared/db/withTransaction', () => ({
   withTransaction: async (fn: (client: unknown) => unknown) => fn(FAKE_CLIENT),
 }));
@@ -133,6 +133,31 @@ describe('quotationsService.submit', () => {
     // call from this service.
     expect(discountEngineService.checkDiscounts).toHaveBeenCalledWith('quote-1');
     expect(result.status).toBe('PENDING_APPROVAL');
+  });
+});
+
+describe('quotationsService.getTimeline', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('rejects an unknown quotation', async () => {
+    vi.mocked(quotationsRepository.findById).mockResolvedValue(null);
+
+    await expect(quotationsService.getTimeline('missing', SALES_REP)).rejects.toMatchObject({
+      statusCode: 404,
+    });
+  });
+
+  it('returns the audit-log timeline for an accessible quotation', async () => {
+    vi.mocked(quotationsRepository.findById).mockResolvedValue(makeQuotation());
+    vi.mocked(quotationsRepository.listTimeline).mockResolvedValue([
+      { id: 'log-1', action: 'QUOTATION_CREATED' },
+    ]);
+
+    const result = await quotationsService.getTimeline('quote-1', SALES_REP);
+
+    expect(result).toEqual([{ id: 'log-1', action: 'QUOTATION_CREATED' }]);
   });
 });
 

@@ -1,8 +1,10 @@
 import { Errors } from '../../errors/AppError';
+import { db } from '../../config/database';
 import { roundMoney } from '../../shared/money';
 import { generateDocumentNumber } from '../../shared/documentNumber';
 import { mapDbError } from '../../shared/crud/dbErrors';
 import { withTransaction } from '../../shared/db/withTransaction';
+import { insertAuditLog } from '../../shared/auditLog';
 import { getPaginationParams, buildPaginatedResult, PaginatedResult } from '../../utils/pagination';
 import { quotationsRepository } from './quotations.repository';
 import { Quotation, QuotationItem, QuotationWithItems } from './quotations.model';
@@ -39,7 +41,7 @@ interface AddQuotationItemDto {
 export const quotationsService = {
   async create(dto: CreateQuotationDto, salesRepId: string): Promise<Quotation> {
     try {
-      return await quotationsRepository.create({
+      const quotation = await quotationsRepository.create({
         quotation_number: generateDocumentNumber('Q'),
         customer_id: dto.customer_id,
         // Always the authenticated caller — never client-supplied — so a
@@ -49,6 +51,14 @@ export const quotationsService = {
         currency: dto.currency,
         valid_until: dto.valid_until ?? null,
       });
+      await insertAuditLog(db, {
+        entityType: 'quotation',
+        entityId: quotation.id,
+        action: 'QUOTATION_CREATED',
+        actorId: salesRepId,
+        newValue: { customer_id: dto.customer_id, currency: dto.currency },
+      });
+      return quotation;
     } catch (err) {
       throw mapDbError(err, 'Quotation');
     }
@@ -155,6 +165,13 @@ export const quotationsService = {
     return item;
   },
 
+  async getTimeline(id: string, requester: AuthenticatedUser) {
+    const quotation = await quotationsRepository.findById(id);
+    if (!quotation) throw Errors.notFound('Quotation');
+    assertCanAccessQuotation(quotation, requester);
+    return quotationsRepository.listTimeline(id);
+  },
+
   /**
    * DRAFT -> SUBMITTED is the only status transition owned directly by this
    * service; every later transition (APPROVED/PENDING_APPROVAL/...) happens
@@ -177,7 +194,17 @@ export const quotationsService = {
       throw Errors.businessRuleViolation('Cannot submit a quotation with no items');
     }
 
-    await withTransaction((client) => quotationsRepository.updateStatus(client, id, 'SUBMITTED'));
+    await withTransaction(async (client) => {
+      await quotationsRepository.updateStatus(client, id, 'SUBMITTED');
+      await insertAuditLog(client, {
+        entityType: 'quotation',
+        entityId: id,
+        action: 'QUOTATION_SUBMITTED',
+        actorId: requester.id,
+        oldValue: { status: quotation.status },
+        newValue: { status: 'SUBMITTED' },
+      });
+    });
 
     // Auto-invoke discount governance now that the quotation is submitted —
     // this itself moves status on to APPROVED or PENDING_APPROVAL, may

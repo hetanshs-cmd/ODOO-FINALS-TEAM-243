@@ -35,5 +35,10 @@ router.post(
   validate({ params: idParamSchema }),
   quotationsController.submit,
 );
+router.get(
+  '/:id/timeline',
+  validate({ params: idParamSchema }),
+  quotationsController.getTimeline,
+);
 
 export { router as quotationsRouter };
