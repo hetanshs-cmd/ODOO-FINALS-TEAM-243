@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Fraunces", Georgia, serif;
+  --font-handwriting: "Caveat", cursive;
+
+  --color-odoo-plum: #714B67;
+  --color-odoo-plum-hover: #5d3d54;
+  --color-odoo-plum-active: #4a3043;
+  --color-odoo-plum-light: #F3EDF2;
+  --color-odoo-dark: #182033;
+  --color-odoo-bg: #FFFFFF;
+  --color-odoo-soft: #F7F7F8;
+  --color-odoo-gray: #F2F2F3;
+  --color-odoo-border: #E4E4E7;
+  --color-odoo-muted: #6B7280;
+
+  --color-df-primary: #714B67;
+  --color-df-primary-hover: #5d3d54;
+  --color-df-primary-active: #4a3043;
+  --color-df-primary-soft: #F3EDF2;
+  --color-df-primary-soft-hover: #EBE0EA;
+  
+  --color-df-bg: #F7F7F8;
+  --color-df-surface: #FFFFFF;
+  --color-df-surface-muted: #F2F2F3;
+  --color-df-surface-subtle: #FAF5F8;
+  
+  --color-df-text-primary: #182033;
+  --color-df-text-secondary: #4B5563;
+  --color-df-text-muted: #6B7280;
+  --color-df-text-disabled: #9CA3AF;
+  
+  --color-df-border: #E4E4E7;
+  --color-df-border-strong: #D1D5DB;
+
+  --color-df-success: #2E7D32;
+  --color-df-success-soft: #ECFDF5;
+  --color-df-success-border: #A7F3D0;
+
+  --color-df-warning: #B45309;
+  --color-df-warning-soft: #FFFBEB;
+  --color-df-warning-border: #FDE68A;
+
+  --color-df-danger: #B91C1C;
+  --color-df-danger-soft: #FEF2F2;
+  --color-df-danger-border: #FECACA;
+
+  --color-df-ai: #6D28D9;
+  --color-df-ai-soft: #EDE9FE;
+  --color-df-ai-border: #C4B5FD;
+}
+
+:root {
+  --df-primary: #714B67;
+  --df-primary-hover: #5d3d54;
+  --df-primary-active: #4a3043;
+  --df-primary-soft: #F3EDF2;
+
+  --df-bg: #F7F7F8;
+  --df-surface: #FFFFFF;
+  --df-surface-muted: #F2F2F3;
+
+  --df-text-primary: #182033;
+  --df-text-secondary: #4B5563;
+  --df-text-muted: #6B7280;
+
+  --df-border: #E4E4E7;
+  --df-border-strong: #D1D5DB;
+}
+
+body {
+  background-color: #FFFFFF;
+  color: #182033;
+  font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.font-display {
+  font-family: "Fraunces", Georgia, serif;
+}
+
+.font-script {
+  font-family: "Caveat", cursive;
+}
+
+/* Odoo-style Curved Section Divider */
+.odoo-curve-mask {
+  border-top-left-radius: 50% 40px;
+  border-top-right-radius: 50% 40px;
+}
+
+@media (min-width: 768px) {
+  .odoo-curve-mask {
+    border-top-left-radius: 50% 80px;
+    border-top-right-radius: 50% 80px;
+  }
+}
+
+/* Operational compact scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: #F3F4F6;
+}
+::-webkit-scrollbar-thumb {
+  background: #D1D5DB;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9CA3AF;
+}
