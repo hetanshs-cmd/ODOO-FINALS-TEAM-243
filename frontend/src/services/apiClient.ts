@@ -35,7 +35,12 @@ export class ApiRequestError extends Error {
   public readonly code: string;
   public readonly details?: { field: string; message: string }[];
 
-  constructor(status: number, code: string, message: string, details?: { field: string; message: string }[]) {
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    details?: { field: string; message: string }[],
+  ) {
     super(message);
     this.name = 'ApiRequestError';
     this.status = status;
@@ -44,16 +49,13 @@ export class ApiRequestError extends Error {
   }
 }
 
-async function request<T>(
-  path: string,
-  options: RequestInit = {}
-): Promise<T> {
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem('access_token');
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(options.headers as Record<string, string> ?? {}),
+    ...((options.headers as Record<string, string>) ?? {}),
   };
 
   const response = await fetch(`${BASE_URL}${path}`, {
@@ -73,7 +75,7 @@ async function request<T>(
       response.status,
       body.error ?? 'UNKNOWN_ERROR',
       body.message ?? 'An error occurred',
-      body.details
+      body.details,
     );
   }
 
@@ -81,8 +83,7 @@ async function request<T>(
 }
 
 export const apiClient = {
-  get: <T>(path: string) =>
-    request<T>(path, { method: 'GET' }),
+  get: <T>(path: string) => request<T>(path, { method: 'GET' }),
 
   post: <T>(path: string, body: unknown) =>
     request<T>(path, {
@@ -102,6 +103,5 @@ export const apiClient = {
       body: JSON.stringify(body),
     }),
 
-  delete: <T>(path: string) =>
-    request<T>(path, { method: 'DELETE' }),
+  delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 };

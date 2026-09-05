@@ -20,9 +20,7 @@ interface UseAsyncReturn<T> extends AsyncState<T> {
   reset: () => void;
 }
 
-export function useAsync<T>(
-  asyncFn: (...args: unknown[]) => Promise<T>
-): UseAsyncReturn<T> {
+export function useAsync<T>(asyncFn: (...args: unknown[]) => Promise<T>): UseAsyncReturn<T> {
   const [state, setState] = useState<AsyncState<T>>({
     data: null,
     loading: false,
@@ -36,12 +34,11 @@ export function useAsync<T>(
         const result = await asyncFn(...args);
         setState({ data: result, loading: false, error: null });
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : 'An unexpected error occurred';
+        const message = err instanceof Error ? err.message : 'An unexpected error occurred';
         setState({ data: null, loading: false, error: message });
       }
     },
-    [asyncFn]
+    [asyncFn],
   );
 
   const reset = useCallback(() => {
