@@ -1,6 +1,6 @@
 /**
  * DealFlow360 — Authentication & Session Hook
- * Manages active user identity, role-aware switching, and session access control.
+ * Manages active user identity, role-aware permissions, and session access control.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -17,7 +17,6 @@ export interface AuthContextValue {
   signup: (credentials: SignupCredentials) => Promise<AuthResult>;
   quickLogin: (role: UserRole, specificEmailOrId?: string) => AuthResult;
   logout: () => void;
-  switchRole: (role: UserRole) => void;
   hasRole: (role: UserRole | UserRole[]) => boolean;
   can: (permission: Permission) => boolean;
 }
@@ -53,10 +52,6 @@ export function useAuth(): AuthContextValue {
     authService.logout();
   }, []);
 
-  const switchRole = useCallback((role: UserRole) => {
-    dealStore.switchRole(role);
-  }, []);
-
   const hasRole = useCallback(
     (role: UserRole | UserRole[]) => {
       const currentRole = currentUser.role.toLowerCase().replace('_', '');
@@ -83,7 +78,6 @@ export function useAuth(): AuthContextValue {
     signup,
     quickLogin,
     logout,
-    switchRole,
     hasRole,
     can,
   };
