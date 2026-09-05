@@ -188,7 +188,7 @@ export const quotationsRepository = {
        FROM quotations q
        JOIN quotation_totals qt ON qt.quotation_id = q.id
        ${where}
-       ORDER BY q.created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
+       ORDER BY q.created_at DESC, q.id DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params,
     );
     return rows as Quotation[];

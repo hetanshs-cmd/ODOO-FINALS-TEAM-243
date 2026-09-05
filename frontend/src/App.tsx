@@ -9,6 +9,7 @@ import { useAuth } from './hooks/useAuth';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { QuotationsListPage, QuotationDetailPage } from './pages/QuotationsPages';
+import { NewQuotationPage } from './pages/NewQuotationPage';
 import { ApprovalsListPage, ApprovalDetailPage } from './pages/ApprovalsPages';
 import { FulfillmentListPage, FulfillmentDetailPage } from './pages/FulfillmentPages';
 import { SubscriptionsListPage, SubscriptionDetailPage } from './pages/SubscriptionsPages';
@@ -72,6 +73,7 @@ export default function App() {
           <Route path="/dashboard" element={<DashboardPage />} />
 
           <Route path="/quotations" element={<QuotationsListPage />} />
+          <Route path="/quotations/new" element={<NewQuotationPage />} />
           <Route path="/quotations/:id" element={<QuotationDetailPage />} />
 
           <Route path="/approvals" element={<ApprovalsListPage />} />
