@@ -219,6 +219,10 @@ export const LoginPage: React.FC = () => {
       const { authService } = await import('../services/authService');
       const result = await authService.requestPortalLink(customerEmail.trim());
       setPortalDevToken(result.devToken || null);
+      // Dev-only convenience: no email service is configured, so pre-fill the
+      // token the backend already handed back instead of making the user
+      // copy it out of the box below and paste it into the field themselves.
+      setPortalVerifyToken(result.devToken || '');
       setPortalStep('sent');
       toast.info('Check your link', result.message);
     } catch {
