@@ -1,0 +1,291 @@
+/**
+ * Real backend entity shapes for the service layer in services/index.ts.
+ *
+ * Deliberately separate from ../types/index.ts: that file models the legacy
+ * mock/localStorage store's richer, UI-computed shapes (still used across
+ * most pages via useDealStore), which are structurally different from what
+ * the real backend returns (see backend/src/modules/**\/*.model.ts, the
+ * source of truth these mirror). Field names match the backend's snake_case
+ * columns; monetary values are decimal strings as Postgres serializes them.
+ */
+
+// ── Quotations ──────────────────────────────────────────────────────────────
+export type ApiQuotationStatus =
+  | 'DRAFT'
+  | 'SUBMITTED'
+  | 'PENDING_APPROVAL'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'SENT_TO_CUSTOMER'
+  | 'NEGOTIATION'
+  | 'ACCEPTED'
+  | 'DECLINED'
+  | 'EXPIRED'
+  | 'CANCELLED'
+  | 'CONVERTED';
+
+export interface ApiQuotation {
+  id: string;
+  quotation_number: string;
+  customer_id: string;
+  sales_rep_id: string;
+  price_list_id: string | null;
+  status: ApiQuotationStatus;
+  currency: string;
+  subtotal: string;
+  discount_total: string;
+  tax_total: string;
+  grand_total: string;
+  valid_until: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApiQuotationItem {
+  id: string;
+  quotation_id: string;
+  product_id: string;
+  description: string | null;
+  quantity: string;
+  unit_price: string;
+  discount_percent: string;
+  discount_amount: string;
+  tax_percent: string;
+  line_total: string;
+  billing_type: 'ONE_TIME' | 'RECURRING';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApiQuotationWithItems extends ApiQuotation {
+  items: ApiQuotationItem[];
+}
+
+export interface CreateQuotationInput {
+  customer_id: string;
+  price_list_id?: string | null;
+  currency: string;
+  valid_until?: string | null;
+}
+
+export interface UpdateQuotationInput {
+  price_list_id?: string | null;
+  currency?: string;
+  valid_until?: string | null;
+}
+
+export interface CreateQuotationItemInput {
+  product_id: string;
+  description?: string | null;
+  quantity: number;
+  unit_price: number;
+  discount_percent?: number;
+  tax_percent?: number;
+  billing_type: 'ONE_TIME' | 'RECURRING';
+}
+
+export interface ListQuery {
+  page?: number;
+  limit?: number;
+  [key: string]: string | number | boolean | undefined | null;
+}
+
+// ── Approvals ───────────────────────────────────────────────────────────────
+export type ApiApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'ESCALATED' | 'CANCELLED';
+export type ApiApprovalAction = 'APPROVED' | 'REJECTED' | 'ESCALATED' | 'COMMENTED' | 'CANCELLED';
+
+export interface ApiApprovalRequest {
+  id: string;
+  quotation_id: string;
+  requested_by: string;
+  assigned_to: string | null;
+  approval_level: string;
+  status: ApiApprovalStatus;
+  reason: string | null;
+  requested_at: string;
+  responded_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ── Sales Orders / Fulfillment ───────────────────────────────────────────────
+export type ApiFulfillmentStatus = 'PENDING' | 'IN_PROGRESS' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
+
+export interface ApiFulfillmentItem {
+  id: string;
+  fulfillment_id: string;
+  sales_order_item_id: string;
+  quantity: string;
+  status: 'PENDING' | 'PACKED' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApiFulfillment {
+  id: string;
+  sales_order_id: string;
+  warehouse_id: string;
+  status: ApiFulfillmentStatus;
+  scheduled_date: string | null;
+  fulfilled_date: string | null;
+  created_at: string;
+  updated_at: string;
+  items?: ApiFulfillmentItem[];
+}
+
+// ── Billing / Invoices / Payments ───────────────────────────────────────────
+export type ApiInvoiceStatus = 'DRAFT' | 'ISSUED' | 'PARTIALLY_PAID' | 'PAID' | 'OVERDUE' | 'VOID';
+
+export interface ApiInvoiceItem {
+  id: string;
+  invoice_id: string;
+  product_id: string | null;
+  description: string;
+  quantity: string;
+  unit_price: string;
+  tax: string;
+  total: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApiInvoice {
+  id: string;
+  invoice_number: string;
+  customer_id: string;
+  sales_order_id: string | null;
+  quotation_id: string | null;
+  invoice_type: 'ONE_TIME' | 'RECURRING';
+  status: ApiInvoiceStatus;
+  subtotal: string;
+  discount_total: string;
+  tax_total: string;
+  total: string;
+  due_date: string | null;
+  issued_at: string | null;
+  paid_at: string | null;
+  created_at: string;
+  updated_at: string;
+  items?: ApiInvoiceItem[];
+}
+
+export type ApiPaymentStatus = 'PENDING' | 'SUCCESS' | 'FAILED' | 'REFUNDED';
+
+export interface ApiPayment {
+  id: string;
+  invoice_id: string;
+  customer_id: string;
+  amount: string;
+  payment_method: string;
+  transaction_reference: string | null;
+  status: ApiPaymentStatus;
+  paid_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RecordPaymentInput {
+  amount: number;
+  payment_method: string;
+  transaction_reference?: string;
+}
+
+export type ApiSubscriptionStatus = 'ACTIVE' | 'CANCELLED' | 'MODIFIED';
+
+export interface ApiSubscription {
+  id: string;
+  customer_id: string;
+  sales_order_id: string | null;
+  quotation_id: string | null;
+  plan_id: string;
+  status: ApiSubscriptionStatus;
+  start_date: string;
+  end_date: string | null;
+  next_billing_date: string | null;
+  current_price: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// ── Negotiations ─────────────────────────────────────────────────────────────
+export type ApiNegotiationStatus = 'OPEN' | 'IN_PROGRESS' | 'ACCEPTED' | 'REJECTED' | 'CLOSED';
+
+export interface ApiNegotiation {
+  id: string;
+  quotation_id: string;
+  initiated_by: string;
+  status: ApiNegotiationStatus;
+  created_at: string;
+  closed_at: string | null;
+}
+
+export interface ApiNegotiationMessage {
+  id: string;
+  negotiation_id: string;
+  sender_user_id: string;
+  message: string;
+  message_type: 'TEXT' | 'COUNTER_OFFER' | 'SYSTEM';
+  created_at: string;
+}
+
+export interface AddNegotiationMessageInput {
+  message: string;
+  message_type?: 'TEXT' | 'COUNTER_OFFER';
+  changes?: { quotation_item_id: string; new_discount_percent: number }[];
+}
+
+// ── Deal Health ──────────────────────────────────────────────────────────────
+export interface ApiDealHealthScore {
+  id: string;
+  quotation_id: string;
+  score: string;
+  risk_level: string;
+  discount_risk: string;
+  negotiation_risk: string;
+  delay_risk: string;
+  fulfillment_risk: string;
+  calculated_at: string;
+  created_at: string;
+}
+
+export interface ApiDealAlert {
+  id: string;
+  quotation_id: string;
+  alert_type: string;
+  severity: string;
+  message: string;
+  status: string;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+// ── Notifications ────────────────────────────────────────────────────────────
+export interface ApiNotification {
+  id: string;
+  user_id: string;
+  type: string;
+  title: string;
+  message: string;
+  reference_type: string | null;
+  reference_id: string | null;
+  is_read: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// ── Upsell ───────────────────────────────────────────────────────────────────
+export interface ApiRecommendation {
+  id: string;
+  product_id: string;
+  recommended_product_id: string;
+  reason: string | null;
+  [key: string]: unknown;
+}
+
+// ── Reporting ────────────────────────────────────────────────────────────────
+export interface ApiSalesSummary {
+  [key: string]: unknown;
+}
+export interface ApiDiscountExceptions {
+  [key: string]: unknown;
+}
