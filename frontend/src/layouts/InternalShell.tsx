@@ -24,6 +24,7 @@ import {
   Sparkles,
   Command,
   MessageSquare,
+  UserRound,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useQuotations } from '../hooks/useQuotations';
@@ -227,13 +228,13 @@ export const InternalShell: React.FC = () => {
 
           {/* User Profile Area (Section 12: Sarah Chen / Sales Rep) */}
           <div className="flex items-center gap-2 pl-1 sm:pl-2 border-l border-[#E5E7EB]">
-            <div className="relative w-7 h-7 rounded-[6px] bg-[#F4EEF3] text-[#714B67] border border-[#E8DCE7] flex items-center justify-center font-bold text-xs">
+            <div className="relative w-7 h-7 rounded-full bg-[#714B67] text-white border border-[#5d3b53] flex items-center justify-center font-bold text-xs shadow-2xs">
               <span>{user.name.split(' ').map((n) => n[0]).join('').slice(0, 2)}</span>
               <span
-                className="absolute -bottom-1 -right-1 text-[11px] leading-none bg-white rounded-full ring-1 ring-[#E8DCE7] px-[1px]"
+                className="absolute -bottom-1 -right-1 bg-white rounded-full ring-1 ring-[#E8DCE7] p-[1px] text-[#714B67]"
                 aria-hidden="true"
               >
-                😎
+                <UserRound className="w-2.5 h-2.5" />
               </span>
             </div>
             <div className="hidden md:block text-left leading-tight">

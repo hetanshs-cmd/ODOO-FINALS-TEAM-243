@@ -27,6 +27,7 @@ function makeQuotation(overrides: Partial<Quotation> = {}): Quotation {
   return {
     id: 'quote-1',
     quotation_number: 'Q-0001',
+    title: null,
     customer_id: 'customer-1',
     sales_rep_id: 'rep-1',
     price_list_id: null,
