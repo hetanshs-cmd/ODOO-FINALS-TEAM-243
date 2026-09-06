@@ -64,6 +64,16 @@ export const PortalShell: React.FC = () => {
               </span>
             </div>
 
+            <div className="relative w-8 h-8 rounded-full bg-[#714B67] text-white border border-[#5d3b53] flex items-center justify-center font-bold text-[11px] shadow-2xs">
+              <span>{user.name.split(' ').map((n) => n[0]).join('').slice(0, 2)}</span>
+              <span
+                className="absolute -bottom-1 -right-1 bg-white rounded-full ring-1 ring-[#E0D0DC] p-[1px] text-[#714B67]"
+                aria-hidden="true"
+              >
+                <User className="w-2.5 h-2.5" />
+              </span>
+            </div>
+
             <div className="h-6 w-px bg-slate-200" />
 
             <button

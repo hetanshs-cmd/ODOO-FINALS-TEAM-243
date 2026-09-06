@@ -15,6 +15,8 @@ export type QuotationStatus =
 export interface Quotation {
   id: string;
   quotation_number: string;
+  /** Optional human-friendly proposal name; quotation_number stays the immutable id. */
+  title: string | null;
   customer_id: string;
   sales_rep_id: string;
   price_list_id: string | null;

@@ -27,6 +27,7 @@ export type ApiQuotationStatus =
 export interface ApiQuotation {
   id: string;
   quotation_number: string;
+  title: string | null;
   customer_id: string;
   sales_rep_id: string;
   price_list_id: string | null;
@@ -111,12 +112,16 @@ export interface ApiPortalNegotiation {
 
 export interface CreateQuotationInput {
   customer_id: string;
+  /** Optional human-friendly proposal name (≤200 chars). */
+  title?: string | null;
   price_list_id?: string | null;
   currency: string;
   valid_until?: string | null;
 }
 
 export interface UpdateQuotationInput {
+  /** Rename the proposal — allowed at any status, unlike the other fields. */
+  title?: string | null;
   price_list_id?: string | null;
   currency?: string;
   valid_until?: string | null;

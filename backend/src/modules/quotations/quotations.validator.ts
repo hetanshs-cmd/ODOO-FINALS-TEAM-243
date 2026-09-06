@@ -9,6 +9,7 @@ export const itemIdParamSchema = z.object({
 
 export const createQuotationSchema = z.object({
   customer_id: z.string().uuid(),
+  title: z.string().trim().max(200).optional().nullable(),
   price_list_id: z.string().uuid().optional().nullable(),
   currency: z.string().trim().length(3).toUpperCase(),
   valid_until: z
@@ -19,6 +20,7 @@ export const createQuotationSchema = z.object({
 });
 
 export const updateQuotationSchema = z.object({
+  title: z.string().trim().max(200).optional().nullable(),
   price_list_id: z.string().uuid().optional().nullable(),
   currency: z.string().trim().length(3).toUpperCase().optional(),
   valid_until: z

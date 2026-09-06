@@ -4,6 +4,7 @@ import { Quotation, QuotationItem } from './quotations.model';
 
 export interface CreateQuotationInput {
   quotation_number: string;
+  title: string | null;
   customer_id: string;
   sales_rep_id: string;
   price_list_id: string | null;
@@ -26,11 +27,12 @@ export const quotationsRepository = {
   /** Takes the caller's transaction client so the insert and its audit row commit together. */
   async create(client: PoolClient, input: CreateQuotationInput): Promise<Quotation> {
     const { rows } = await client.query(
-      `INSERT INTO quotations (quotation_number, customer_id, sales_rep_id, price_list_id, currency, valid_until)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO quotations (quotation_number, title, customer_id, sales_rep_id, price_list_id, currency, valid_until)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
       [
         input.quotation_number,
+        input.title,
         input.customer_id,
         input.sales_rep_id,
         input.price_list_id,
@@ -225,6 +227,7 @@ export const quotationsRepository = {
   async update(
     id: string,
     fields: Partial<{
+      title: string | null;
       price_list_id: string | null;
       currency: string;
       valid_until: string | null;
