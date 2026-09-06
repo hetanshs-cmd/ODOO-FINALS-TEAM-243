@@ -8,10 +8,10 @@ import { portalRepository } from './portal.repository';
 
 /**
  * States a customer is allowed to confirm from. APPROVED means governance
- * already cleared it; SUBMITTED/NEGOTIATION mean it still has to survive a
- * fresh discount check before it can be accepted.
+ * already cleared it; SUBMITTED/NEGOTIATION/SENT_TO_CUSTOMER mean it still
+ * has to survive a fresh discount check before it can be accepted.
  */
-const CONFIRMABLE_STATUSES = new Set(['SUBMITTED', 'NEGOTIATION', 'APPROVED']);
+const CONFIRMABLE_STATUSES = new Set(['SUBMITTED', 'NEGOTIATION', 'SENT_TO_CUSTOMER', 'APPROVED']);
 
 export interface ConfirmQuotationResult {
   quotationId: string;

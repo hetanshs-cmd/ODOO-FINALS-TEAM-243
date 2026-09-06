@@ -8,12 +8,13 @@ import { quotationService } from '../services';
 import { ApiError } from '../services/httpClient';
 import { ApiQuotation, ApiQuotationWithItems, ListQuery } from '../services/apiTypes';
 
-export function useQuotations(query?: ListQuery) {
+export function useQuotations(query?: ListQuery, enabled = true) {
   const [quotations, setQuotations] = useState<ApiQuotation[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<ApiError | null>(null);
 
   const refetch = useCallback(async () => {
+    if (!enabled) return;
     setLoading(true);
     setError(null);
     try {
@@ -25,7 +26,7 @@ export function useQuotations(query?: ListQuery) {
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(query)]);
+  }, [JSON.stringify(query), enabled]);
 
   useEffect(() => {
     refetch();

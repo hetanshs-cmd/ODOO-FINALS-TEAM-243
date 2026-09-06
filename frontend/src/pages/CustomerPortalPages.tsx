@@ -111,10 +111,7 @@ export const PortalQuotationPage: React.FC = () => {
   }
 
   // Mirrors portal.service.ts::CONFIRMABLE_STATUSES on the backend (the
-  // actual authority on what a customer may act on) — the quotation
-  // lifecycle here never sets 'SENT_TO_CUSTOMER' (DRAFT -> SUBMITTED ->
-  // APPROVED, or -> PENDING_APPROVAL -> APPROVED), so gating solely on that
-  // status left Confirm permanently disabled for every real quotation.
+  // actual authority on what a customer may act on).
   const CUSTOMER_ACTIONABLE_STATUSES = ['SENT_TO_CUSTOMER', 'SUBMITTED', 'NEGOTIATION', 'APPROVED'];
   const canNegotiate = CUSTOMER_ACTIONABLE_STATUSES.includes(quote.status);
   const canConfirm = CUSTOMER_ACTIONABLE_STATUSES.includes(quote.status);

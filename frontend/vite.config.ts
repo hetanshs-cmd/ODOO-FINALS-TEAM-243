@@ -22,6 +22,9 @@ export default defineConfig(() => {
       proxy: {
         '/api': 'http://localhost:4000',
       },
+      // Allow access through the ephemeral cloudflare quick tunnel used for
+      // local demos (Vite blocks unrecognized Host headers by default).
+      allowedHosts: ['.trycloudflare.com'],
     },
   };
 });

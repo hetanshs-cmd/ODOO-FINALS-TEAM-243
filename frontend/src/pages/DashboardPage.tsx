@@ -14,10 +14,18 @@ import {
 import { useQuotations } from '../hooks/useQuotations';
 import { useCustomers } from '../hooks/useCustomers';
 import { useDealHealthAlerts } from '../hooks/useDealHealth';
+import { useAuth } from '../hooks/useAuth';
 import { StatusBadge, RiskBadge } from '../components/ui/Badge';
 import { formatCurrency, humanizeStatus } from '../utils/formatters';
 import { ApiDealAlert, ApiQuotation } from '../services/apiTypes';
-import { RiskLevel } from '../types';
+import { RiskLevel, UserRole } from '../types';
+
+// Backend role gate for GET /quotations, /customers and /deal-health (see
+// docs/api.md and the corresponding requireRole() calls) — FINANCE and
+// OPERATIONS don't have read access to these, so fetching them unconditionally
+// 403s on every render for those roles. Mirrors the backend's own allow-list
+// rather than the (looser, incorrect) frontend permissions constants.
+const PIPELINE_VISIBLE_ROLES: UserRole[] = ['sales_rep', 'sales_manager', 'admin'];
 
 // Quotations that are still "in play" — not yet converted, cancelled, or
 // closed out one way or another. Matches the enum's own semantics rather
@@ -53,9 +61,11 @@ function riskFromAlerts(alerts: ApiDealAlert[]): RiskLevel {
 }
 
 export const DashboardPage: React.FC = () => {
-  const { quotations } = useQuotations();
-  const { customers } = useCustomers();
-  const { alerts } = useDealHealthAlerts();
+  const { hasRole } = useAuth();
+  const canViewPipeline = hasRole(PIPELINE_VISIBLE_ROLES);
+  const { quotations } = useQuotations(undefined, canViewPipeline);
+  const { customers } = useCustomers(undefined, canViewPipeline);
+  const { alerts } = useDealHealthAlerts(undefined, canViewPipeline);
   const navigate = useNavigate();
 
   const customersById = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
@@ -95,6 +105,7 @@ export const DashboardPage: React.FC = () => {
           </p>
         </div>
 
+        {canViewPipeline && (
         <div className="flex items-center gap-2">
           <Link
             to="/quotations"
@@ -112,8 +123,50 @@ export const DashboardPage: React.FC = () => {
             <span>New Quotation</span>
           </button>
         </div>
+        )}
       </div>
 
+      {!canViewPipeline && (
+        <div className="bg-white rounded-[8px] border border-[#E5E7EB] shadow-2xs p-6 text-center">
+          <p className="text-sm font-semibold text-[#1F2937]">
+            Your role doesn't have pipeline visibility.
+          </p>
+          <p className="text-xs text-[#6B7280] mt-1 max-w-md mx-auto">
+            Quotations, customers, and deal-health data aren't part of your role's access.
+            Approvals awaiting your sign-off, invoices, and subscriptions are still available
+            below.
+          </p>
+          <div className="flex items-center justify-center gap-2 mt-4">
+            <Link
+              to="/approvals"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-[#714B67] hover:bg-[#62415A] px-3.5 py-1.5 rounded-[6px] transition-colors"
+            >
+              Approvals
+            </Link>
+            <Link
+              to="/invoices"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-[#4B5563] hover:text-[#1F2937] bg-white border border-[#D1D5DB] px-3 py-1.5 rounded-[6px] hover:bg-[#F8F9FA] transition-colors"
+            >
+              Invoices
+            </Link>
+            <Link
+              to="/subscriptions"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-[#4B5563] hover:text-[#1F2937] bg-white border border-[#D1D5DB] px-3 py-1.5 rounded-[6px] hover:bg-[#F8F9FA] transition-colors"
+            >
+              Subscriptions
+            </Link>
+            <Link
+              to="/reports"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-[#4B5563] hover:text-[#1F2937] bg-white border border-[#D1D5DB] px-3 py-1.5 rounded-[6px] hover:bg-[#F8F9FA] transition-colors"
+            >
+              Reports
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {canViewPipeline && (
+      <>
       {/* COMPACT KPI METRIC BAR — Section 13 & 20 (height ~90-120px) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
         <div className="bg-white p-3.5 rounded-[8px] border border-[#E5E7EB] shadow-2xs">
@@ -385,6 +438,8 @@ export const DashboardPage: React.FC = () => {
           </div>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 };
