@@ -5,7 +5,10 @@ import { salesOrdersService } from './sales-orders.service';
 export const salesOrdersController = {
   async convert(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const order = await salesOrdersService.convertFromQuotation(req.params['id'] as string);
+      const order = await salesOrdersService.convertFromQuotation(
+        req.params['id'] as string,
+        req.user!,
+      );
       sendCreated({ res, data: order, message: 'Sales order created from quotation' });
     } catch (err) {
       next(err);
@@ -14,7 +17,7 @@ export const salesOrdersController = {
 
   async getById(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const order = await salesOrdersService.getWithItems(req.params['id'] as string);
+      const order = await salesOrdersService.getWithItems(req.params['id'] as string, req.user!);
       sendSuccess({ res, data: order, message: 'Sales order retrieved successfully' });
     } catch (err) {
       next(err);
@@ -25,6 +28,7 @@ export const salesOrdersController = {
     try {
       const result = await salesOrdersService.list(
         req.query as { status?: string; customer_id?: string; quotation_id?: string },
+        req.user!,
       );
       sendSuccess({ res, data: result, message: 'Sales orders retrieved successfully' });
     } catch (err) {

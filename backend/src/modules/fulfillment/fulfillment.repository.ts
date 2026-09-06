@@ -172,6 +172,30 @@ export const fulfillmentRepository = {
     );
   },
 
+  /** The still-open backorder row for a sales-order line, locked for update. */
+  async findOpenBackorderForItem(
+    client: PoolClient,
+    salesOrderItemId: string,
+  ): Promise<{ id: string; quantity: string } | null> {
+    const { rows } = await client.query(
+      `SELECT id, quantity FROM backorders
+       WHERE sales_order_item_id = $1 AND status IN ('OPEN', 'PARTIALLY_FULFILLED')
+       ORDER BY created_at ASC
+       LIMIT 1
+       FOR UPDATE`,
+      [salesOrderItemId],
+    );
+    return (rows[0] as { id: string; quantity: string } | undefined) ?? null;
+  },
+
+  async setBackorderQuantity(client: PoolClient, id: string, quantity: number): Promise<void> {
+    await client.query('UPDATE backorders SET quantity = $2 WHERE id = $1', [id, quantity]);
+  },
+
+  async cancelBackorder(client: PoolClient, id: string): Promise<void> {
+    await client.query(`UPDATE backorders SET status = 'CANCELLED' WHERE id = $1`, [id]);
+  },
+
   async addFulfilledQuantity(
     client: PoolClient,
     salesOrderItemId: string,

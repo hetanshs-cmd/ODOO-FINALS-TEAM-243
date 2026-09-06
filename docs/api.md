@@ -344,7 +344,8 @@ All admin writes go through `audit_logs`.
 
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/api/v1/quotations` | Create a `DRAFT` quotation |
+| POST | `/api/v1/quotations` | Create a `DRAFT` quotation. Optional `title` (≤200 chars) is a human-friendly proposal name, separate from the generated `quotation_number` |
+| PATCH | `/api/v1/quotations/:id` | Edit header fields (`price_list_id`, `currency`, `valid_until`, `order_discount_percent`) — **`DRAFT` only**. `title` is exempt from that rule: a proposal can be renamed at any status |
 | POST | `/api/v1/quotations/:id/items` | Add/edit a `quotation_items` row — response includes a computed `margin_percent` per item (null-safe on `products.cost_price`) |
 | POST | `/api/v1/quotations/:id/submit` | **New.** `DRAFT` → `SUBMITTED`, then automatically runs the same evaluation as `check-discounts` (see below) — the frontend no longer needs to call `check-discounts` separately after submitting |
 | POST | `/api/v1/quotations/:id/check-discounts` | Evaluates every item against `discount_rules` (strictest applicable), writes a `discount_evaluations` row per item (append-only, FR2/FR3) — may create an `approval_requests` row and move status to `PENDING_APPROVAL`. Also runs automatically as part of `submit` above |

@@ -6,7 +6,7 @@
  * "Quotation Not Found". It now reads the real record via `useQuotation`
  * and only offers the operations the backend actually exposes:
  *   GET   /quotations/:id            (header + items + derived totals)
- *   PATCH /quotations/:id            (currency / valid-until while DRAFT)
+ *   PATCH /quotations/:id            (proposal name any time; currency / valid-until while DRAFT)
  *   POST  /quotations/:id/items      (add a line while DRAFT)
  *   POST  /quotations/:id/submit     (DRAFT -> SUBMITTED + discount governance)
  *   GET   /quotations/:id/timeline   (audit-log activity feed)
@@ -33,6 +33,7 @@ import {
   RotateCw,
   X,
   Sparkles,
+  Pencil,
 } from 'lucide-react';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Button } from '../components/ui/Button';
@@ -147,10 +148,16 @@ export const QuotationDetailPage: React.FC = () => {
   const [editingHeader, setEditingHeader] = useState(false);
   const [currency, setCurrency] = useState('USD');
   const [validUntil, setValidUntil] = useState('');
+
+  // Proposal name — renameable at any status (backend allows a title-only PATCH)
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
+
   useEffect(() => {
     if (quotation) {
       setCurrency(quotation.currency);
       setValidUntil(quotation.valid_until ? quotation.valid_until.slice(0, 10) : '');
+      setTitleDraft(quotation.title ?? '');
     }
   }, [quotation]);
 
@@ -204,6 +211,26 @@ export const QuotationDetailPage: React.FC = () => {
       await refetch();
     } catch (err) {
       toast.error('Update failed', err instanceof ApiError ? err.message : 'Unknown error.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSaveTitle = async () => {
+    if (!quotation) return;
+    const next = titleDraft.trim();
+    if (next === (quotation.title ?? '')) {
+      setEditingTitle(false);
+      return;
+    }
+    setBusy(true);
+    try {
+      await quotationService.update(quotation.id, { title: next || null });
+      toast.success('Proposal renamed');
+      setEditingTitle(false);
+      await refetch();
+    } catch (err) {
+      toast.error('Rename failed', err instanceof ApiError ? err.message : 'Unknown error.');
     } finally {
       setBusy(false);
     }
@@ -312,8 +339,8 @@ export const QuotationDetailPage: React.FC = () => {
   return (
     <div className="space-y-3.5 pb-10">
       <PageHeader
-        title={quotation.quotation_number}
-        description={`${customerName} · ${humanizeStatus(quotation.status)}`}
+        title={quotation.title || quotation.quotation_number}
+        description={`${quotation.quotation_number} · ${customerName} · ${humanizeStatus(quotation.status)}`}
         breadcrumbs={[
           { label: 'Workspace' },
           { label: 'Quotations', href: '/quotations' },
@@ -355,6 +382,53 @@ export const QuotationDetailPage: React.FC = () => {
 
       {/* Header summary */}
       <div className="bg-white rounded-md border border-[#E5E7EB] shadow-2xs p-4">
+        {/* Proposal name — editable at any status */}
+        <div className="mb-3 pb-3 border-b border-[#F3F4F6]">
+          <div className="text-[#6B7280] font-semibold text-xs mb-1">Proposal Name</div>
+          {editingTitle ? (
+            <div className="flex items-center gap-2 max-w-xl">
+              <Input
+                autoFocus
+                value={titleDraft}
+                maxLength={200}
+                placeholder={`${customerName} — Proposal`}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void handleSaveTitle();
+                  if (e.key === 'Escape') {
+                    setTitleDraft(quotation.title ?? '');
+                    setEditingTitle(false);
+                  }
+                }}
+              />
+              <Button variant="primary" size="sm" icon={<Save className="w-3.5 h-3.5" />} isLoading={busy} onClick={handleSaveTitle}>
+                Save
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setTitleDraft(quotation.title ?? '');
+                  setEditingTitle(false);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setEditingTitle(true)}
+              className="group inline-flex items-center gap-2 text-left"
+              title="Rename this proposal"
+            >
+              <span className="text-sm font-semibold text-[#111827]">
+                {quotation.title || <span className="text-[#9CA3AF] font-normal italic">Untitled — click to name it</span>}
+              </span>
+              <Pencil className="w-3.5 h-3.5 text-[#9CA3AF] group-hover:text-[#714B67]" />
+            </button>
+          )}
+        </div>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-8 gap-y-3 text-xs">
             <Field label="Customer" value={customerName} />

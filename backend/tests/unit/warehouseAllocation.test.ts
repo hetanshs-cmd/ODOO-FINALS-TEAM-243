@@ -64,4 +64,39 @@ describe('allocateAcrossWarehouses', () => {
     expect(result.allocations).toHaveLength(2);
     expect(result.backorders).toHaveLength(0);
   });
+
+  // Regression for P0 #7 — two order lines for the SAME product must be
+  // measured against the summed demand, not each line vs. full stock, or
+  // the single-warehouse fast path over-allocates and reserveInventory 500s.
+  it('does not over-allocate when the same product is on two lines (6 + 6, stock 10)', () => {
+    const result = allocateAcrossWarehouses(
+      [
+        { salesOrderItemId: 'i1', productId: 'p1', quantity: 6 },
+        { salesOrderItemId: 'i2', productId: 'p1', quantity: 6 },
+      ],
+      [{ warehouseId: 'w1', productId: 'p1', quantityAvailable: 10 }]
+    );
+
+    const allocated = result.allocations
+      .flatMap((a) => a.items)
+      .reduce((sum, l) => sum + l.quantity, 0);
+    const backordered = result.backorders.reduce((sum, b) => sum + b.quantity, 0);
+
+    expect(allocated).toBe(10); // never more than stock
+    expect(backordered).toBe(2); // remainder
+    expect(allocated + backordered).toBe(12); // == total demand
+  });
+
+  it('uses a single warehouse when summed same-product demand fits (6 + 3, stock 10)', () => {
+    const result = allocateAcrossWarehouses(
+      [
+        { salesOrderItemId: 'i1', productId: 'p1', quantity: 6 },
+        { salesOrderItemId: 'i2', productId: 'p1', quantity: 3 },
+      ],
+      [{ warehouseId: 'w1', productId: 'p1', quantityAvailable: 10 }]
+    );
+
+    expect(result.allocations).toHaveLength(1);
+    expect(result.backorders).toHaveLength(0);
+  });
 });

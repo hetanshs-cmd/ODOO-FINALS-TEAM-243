@@ -201,7 +201,7 @@ async function seedQuotation(client, q) {
     [q.number],
     `INSERT INTO quotations (quotation_number, customer_id, sales_rep_id, price_list_id, status, currency, valid_until)
      VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-    [q.number, q.customerId, q.salesRepId, q.priceListId ?? null, q.status, q.currency ?? 'USD', q.validUntil ?? null],
+    [q.number, q.customerId, q.salesRepId, q.priceListId ?? null, q.status, q.currency ?? 'INR', q.validUntil ?? null],
   );
   let itemIds = [];
   if (created) {
@@ -446,79 +446,79 @@ async function seed() {
     // ---------------------------------------------------------------
     const srv100 = (await seedProduct(client, {
       sku: 'SKU-SRV-100', name: 'Rack Server X100', categoryId: servers,
-      productType: 'ONE_TIME', basePrice: 4500, costPrice: 3200, unit: 'unit', status: 'ACTIVE',
+      productType: 'ONE_TIME', basePrice: 373500, costPrice: 265600, unit: 'unit', status: 'ACTIVE',
     })).id;
     const srv200 = (await seedProduct(client, {
       sku: 'SKU-SRV-200', name: 'Blade Server X200', categoryId: servers,
-      productType: 'ONE_TIME', basePrice: 8200, costPrice: 6100, unit: 'unit', status: 'ACTIVE',
+      productType: 'ONE_TIME', basePrice: 680600, costPrice: 506300, unit: 'unit', status: 'ACTIVE',
     })).id;
     const net100 = (await seedProduct(client, {
       sku: 'SKU-NET-100', name: 'Enterprise Switch 48-port', categoryId: networking,
-      productType: 'ONE_TIME', basePrice: 1200, costPrice: 800, unit: 'unit', status: 'ACTIVE',
+      productType: 'ONE_TIME', basePrice: 99600, costPrice: 66400, unit: 'unit', status: 'ACTIVE',
     })).id;
     const net200 = (await seedProduct(client, {
       sku: 'SKU-NET-200', name: 'Legacy Router R1', categoryId: networking,
-      productType: 'ONE_TIME', basePrice: 300, costPrice: 150, unit: 'unit', status: 'DISCONTINUED',
+      productType: 'ONE_TIME', basePrice: 24900, costPrice: 12450, unit: 'unit', status: 'DISCONTINUED',
     })).id;
     const lic100 = (await seedProduct(client, {
       sku: 'SKU-LIC-100', name: 'ERP Suite License', categoryId: licenses,
-      productType: 'ONE_TIME', basePrice: 2500, costPrice: 900, unit: 'seat', status: 'ACTIVE',
+      productType: 'ONE_TIME', basePrice: 207500, costPrice: 74700, unit: 'seat', status: 'ACTIVE',
     })).id;
     const lic200 = (await seedProduct(client, {
       sku: 'SKU-LIC-200', name: 'Analytics Add-on License', categoryId: licenses,
-      productType: 'ONE_TIME', basePrice: 750, costPrice: 250, unit: 'seat', status: 'INACTIVE',
+      productType: 'ONE_TIME', basePrice: 62250, costPrice: 20750, unit: 'seat', status: 'INACTIVE',
     })).id;
     const con100 = (await seedProduct(client, {
       sku: 'SKU-CON-100', name: 'Implementation Consulting', categoryId: consulting,
-      productType: 'ONE_TIME', basePrice: 180, costPrice: 90, unit: 'hour', status: 'ACTIVE',
+      productType: 'ONE_TIME', basePrice: 14940, costPrice: 7470, unit: 'hour', status: 'ACTIVE',
     })).id;
     const sup100 = (await seedProduct(client, {
       sku: 'SKU-SUP-100', name: 'Premium Support Plan', categoryId: support,
-      productType: 'RECURRING', basePrice: 500, costPrice: 200, unit: 'month', status: 'ACTIVE',
+      productType: 'RECURRING', basePrice: 41500, costPrice: 16600, unit: 'month', status: 'ACTIVE',
     })).id;
     const sup200 = (await seedProduct(client, {
       sku: 'SKU-SUP-200', name: 'Standard Support Plan', categoryId: support,
-      productType: 'RECURRING', basePrice: 200, costPrice: 80, unit: 'month', status: 'ACTIVE',
+      productType: 'RECURRING', basePrice: 16600, costPrice: 6640, unit: 'month', status: 'ACTIVE',
     })).id;
     const saas100 = (await seedProduct(client, {
       sku: 'SKU-SAAS-100', name: 'CloudSuite Pro', categoryId: saasPlans,
-      productType: 'RECURRING', basePrice: 99, costPrice: 30, unit: 'seat', status: 'ACTIVE',
+      productType: 'RECURRING', basePrice: 8217, costPrice: 2490, unit: 'seat', status: 'ACTIVE',
     })).id;
     const saas200 = (await seedProduct(client, {
       sku: 'SKU-SAAS-200', name: 'CloudSuite Basic', categoryId: saasPlans,
-      productType: 'RECURRING', basePrice: 39, costPrice: 12, unit: 'seat', status: 'ACTIVE',
+      productType: 'RECURRING', basePrice: 3237, costPrice: 996, unit: 'seat', status: 'ACTIVE',
     })).id;
     const saas300 = (await seedProduct(client, {
       sku: 'SKU-SAAS-300', name: 'CloudSuite Legacy', categoryId: saasPlans,
-      productType: 'RECURRING', basePrice: 19, costPrice: 5, unit: 'seat', status: 'DISCONTINUED',
+      productType: 'RECURRING', basePrice: 1577, costPrice: 415, unit: 'seat', status: 'DISCONTINUED',
     })).id;
 
     // ---------------------------------------------------------------
     // Price lists — covers price_lists.status (ACTIVE/INACTIVE/EXPIRED).
     // ---------------------------------------------------------------
     const standardList = (await seedPriceList(client, {
-      name: 'Standard Price List', currency: 'USD', validFrom: '2025-01-01', status: 'ACTIVE',
+      name: 'Standard Price List', currency: 'INR', validFrom: '2025-01-01', status: 'ACTIVE',
     })).id;
     const goldList = (await seedPriceList(client, {
-      name: 'Gold Tier Pricing', currency: 'USD', tierId: null, validFrom: '2025-01-01', status: 'ACTIVE',
+      name: 'Gold Tier Pricing', currency: 'INR', tierId: null, validFrom: '2025-01-01', status: 'ACTIVE',
     })).id;
     // Resolve GOLD tier id for scoping (kept separate from the insert above
     // to avoid an extra join in the helper).
     const goldTier = await client.query("SELECT id FROM customer_tiers WHERE name = 'GOLD'");
     await client.query('UPDATE price_lists SET customer_tier_id = $1 WHERE id = $2', [goldTier.rows[0].id, goldList]);
     const legacyList = (await seedPriceList(client, {
-      name: '2024 Legacy Pricing', currency: 'USD', validFrom: '2024-01-01', validUntil: '2024-12-31', status: 'INACTIVE',
+      name: '2024 Legacy Pricing', currency: 'INR', validFrom: '2024-01-01', validUntil: '2024-12-31', status: 'INACTIVE',
     })).id;
     const promoList = (await seedPriceList(client, {
-      name: 'Q1 2025 Promo', currency: 'USD', validFrom: '2025-01-01', validUntil: '2025-03-31', status: 'EXPIRED',
+      name: 'Q1 2025 Promo', currency: 'INR', validFrom: '2025-01-01', validUntil: '2025-03-31', status: 'EXPIRED',
     })).id;
 
-    await seedPriceListItem(client, { priceListId: standardList, productId: srv100, price: 4300, minQty: 1 });
-    await seedPriceListItem(client, { priceListId: standardList, productId: lic100, price: 2350, minQty: 1, maxQty: 50 });
-    await seedPriceListItem(client, { priceListId: goldList, productId: srv100, price: 3900 });
-    await seedPriceListItem(client, { priceListId: goldList, productId: lic100, price: 2100, minQty: 5 });
-    await seedPriceListItem(client, { priceListId: legacyList, productId: net200, price: 280 });
-    await seedPriceListItem(client, { priceListId: promoList, productId: saas100, price: 79, minQty: 1, maxQty: 20 });
+    await seedPriceListItem(client, { priceListId: standardList, productId: srv100, price: 356900, minQty: 1 });
+    await seedPriceListItem(client, { priceListId: standardList, productId: lic100, price: 195050, minQty: 1, maxQty: 50 });
+    await seedPriceListItem(client, { priceListId: goldList, productId: srv100, price: 323700 });
+    await seedPriceListItem(client, { priceListId: goldList, productId: lic100, price: 174300, minQty: 5 });
+    await seedPriceListItem(client, { priceListId: legacyList, productId: net200, price: 23240 });
+    await seedPriceListItem(client, { priceListId: promoList, productId: saas100, price: 6557, minQty: 1, maxQty: 20 });
 
     // ---------------------------------------------------------------
     // Warehouses & inventory — covers warehouses.status and a spread of
@@ -576,85 +576,85 @@ async function seed() {
     const qDraft = await seedQuotation(client, {
       number: 'Q-SEED-DRAFT', customerId, salesRepId: repId, priceListId: standardList,
       status: 'DRAFT', validUntil: dateOnly(daysFromNow(30)),
-      items: [{ productId: lic100, quantity: 2, unitPrice: 2500, discountPercent: 5, taxPercent: 8, billingType: 'ONE_TIME' }],
+      items: [{ productId: lic100, quantity: 2, unitPrice: 207500, discountPercent: 5, taxPercent: 8, billingType: 'ONE_TIME' }],
     });
     const qSubmitted = await seedQuotation(client, {
       number: 'Q-SEED-SUBMITTED', customerId, salesRepId: repId, priceListId: standardList,
       status: 'SUBMITTED', validUntil: dateOnly(daysFromNow(30)),
-      items: [{ productId: srv100, quantity: 1, unitPrice: 4500, discountPercent: 8, taxPercent: 8, billingType: 'ONE_TIME' }],
+      items: [{ productId: srv100, quantity: 1, unitPrice: 373500, discountPercent: 8, taxPercent: 8, billingType: 'ONE_TIME' }],
     });
     const qPendingApproval = await seedQuotation(client, {
       number: 'Q-SEED-PENDING-APPROVAL', customerId, salesRepId: repId, priceListId: goldList,
       status: 'PENDING_APPROVAL', validUntil: dateOnly(daysFromNow(30)),
-      items: [{ productId: srv200, quantity: 2, unitPrice: 8200, discountPercent: 22, taxPercent: 8, billingType: 'ONE_TIME' }],
+      items: [{ productId: srv200, quantity: 2, unitPrice: 680600, discountPercent: 22, taxPercent: 8, billingType: 'ONE_TIME' }],
     });
     const qApproved = await seedQuotation(client, {
       number: 'Q-SEED-APPROVED', customerId: meridianId, salesRepId: repId,
       status: 'APPROVED', validUntil: dateOnly(daysFromNow(30)),
-      items: [{ productId: sup100, quantity: 12, unitPrice: 500, discountPercent: 5, taxPercent: 0, billingType: 'RECURRING' }],
+      items: [{ productId: sup100, quantity: 12, unitPrice: 41500, discountPercent: 5, taxPercent: 0, billingType: 'RECURRING' }],
     });
     const qRejected = await seedQuotation(client, {
       number: 'Q-SEED-REJECTED', customerId: acmeId, salesRepId: repId,
       status: 'REJECTED', validUntil: dateOnly(daysFromNow(30)),
-      items: [{ productId: srv200, quantity: 3, unitPrice: 8200, discountPercent: 35, taxPercent: 8, billingType: 'ONE_TIME' }],
+      items: [{ productId: srv200, quantity: 3, unitPrice: 680600, discountPercent: 35, taxPercent: 8, billingType: 'ONE_TIME' }],
     });
     const qSent = await seedQuotation(client, {
       number: 'Q-SEED-SENT', customerId, salesRepId: repId,
       status: 'SENT_TO_CUSTOMER', validUntil: dateOnly(daysFromNow(20)),
-      items: [{ productId: con100, quantity: 40, unitPrice: 180, discountPercent: 0, taxPercent: 8, billingType: 'ONE_TIME' }],
+      items: [{ productId: con100, quantity: 40, unitPrice: 14940, discountPercent: 0, taxPercent: 8, billingType: 'ONE_TIME' }],
     });
     const qNegotiation = await seedQuotation(client, {
       number: 'Q-SEED-NEGOTIATION', customerId: meridianId, salesRepId: repId,
       status: 'NEGOTIATION', validUntil: dateOnly(daysFromNow(15)),
-      items: [{ productId: lic100, quantity: 10, unitPrice: 2500, discountPercent: 12, taxPercent: 8, billingType: 'ONE_TIME' }],
+      items: [{ productId: lic100, quantity: 10, unitPrice: 207500, discountPercent: 12, taxPercent: 8, billingType: 'ONE_TIME' }],
     });
     const qAccepted = await seedQuotation(client, {
       number: 'Q-SEED-ACCEPTED', customerId: acmeId, salesRepId: repId,
       status: 'ACCEPTED', validUntil: dateOnly(daysFromNow(10)),
-      items: [{ productId: saas100, quantity: 25, unitPrice: 99, discountPercent: 10, taxPercent: 0, billingType: 'RECURRING' }],
+      items: [{ productId: saas100, quantity: 25, unitPrice: 8217, discountPercent: 10, taxPercent: 0, billingType: 'RECURRING' }],
     });
     const qDeclined = await seedQuotation(client, {
       number: 'Q-SEED-DECLINED', customerId, salesRepId: repId,
       status: 'DECLINED', validUntil: dateOnly(daysFromNow(10)),
-      items: [{ productId: net200, quantity: 4, unitPrice: 300, discountPercent: 0, taxPercent: 8, billingType: 'ONE_TIME' }],
+      items: [{ productId: net200, quantity: 4, unitPrice: 24900, discountPercent: 0, taxPercent: 8, billingType: 'ONE_TIME' }],
     });
     const qExpired = await seedQuotation(client, {
       number: 'Q-SEED-EXPIRED', customerId, salesRepId: repId,
       status: 'EXPIRED', validUntil: dateOnly(daysFromNow(-30)),
-      items: [{ productId: saas200, quantity: 15, unitPrice: 39, discountPercent: 0, taxPercent: 0, billingType: 'RECURRING' }],
+      items: [{ productId: saas200, quantity: 15, unitPrice: 3237, discountPercent: 0, taxPercent: 0, billingType: 'RECURRING' }],
     });
     const qCancelled = await seedQuotation(client, {
       number: 'Q-SEED-CANCELLED', customerId, salesRepId: repId,
       status: 'CANCELLED', validUntil: dateOnly(daysFromNow(10)),
-      items: [{ productId: net100, quantity: 2, unitPrice: 1200, discountPercent: 5, taxPercent: 8, billingType: 'ONE_TIME' }],
+      items: [{ productId: net100, quantity: 2, unitPrice: 99600, discountPercent: 5, taxPercent: 8, billingType: 'ONE_TIME' }],
     });
     const qConverted = await seedQuotation(client, {
       number: 'Q-SEED-CONVERTED', customerId, salesRepId: repId,
       status: 'CONVERTED', validUntil: dateOnly(daysFromNow(5)),
-      items: [{ productId: srv100, quantity: 1, unitPrice: 4500, discountPercent: 5, taxPercent: 8, billingType: 'ONE_TIME' }],
+      items: [{ productId: srv100, quantity: 1, unitPrice: 373500, discountPercent: 5, taxPercent: 8, billingType: 'ONE_TIME' }],
     });
 
     // Five more CONVERTED-status quotations dedicated to sales orders in the
     // other five order statuses (a quotation converts to at most one order).
     const qSoPending = await seedQuotation(client, {
       number: 'Q-SEED-SO-PENDING', customerId, salesRepId: repId, status: 'CONVERTED', validUntil: dateOnly(daysFromNow(5)),
-      items: [{ productId: srv100, quantity: 1, unitPrice: 4500, taxPercent: 8, billingType: 'ONE_TIME' }],
+      items: [{ productId: srv100, quantity: 1, unitPrice: 373500, taxPercent: 8, billingType: 'ONE_TIME' }],
     });
     const qSoConfirmed = await seedQuotation(client, {
       number: 'Q-SEED-SO-CONFIRMED', customerId: meridianId, salesRepId: repId, status: 'CONVERTED', validUntil: dateOnly(daysFromNow(5)),
-      items: [{ productId: net100, quantity: 3, unitPrice: 1200, taxPercent: 8, billingType: 'ONE_TIME' }],
+      items: [{ productId: net100, quantity: 3, unitPrice: 99600, taxPercent: 8, billingType: 'ONE_TIME' }],
     });
     const qSoProcessing = await seedQuotation(client, {
       number: 'Q-SEED-SO-PROCESSING', customerId: acmeId, salesRepId: repId, status: 'CONVERTED', validUntil: dateOnly(daysFromNow(5)),
-      items: [{ productId: srv100, quantity: 2, unitPrice: 4500, taxPercent: 8, billingType: 'ONE_TIME' }],
+      items: [{ productId: srv100, quantity: 2, unitPrice: 373500, taxPercent: 8, billingType: 'ONE_TIME' }],
     });
     const qSoPartial = await seedQuotation(client, {
       number: 'Q-SEED-SO-PARTIAL', customerId, salesRepId: repId, status: 'CONVERTED', validUntil: dateOnly(daysFromNow(5)),
-      items: [{ productId: net100, quantity: 10, unitPrice: 1200, taxPercent: 8, billingType: 'ONE_TIME' }],
+      items: [{ productId: net100, quantity: 10, unitPrice: 99600, taxPercent: 8, billingType: 'ONE_TIME' }],
     });
     const qSoCancelled = await seedQuotation(client, {
       number: 'Q-SEED-SO-CANCELLED', customerId: acmeId, salesRepId: repId, status: 'CONVERTED', validUntil: dateOnly(daysFromNow(5)),
-      items: [{ productId: lic100, quantity: 1, unitPrice: 2500, taxPercent: 8, billingType: 'ONE_TIME' }],
+      items: [{ productId: lic100, quantity: 1, unitPrice: 207500, taxPercent: 8, billingType: 'ONE_TIME' }],
     });
 
     // ---------------------------------------------------------------
@@ -827,27 +827,27 @@ async function seed() {
     // ---------------------------------------------------------------
     const soPending = await seedSalesOrder(client, {
       number: 'SO-SEED-PENDING', quotationId: qSoPending.id, customerId, salesRepId: repId, status: 'PENDING',
-      items: [{ productId: srv100, quantity: 1, unitPrice: 4500, taxPercent: 8 }],
+      items: [{ productId: srv100, quantity: 1, unitPrice: 373500, taxPercent: 8 }],
     });
     const soConfirmed = await seedSalesOrder(client, {
       number: 'SO-SEED-CONFIRMED', quotationId: qSoConfirmed.id, customerId: meridianId, salesRepId: repId, status: 'CONFIRMED',
-      items: [{ productId: net100, quantity: 3, unitPrice: 1200, taxPercent: 8 }],
+      items: [{ productId: net100, quantity: 3, unitPrice: 99600, taxPercent: 8 }],
     });
     const soProcessing = await seedSalesOrder(client, {
       number: 'SO-SEED-PROCESSING', quotationId: qSoProcessing.id, customerId: acmeId, salesRepId: repId, status: 'PROCESSING',
-      items: [{ productId: srv100, quantity: 2, unitPrice: 4500, taxPercent: 8, fulfilledQuantity: 1 }],
+      items: [{ productId: srv100, quantity: 2, unitPrice: 373500, taxPercent: 8, fulfilledQuantity: 1 }],
     });
     const soPartial = await seedSalesOrder(client, {
       number: 'SO-SEED-PARTIAL', quotationId: qSoPartial.id, customerId, salesRepId: repId, status: 'PARTIALLY_FULFILLED',
-      items: [{ productId: net100, quantity: 10, unitPrice: 1200, taxPercent: 8, fulfilledQuantity: 6 }],
+      items: [{ productId: net100, quantity: 10, unitPrice: 99600, taxPercent: 8, fulfilledQuantity: 6 }],
     });
     const soFulfilled = await seedSalesOrder(client, {
       number: 'SO-SEED-FULFILLED', quotationId: qConverted.id, customerId, salesRepId: repId, status: 'FULFILLED',
-      items: [{ productId: srv100, quantity: 1, unitPrice: 4500, discount: 225, taxPercent: 8, fulfilledQuantity: 1 }],
+      items: [{ productId: srv100, quantity: 1, unitPrice: 373500, discount: 18675, taxPercent: 8, fulfilledQuantity: 1 }],
     });
     const soCancelled = await seedSalesOrder(client, {
       number: 'SO-SEED-CANCELLED', quotationId: qSoCancelled.id, customerId: acmeId, salesRepId: repId, status: 'CANCELLED',
-      items: [{ productId: lic100, quantity: 1, unitPrice: 2500, taxPercent: 8 }],
+      items: [{ productId: lic100, quantity: 1, unitPrice: 207500, taxPercent: 8 }],
     });
 
     // ---------------------------------------------------------------
@@ -933,32 +933,32 @@ async function seed() {
     // ---------------------------------------------------------------
     const invDraft = await seedInvoice(client, {
       number: 'INV-SEED-DRAFT', customerId, salesOrderId: soPending.id, type: 'ONE_TIME', status: 'DRAFT',
-      items: [{ productId: srv100, description: 'Rack Server X100', quantity: 1, unitPrice: 4500, taxPercent: 8 }],
+      items: [{ productId: srv100, description: 'Rack Server X100', quantity: 1, unitPrice: 373500, taxPercent: 8 }],
     });
     const invIssued = await seedInvoice(client, {
       number: 'INV-SEED-ISSUED', customerId: meridianId, salesOrderId: soConfirmed.id, type: 'ONE_TIME', status: 'ISSUED',
       dueDate: dateOnly(daysFromNow(30)), issuedAt: isoDaysFromNow(0),
-      items: [{ productId: net100, description: 'Enterprise Switch 48-port', quantity: 3, unitPrice: 1200, taxPercent: 8 }],
+      items: [{ productId: net100, description: 'Enterprise Switch 48-port', quantity: 3, unitPrice: 99600, taxPercent: 8 }],
     });
     const invPartial = await seedInvoice(client, {
       number: 'INV-SEED-PARTIAL', customerId: acmeId, salesOrderId: soProcessing.id, type: 'ONE_TIME', status: 'PARTIALLY_PAID',
       dueDate: dateOnly(daysFromNow(15)), issuedAt: isoDaysFromNow(-10),
-      items: [{ productId: srv100, description: 'Rack Server X100', quantity: 2, unitPrice: 4500, taxPercent: 8 }],
+      items: [{ productId: srv100, description: 'Rack Server X100', quantity: 2, unitPrice: 373500, taxPercent: 8 }],
     });
     const invPaid = await seedInvoice(client, {
       number: 'INV-SEED-PAID', customerId, salesOrderId: soFulfilled.id, type: 'ONE_TIME', status: 'PAID',
       dueDate: dateOnly(daysFromNow(-5)), issuedAt: isoDaysFromNow(-20), paidAt: isoDaysFromNow(-15),
-      items: [{ productId: srv100, description: 'Rack Server X100', quantity: 1, unitPrice: 4500, taxPercent: 8 }],
+      items: [{ productId: srv100, description: 'Rack Server X100', quantity: 1, unitPrice: 373500, taxPercent: 8 }],
     });
     const invOverdue = await seedInvoice(client, {
       number: 'INV-SEED-OVERDUE', customerId, salesOrderId: soPartial.id, type: 'ONE_TIME', status: 'OVERDUE',
       dueDate: dateOnly(daysFromNow(-20)), issuedAt: isoDaysFromNow(-50),
-      items: [{ productId: net100, description: 'Enterprise Switch 48-port', quantity: 10, unitPrice: 1200, taxPercent: 8 }],
+      items: [{ productId: net100, description: 'Enterprise Switch 48-port', quantity: 10, unitPrice: 99600, taxPercent: 8 }],
     });
     const invVoid = await seedInvoice(client, {
       number: 'INV-SEED-VOID', customerId, type: 'RECURRING', status: 'VOID',
       dueDate: dateOnly(daysFromNow(-1)), issuedAt: isoDaysFromNow(-3),
-      items: [{ productId: sup100, description: 'Premium Support Plan', quantity: 1, unitPrice: 500, taxPercent: 0 }],
+      items: [{ productId: sup100, description: 'Premium Support Plan', quantity: 1, unitPrice: 41500, taxPercent: 0 }],
     });
 
     // ---------------------------------------------------------------
@@ -968,33 +968,33 @@ async function seed() {
       await client.query(
         `INSERT INTO payments (invoice_id, customer_id, amount, payment_method, transaction_reference, status)
          VALUES ($1, $2, $3, $4, $5, 'PENDING')`,
-        [invIssued.id, meridianId, 3888, 'BANK_TRANSFER', 'SEED-TXN-ISSUED-1'],
+        [invIssued.id, meridianId, 322704, 'BANK_TRANSFER', 'SEED-TXN-ISSUED-1'],
       );
     }
     if (invPartial.created) {
       await client.query(
         `INSERT INTO payments (invoice_id, customer_id, amount, payment_method, transaction_reference, status, paid_at)
          VALUES ($1, $2, $3, $4, $5, 'SUCCESS', now())`,
-        [invPartial.id, acmeId, 4000, 'CREDIT_CARD', 'SEED-TXN-PARTIAL-1'],
+        [invPartial.id, acmeId, 332000, 'CREDIT_CARD', 'SEED-TXN-PARTIAL-1'],
       );
     }
     if (invPaid.created) {
       await client.query(
         `INSERT INTO payments (invoice_id, customer_id, amount, payment_method, transaction_reference, status, paid_at)
          VALUES ($1, $2, $3, $4, $5, 'SUCCESS', $6)`,
-        [invPaid.id, customerId, 4860, 'CREDIT_CARD', 'SEED-TXN-PAID-1', isoDaysFromNow(-15)],
+        [invPaid.id, customerId, 403380, 'CREDIT_CARD', 'SEED-TXN-PAID-1', isoDaysFromNow(-15)],
       );
       await client.query(
         `INSERT INTO payments (invoice_id, customer_id, amount, payment_method, transaction_reference, status, paid_at)
          VALUES ($1, $2, $3, $4, $5, 'REFUNDED', $6)`,
-        [invPaid.id, customerId, 4860, 'CREDIT_CARD', 'SEED-TXN-PAID-REFUND-1', isoDaysFromNow(-2)],
+        [invPaid.id, customerId, 403380, 'CREDIT_CARD', 'SEED-TXN-PAID-REFUND-1', isoDaysFromNow(-2)],
       );
     }
     if (invOverdue.created) {
       await client.query(
         `INSERT INTO payments (invoice_id, customer_id, amount, payment_method, transaction_reference, status)
          VALUES ($1, $2, $3, $4, $5, 'FAILED')`,
-        [invOverdue.id, customerId, 12960, 'BANK_TRANSFER', 'SEED-TXN-OVERDUE-1'],
+        [invOverdue.id, customerId, 1075680, 'BANK_TRANSFER', 'SEED-TXN-OVERDUE-1'],
       );
     }
     void invDraft;
@@ -1006,29 +1006,29 @@ async function seed() {
     // (ACTIVE/CANCELLED/MODIFIED).
     // ---------------------------------------------------------------
     const proMonthly = (await seedSubscriptionPlan(client, {
-      name: 'Pro Monthly', frequency: 'MONTHLY', price: 99, trialDays: 14, status: 'ACTIVE',
+      name: 'Pro Monthly', frequency: 'MONTHLY', price: 8217, trialDays: 14, status: 'ACTIVE',
     })).id;
     const proQuarterly = (await seedSubscriptionPlan(client, {
-      name: 'Pro Quarterly', frequency: 'QUARTERLY', price: 270, status: 'ACTIVE',
+      name: 'Pro Quarterly', frequency: 'QUARTERLY', price: 22410, status: 'ACTIVE',
     })).id;
     const legacyYearly = (await seedSubscriptionPlan(client, {
-      name: 'Legacy Yearly', frequency: 'YEARLY', price: 900, status: 'INACTIVE',
+      name: 'Legacy Yearly', frequency: 'YEARLY', price: 74700, status: 'INACTIVE',
     })).id;
 
     const subActive = await seedSubscription(client, {
       customerId, planId: proMonthly, status: 'ACTIVE',
-      startDate: dateOnly(daysFromNow(-60)), nextBillingDate: dateOnly(daysFromNow(5)), currentPrice: 99,
-      items: [{ productId: saas100, quantity: 1, unitPrice: 99 }],
+      startDate: dateOnly(daysFromNow(-60)), nextBillingDate: dateOnly(daysFromNow(5)), currentPrice: 8217,
+      items: [{ productId: saas100, quantity: 1, unitPrice: 8217 }],
     });
     const subCancelled = await seedSubscription(client, {
       customerId: meridianId, planId: proQuarterly, status: 'CANCELLED',
-      startDate: dateOnly(daysFromNow(-200)), endDate: dateOnly(daysFromNow(-10)), currentPrice: 270,
-      items: [{ productId: saas200, quantity: 2, unitPrice: 39 }],
+      startDate: dateOnly(daysFromNow(-200)), endDate: dateOnly(daysFromNow(-10)), currentPrice: 22410,
+      items: [{ productId: saas200, quantity: 2, unitPrice: 3237 }],
     });
     const subModified = await seedSubscription(client, {
       customerId: acmeId, planId: legacyYearly, status: 'MODIFIED',
-      startDate: dateOnly(daysFromNow(-400)), currentPrice: 850,
-      items: [{ productId: saas300, quantity: 1, unitPrice: 19 }],
+      startDate: dateOnly(daysFromNow(-400)), currentPrice: 70550,
+      items: [{ productId: saas300, quantity: 1, unitPrice: 1577 }],
     });
 
     // ---------------------------------------------------------------
@@ -1037,25 +1037,25 @@ async function seed() {
     // ---------------------------------------------------------------
     if (subActive.created) {
       await client.query(
-        `INSERT INTO billing_schedules (subscription_id, billing_date, amount, status) VALUES ($1, $2, 99, 'PAID')`,
+        `INSERT INTO billing_schedules (subscription_id, billing_date, amount, status) VALUES ($1, $2, 8217, 'PAID')`,
         [subActive.id, dateOnly(daysFromNow(-25))],
       );
       await client.query(
-        `INSERT INTO billing_schedules (subscription_id, billing_date, amount, status, invoice_id) VALUES ($1, $2, 99, 'INVOICED', $3)`,
+        `INSERT INTO billing_schedules (subscription_id, billing_date, amount, status, invoice_id) VALUES ($1, $2, 8217, 'INVOICED', $3)`,
         [subActive.id, dateOnly(daysFromNow(0)), invIssued.id],
       );
       await client.query(
-        `INSERT INTO billing_schedules (subscription_id, billing_date, amount, status) VALUES ($1, $2, 99, 'SCHEDULED')`,
+        `INSERT INTO billing_schedules (subscription_id, billing_date, amount, status) VALUES ($1, $2, 8217, 'SCHEDULED')`,
         [subActive.id, dateOnly(daysFromNow(35))],
       );
       await client.query(
-        `INSERT INTO billing_schedules (subscription_id, billing_date, amount, status) VALUES ($1, $2, 99, 'FAILED')`,
+        `INSERT INTO billing_schedules (subscription_id, billing_date, amount, status) VALUES ($1, $2, 8217, 'FAILED')`,
         [subActive.id, dateOnly(daysFromNow(-55))],
       );
     }
     if (subCancelled.created) {
       await client.query(
-        `INSERT INTO billing_schedules (subscription_id, billing_date, amount, status) VALUES ($1, $2, 270, 'CANCELLED')`,
+        `INSERT INTO billing_schedules (subscription_id, billing_date, amount, status) VALUES ($1, $2, 22410, 'CANCELLED')`,
         [subCancelled.id, dateOnly(daysFromNow(-15))],
       );
     }
@@ -1065,17 +1065,17 @@ async function seed() {
     // ---------------------------------------------------------------
     if (subCancelled.created) {
       await client.query(
-        `INSERT INTO credit_notes (subscription_id, customer_id, amount, reason, status) VALUES ($1, $2, 90, $3, 'APPLIED')`,
+        `INSERT INTO credit_notes (subscription_id, customer_id, amount, reason, status) VALUES ($1, $2, 7470, $3, 'APPLIED')`,
         [subCancelled.id, meridianId, 'Mid-cycle cancellation refund'],
       );
       await client.query(
-        `INSERT INTO credit_notes (subscription_id, customer_id, amount, reason, status) VALUES ($1, $2, 20, $3, 'VOIDED')`,
+        `INSERT INTO credit_notes (subscription_id, customer_id, amount, reason, status) VALUES ($1, $2, 1660, $3, 'VOIDED')`,
         [subCancelled.id, meridianId, 'Duplicate charge reversal, voided in error'],
       );
     }
     if (subModified.created) {
       await client.query(
-        `INSERT INTO credit_notes (subscription_id, customer_id, amount, reason, status) VALUES ($1, $2, 50, $3, 'PENDING')`,
+        `INSERT INTO credit_notes (subscription_id, customer_id, amount, reason, status) VALUES ($1, $2, 4150, $3, 'PENDING')`,
         [subModified.id, acmeId, 'Downgrade credit pending finance review'],
       );
     }

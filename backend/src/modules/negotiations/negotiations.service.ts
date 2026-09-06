@@ -3,6 +3,7 @@ import { withTransaction } from '../../shared/db/withTransaction';
 import { insertAuditLog } from '../../shared/auditLog';
 import { runPostCommit } from '../../shared/postCommit';
 import { getPaginationParams, buildPaginatedResult, PaginatedResult } from '../../utils/pagination';
+import { assertInternalCanAccessQuotationOwner } from '../../shared/ownership';
 import { discountEngineService } from '../discount-engine/discount-engine.service';
 import { notificationsService } from '../notifications/notifications.service';
 import { negotiationsRepository } from './negotiations.repository';
@@ -23,6 +24,8 @@ interface AddMessageDto {
   changes?: CounterOfferChange[];
   /** Set only for portal callers — enforces row-level tenant isolation. */
   portalCustomerId?: string;
+  /** Set only for internal callers — enforces sales-rep ownership scope. */
+  requester?: AuthenticatedUser;
 }
 
 export const negotiationsService = {
@@ -49,12 +52,14 @@ export const negotiationsService = {
     quotationId: string,
     initiatedBy: string,
     portalCustomerId?: string,
+    requester?: AuthenticatedUser,
   ): Promise<Negotiation> {
     const quotation = await negotiationsRepository.findQuotationForNegotiation(quotationId);
     if (!quotation) throw Errors.notFound('Quotation');
     if (portalCustomerId && quotation.customer_id !== portalCustomerId) {
       throw Errors.forbidden();
     }
+    if (requester) assertInternalCanAccessQuotationOwner(quotation.sales_rep_id, requester);
     return negotiationsRepository.insertNegotiation({ quotationId, initiatedBy });
   },
 
@@ -65,12 +70,17 @@ export const negotiationsService = {
    * thread via `open`. Most recent first; each thread's messages are
    * included so the caller doesn't need a second round-trip per thread.
    */
-  async listForQuotation(quotationId: string, portalCustomerId?: string) {
+  async listForQuotation(
+    quotationId: string,
+    portalCustomerId?: string,
+    requester?: AuthenticatedUser,
+  ) {
     const quotation = await negotiationsRepository.findQuotationForNegotiation(quotationId);
     if (!quotation) throw Errors.notFound('Quotation');
     if (portalCustomerId && quotation.customer_id !== portalCustomerId) {
       throw Errors.forbidden();
     }
+    if (requester) assertInternalCanAccessQuotationOwner(quotation.sales_rep_id, requester);
     const negotiations = await negotiationsRepository.listByQuotationId(quotationId);
     return Promise.all(
       negotiations.map(async (negotiation) => ({
@@ -80,12 +90,13 @@ export const negotiationsService = {
     );
   },
 
-  async getDetail(id: string, portalCustomerId?: string) {
+  async getDetail(id: string, portalCustomerId?: string, requester?: AuthenticatedUser) {
     const negotiation = await negotiationsRepository.findByIdWithCustomer(id);
     if (!negotiation) throw Errors.notFound('Negotiation');
     if (portalCustomerId && negotiation.customer_id !== portalCustomerId) {
       throw Errors.forbidden();
     }
+    if (requester) assertInternalCanAccessQuotationOwner(negotiation.sales_rep_id, requester);
     const [messages, changes] = await Promise.all([
       negotiationsRepository.listMessages(id),
       negotiationsRepository.listChanges(id),
@@ -106,6 +117,9 @@ export const negotiationsService = {
     if (!negotiation) throw Errors.notFound('Negotiation');
     if (dto.portalCustomerId && negotiation.customer_id !== dto.portalCustomerId) {
       throw Errors.forbidden();
+    }
+    if (dto.requester) {
+      assertInternalCanAccessQuotationOwner(negotiation.sales_rep_id, dto.requester);
     }
     if (!ACTIONABLE_STATUSES.has(negotiation.status)) {
       throw Errors.businessRuleViolation(

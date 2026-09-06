@@ -66,7 +66,9 @@ export const NewQuotationPage: React.FC = () => {
   const [productsBlocked, setProductsBlocked] = useState(false);
 
   const [customerId, setCustomerId] = useState('');
-  const [currency, setCurrency] = useState('USD');
+  const [title, setTitle] = useState('');
+  const [titleTouched, setTitleTouched] = useState(false);
+  const [currency, setCurrency] = useState('INR');
   const [validUntil, setValidUntil] = useState('');
   const [lines, setLines] = useState<DraftLine[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -111,6 +113,16 @@ export const NewQuotationPage: React.FC = () => {
     [lines],
   );
 
+  // Default the proposal name to something tied to the customer until the
+  // rep types their own — they can always override it here or on the detail page.
+  const handleCustomerChange = (id: string) => {
+    setCustomerId(id);
+    if (!titleTouched) {
+      const name = customers.find((c) => c.id === id)?.name;
+      setTitle(name ? `${name} — Proposal` : '');
+    }
+  };
+
   const updateLine = (key: string, patch: Partial<DraftLine>) => {
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   };
@@ -142,6 +154,7 @@ export const NewQuotationPage: React.FC = () => {
     try {
       created = await quotationService.create({
         customer_id: customerId,
+        title: title.trim() || null,
         currency,
         valid_until: validUntil || null,
       });
@@ -202,12 +215,22 @@ export const NewQuotationPage: React.FC = () => {
       />
 
       <div className="bg-white rounded-md border border-[#E5E7EB] shadow-2xs p-4 space-y-4 max-w-3xl">
+        <Input
+          label="Proposal Name"
+          placeholder="e.g. Acme Corp — Q4 Fleet Refresh"
+          value={title}
+          onChange={(e) => {
+            setTitleTouched(true);
+            setTitle(e.target.value);
+          }}
+          helperText="Optional. Defaults to the customer name — you can rename it later on the quotation."
+        />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Select
             label="Customer"
             required
             value={customerId}
-            onChange={(e) => setCustomerId(e.target.value)}
+            onChange={(e) => handleCustomerChange(e.target.value)}
             options={[
               { value: '', label: customersLoading ? 'Loading…' : 'Select a customer…' },
               ...customers.map((c) => ({ value: c.id, label: c.name })),

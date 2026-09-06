@@ -167,7 +167,7 @@ export const salesOrdersRepository = {
   },
 
   async list(
-    filters: { status?: string; customerId?: string; quotationId?: string },
+    filters: { status?: string; customerId?: string; quotationId?: string; salesRepId?: string },
     limit: number,
     offset: number,
   ): Promise<SalesOrder[]> {
@@ -185,6 +185,10 @@ export const salesOrdersRepository = {
       params.push(filters.quotationId);
       conditions.push(`quotation_id = $${params.length}`);
     }
+    if (filters.salesRepId) {
+      params.push(filters.salesRepId);
+      conditions.push(`sales_rep_id = $${params.length}`);
+    }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     params.push(limit, offset);
     const { rows } = await db.query(
@@ -197,7 +201,12 @@ export const salesOrdersRepository = {
     return rows as SalesOrder[];
   },
 
-  async count(filters: { status?: string; customerId?: string; quotationId?: string }): Promise<number> {
+  async count(filters: {
+    status?: string;
+    customerId?: string;
+    quotationId?: string;
+    salesRepId?: string;
+  }): Promise<number> {
     const conditions: string[] = [];
     const params: unknown[] = [];
     if (filters.status) {
@@ -211,6 +220,10 @@ export const salesOrdersRepository = {
     if (filters.quotationId) {
       params.push(filters.quotationId);
       conditions.push(`quotation_id = $${params.length}`);
+    }
+    if (filters.salesRepId) {
+      params.push(filters.salesRepId);
+      conditions.push(`sales_rep_id = $${params.length}`);
     }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const { rows } = await db.query(

@@ -14,6 +14,7 @@ import { dealHealthService } from '../deal-health/deal-health.service';
 
 interface CreateQuotationDto {
   customer_id: string;
+  title?: string | null;
   price_list_id?: string | null;
   currency: string;
   valid_until?: string | null;
@@ -49,6 +50,7 @@ export const quotationsService = {
       return await withTransaction(async (client) => {
         const quotation = await quotationsRepository.create(client, {
           quotation_number: generateDocumentNumber('Q'),
+          title: dto.title?.trim() ? dto.title.trim() : null,
           customer_id: dto.customer_id,
           // Always the authenticated caller — never client-supplied — so a
           // quotation can't be created under someone else's name.
@@ -101,6 +103,7 @@ export const quotationsService = {
   async update(
     id: string,
     dto: {
+      title?: string | null;
       price_list_id?: string | null;
       currency?: string;
       valid_until?: string | null;
@@ -111,12 +114,18 @@ export const quotationsService = {
     const quotation = await quotationsRepository.findById(id);
     if (!quotation) throw Errors.notFound('Quotation');
     assertCanAccessQuotation(quotation, requester);
-    if (quotation.status !== 'DRAFT') {
+    // The title is just a label with no bearing on pricing or governance, so
+    // renaming a proposal stays allowed at any status. Every other field here
+    // feeds the money math and remains DRAFT-only.
+    const editsBeyondTitle = Object.keys(dto).some((k) => k !== 'title' && dto[k as keyof typeof dto] !== undefined);
+    if (quotation.status !== 'DRAFT' && editsBeyondTitle) {
       throw Errors.businessRuleViolation(
         `Cannot edit a quotation in status ${quotation.status}; only DRAFT quotations are editable`,
       );
     }
-    const updated = await quotationsRepository.update(id, dto);
+    const normalized =
+      dto.title !== undefined ? { ...dto, title: dto.title?.trim() ? dto.title.trim() : null } : dto;
+    const updated = await quotationsRepository.update(id, normalized);
     if (!updated) throw Errors.notFound('Quotation');
 
     if (dto.order_discount_percent !== undefined) {

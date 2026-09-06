@@ -11,19 +11,24 @@ export interface ApprovalLevel {
   name: string;
   level: number;
   description: string | null;
+  /** roles.name of the staff role that may action a request at this level. */
+  required_role: string;
   created_at: string;
   updated_at: string;
 }
+
+const APPROVAL_ROLES = ['SALES_MANAGER', 'FINANCE', 'OPERATIONS', 'ADMIN'] as const;
 
 export const createApprovalLevelSchema = z.object({
   name: z.string().trim().min(1).max(100),
   level: z.coerce.number().int().min(1),
   description: z.string().max(2000).optional().nullable(),
+  required_role: z.enum(APPROVAL_ROLES).optional(),
 });
 
 export const updateApprovalLevelSchema = createApprovalLevelSchema.partial();
 
-const COLUMNS = ['name', 'level', 'description'] as const;
+const COLUMNS = ['name', 'level', 'description', 'required_role'] as const;
 
 const repository = createCrudRepository<ApprovalLevel>({
   table: 'approval_levels',

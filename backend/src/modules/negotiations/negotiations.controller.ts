@@ -23,6 +23,7 @@ export const negotiationsController = {
         quotationId,
         initiatedBy,
         req.portalUser?.customerId,
+        req.user,
       );
       sendCreated({ res, data: negotiation, message: 'Negotiation opened' });
     } catch (err) {
@@ -35,6 +36,7 @@ export const negotiationsController = {
       const negotiations = await negotiationsService.listForQuotation(
         req.params['id'] as string,
         req.portalUser?.customerId,
+        req.user,
       );
       sendSuccess({ res, data: negotiations, message: 'Negotiations retrieved successfully' });
     } catch (err) {
@@ -47,6 +49,7 @@ export const negotiationsController = {
       const detail = await negotiationsService.getDetail(
         req.params['id'] as string,
         req.portalUser?.customerId,
+        req.user,
       );
       sendSuccess({ res, data: detail, message: 'Negotiation retrieved successfully' });
     } catch (err) {
@@ -68,6 +71,7 @@ export const negotiationsController = {
         messageType: message_type,
         changes,
         portalCustomerId: req.portalUser?.customerId,
+        requester: req.user,
       });
       sendCreated({ res, data: result, message: 'Message added to negotiation' });
     } catch (err) {
