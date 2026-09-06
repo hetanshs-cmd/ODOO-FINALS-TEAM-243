@@ -50,105 +50,115 @@ export const fulfillmentService = {
     }));
     const productIds = [...new Set(itemsToAllocate.map((item) => item.productId))];
 
-    return withTransaction(async (client) => {
-      // Re-read the order under a row lock and re-check the status INSIDE the
-      // transaction. Checking it outside let two concurrent allocate calls
-      // both pass, creating duplicate fulfillments and double-reserving stock.
-      const lockedOrder = await fulfillmentRepository.findSalesOrderForAllocationForUpdate(
-        client,
-        salesOrderId,
-      );
-      if (!lockedOrder) throw Errors.notFound('Sales order');
-      if (!ALLOCATABLE_STATUSES.has(lockedOrder.status)) {
-        throw Errors.businessRuleViolation(
-          `Cannot allocate a sales order in status ${lockedOrder.status}; it must be PENDING or CONFIRMED`,
-        );
-      }
-
-      const inventoryRows = await fulfillmentRepository.lockInventoryForProducts(
-        client,
-        productIds,
-      );
-      const inventory: InventoryRow[] = inventoryRows.map((row) => ({
-        warehouseId: row.warehouse_id,
-        productId: row.product_id,
-        quantityAvailable: Number(row.quantity_available),
-      }));
-
-      const { allocations, backorders } = allocateAcrossWarehouses(itemsToAllocate, inventory);
-
-      const fulfillments: Fulfillment[] = [];
-      for (const allocation of allocations) {
-        const fulfillment = await fulfillmentRepository.insertFulfillment(client, {
+    let txResult;
+    try {
+      txResult = await withTransaction(async (client) => {
+        // Re-read the order under a row lock and re-check the status INSIDE the
+        // transaction. Checking it outside let two concurrent allocate calls
+        // both pass, creating duplicate fulfillments and double-reserving stock.
+        const lockedOrder = await fulfillmentRepository.findSalesOrderForAllocationForUpdate(
+          client,
           salesOrderId,
-          warehouseId: allocation.warehouseId,
-        });
-        for (const line of allocation.items) {
-          await fulfillmentRepository.insertFulfillmentItem(client, {
-            fulfillmentId: fulfillment.id,
-            salesOrderItemId: line.salesOrderItemId,
-            quantity: line.quantity,
-          });
-          await fulfillmentRepository.reserveInventory(
-            client,
-            allocation.warehouseId,
-            line.productId,
-            line.quantity,
+        );
+        if (!lockedOrder) throw Errors.notFound('Sales order');
+        if (!ALLOCATABLE_STATUSES.has(lockedOrder.status)) {
+          throw Errors.businessRuleViolation(
+            `Cannot allocate a sales order in status ${lockedOrder.status}; it must be PENDING or CONFIRMED`,
           );
         }
-        fulfillments.push(fulfillment);
-      }
 
-      for (const backorder of backorders) {
-        // The backordered quantity lives only in the `backorders` row itself
-        // (014_backorders.sql) — sales_order_items has no redundant counter
-        // to keep in sync (the 2026-09-05 schema refactor dropped it).
-        await fulfillmentRepository.insertBackorder(client, {
-          salesOrderId,
-          salesOrderItemId: backorder.salesOrderItemId,
-          productId: backorder.productId,
-          quantity: backorder.quantity,
-        });
-      }
+        const inventoryRows = await fulfillmentRepository.lockInventoryForProducts(
+          client,
+          productIds,
+        );
+        const inventory: InventoryRow[] = inventoryRows.map((row) => ({
+          warehouseId: row.warehouse_id,
+          productId: row.product_id,
+          quantityAvailable: Number(row.quantity_available),
+        }));
 
-      const status = backorders.length > 0 ? 'PARTIALLY_FULFILLED' : 'PROCESSING';
-      await fulfillmentRepository.updateSalesOrderStatus(client, salesOrderId, status);
+        const { allocations, backorders } = allocateAcrossWarehouses(itemsToAllocate, inventory);
 
-      await insertAuditLog(client, {
-        entityType: 'sales_order',
-        entityId: salesOrderId,
-        action: 'FULFILLMENT_ALLOCATED',
-        actorId,
-        newValue: {
-          fulfillmentCount: fulfillments.length,
-          backorderCount: backorders.length,
-          status,
-        },
-      });
+        const fulfillments: Fulfillment[] = [];
+        for (const allocation of allocations) {
+          const fulfillment = await fulfillmentRepository.insertFulfillment(client, {
+            salesOrderId,
+            warehouseId: allocation.warehouseId,
+          });
+          for (const line of allocation.items) {
+            await fulfillmentRepository.insertFulfillmentItem(client, {
+              fulfillmentId: fulfillment.id,
+              salesOrderItemId: line.salesOrderItemId,
+              quantity: line.quantity,
+            });
+            await fulfillmentRepository.reserveInventory(
+              client,
+              allocation.warehouseId,
+              line.productId,
+              line.quantity,
+            );
+          }
+          fulfillments.push(fulfillment);
+        }
 
-      return { salesOrderId, fulfillments, backorderCount: backorders.length, status };
-    }).then(async (result) => {
-      // Post-commit side effects. The allocation is already durable, so a
-      // failure here must NOT surface as a 500 for an operation that
-      // succeeded — the client would retry and double-allocate.
-      await runPostCommit('fulfillment.allocate', async () => {
-        if (result.backorderCount > 0) {
-          await notificationsService.notify({
-            userId: order.sales_rep_id,
-            type: 'BACKORDER_CREATED',
-            title: 'Backorder created',
-            message: `${result.backorderCount} line(s) on sales order ${salesOrderId} could not be fully allocated`,
-            referenceType: 'sales_order',
-            referenceId: salesOrderId,
+        for (const backorder of backorders) {
+          // The backordered quantity lives only in the `backorders` row itself
+          // (014_backorders.sql) — sales_order_items has no redundant counter
+          // to keep in sync (the 2026-09-05 schema refactor dropped it).
+          await fulfillmentRepository.insertBackorder(client, {
+            salesOrderId,
+            salesOrderItemId: backorder.salesOrderItemId,
+            productId: backorder.productId,
+            quantity: backorder.quantity,
           });
         }
-        // A backorder/partial allocation is a fulfillment-delay signal that
-        // feeds deal-health — refresh the linked quotation's score.
-        const quotationId = await fulfillmentRepository.findQuotationIdForSalesOrder(salesOrderId);
-        if (quotationId) await dealHealthService.recalculate(quotationId);
+
+        const status = backorders.length > 0 ? 'PARTIALLY_FULFILLED' : 'PROCESSING';
+        await fulfillmentRepository.updateSalesOrderStatus(client, salesOrderId, status);
+
+        await insertAuditLog(client, {
+          entityType: 'sales_order',
+          entityId: salesOrderId,
+          action: 'FULFILLMENT_ALLOCATED',
+          actorId,
+          newValue: {
+            fulfillmentCount: fulfillments.length,
+            backorderCount: backorders.length,
+            status,
+          },
+        });
+
+        return { salesOrderId, fulfillments, backorderCount: backorders.length, status };
       });
-      return result;
+    } catch (err) {
+      // A raw inventory CHECK-constraint violation (e.g. a demand that
+      // exceeds stock slipping past the allocation math) must surface as a
+      // clean 422, not a 500 — same treatment overrideSplit already gives.
+      if (err instanceof AppError) throw err;
+      throw mapDbError(err, 'Fulfillment allocation');
+    }
+
+    const result = txResult;
+    // Post-commit side effects. The allocation is already durable, so a
+    // failure here must NOT surface as a 500 for an operation that
+    // succeeded — the client would retry and double-allocate.
+    await runPostCommit('fulfillment.allocate', async () => {
+      if (result.backorderCount > 0) {
+        await notificationsService.notify({
+          userId: order.sales_rep_id,
+          type: 'BACKORDER_CREATED',
+          title: 'Backorder created',
+          message: `${result.backorderCount} line(s) on sales order ${salesOrderId} could not be fully allocated`,
+          referenceType: 'sales_order',
+          referenceId: salesOrderId,
+        });
+      }
+      // A backorder/partial allocation is a fulfillment-delay signal that
+      // feeds deal-health — refresh the linked quotation's score.
+      const quotationId = await fulfillmentRepository.findQuotationIdForSalesOrder(salesOrderId);
+      if (quotationId) await dealHealthService.recalculate(quotationId);
     });
+    return result;
   },
 
   async getWithItems(id: string) {
@@ -300,6 +310,49 @@ export const fulfillmentService = {
           const currentQuantity = Number(item.quantity);
           const delta = override.quantity - currentQuantity;
           if (delta === 0) continue;
+
+          // Conservation of quantity: whatever is added to / removed from this
+          // fulfillment line must be mirrored on the sales-order line's
+          // backorder, so allocated + backordered always equals the ordered
+          // quantity. Reducing allocation creates/grows a backorder; raising
+          // it draws that quantity back off the open backorder.
+          const openBackorder = await fulfillmentRepository.findOpenBackorderForItem(
+            client,
+            override.sales_order_item_id,
+          );
+          if (delta < 0) {
+            const freed = -delta;
+            if (openBackorder) {
+              await fulfillmentRepository.setBackorderQuantity(
+                client,
+                openBackorder.id,
+                Number(openBackorder.quantity) + freed,
+              );
+            } else {
+              await fulfillmentRepository.insertBackorder(client, {
+                salesOrderId: fulfillment.sales_order_id,
+                salesOrderItemId: item.sales_order_item_id,
+                productId: item.product_id,
+                quantity: freed,
+              });
+            }
+          } else {
+            // delta > 0 — reclaim from the backorder; refuse to allocate more
+            // than was ordered (no open backorder, or not enough left on it).
+            const reclaim = delta;
+            const available = openBackorder ? Number(openBackorder.quantity) : 0;
+            if (available < reclaim) {
+              throw Errors.businessRuleViolation(
+                `Cannot raise the allocated quantity for item ${override.sales_order_item_id} above what was ordered`,
+              );
+            }
+            const left = available - reclaim;
+            if (left === 0) {
+              await fulfillmentRepository.cancelBackorder(client, openBackorder!.id);
+            } else {
+              await fulfillmentRepository.setBackorderQuantity(client, openBackorder!.id, left);
+            }
+          }
 
           if (delta > 0) {
             // Must be this fulfillment's own warehouse — that's where the
