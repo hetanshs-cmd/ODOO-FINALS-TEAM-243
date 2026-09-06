@@ -54,8 +54,17 @@ export const portalRepository = {
     );
     const quotation = rows[0] as Quotation | undefined;
     if (!quotation) return null;
+    // Joins products/product_categories for a real customer-facing label —
+    // quotation_item_amounts itself carries no product name, only product_id
+    // (see 006_quotations.sql/027_fix_item_amounts_views_missing_created_at.sql),
+    // and the portal has no other product-directory endpoint it can call.
     const items = await db.query(
-      'SELECT * FROM quotation_item_amounts WHERE quotation_id = $1 ORDER BY created_at ASC',
+      `SELECT qia.*, p.name AS product_name, pc.name AS product_category
+       FROM quotation_item_amounts qia
+       JOIN products p ON p.id = qia.product_id
+       JOIN product_categories pc ON pc.id = p.category_id
+       WHERE qia.quotation_id = $1
+       ORDER BY qia.created_at ASC`,
       [id],
     );
     return { ...quotation, items: items.rows };

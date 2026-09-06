@@ -37,3 +37,11 @@ export const portalRequestLinkSchema = z.object({
 export const portalVerifyLinkSchema = z.object({
   token: z.string({ required_error: 'Token is required' }).min(1, 'Token is required'),
 });
+
+/**
+ * POST /portal/login
+ */
+export const portalLoginSchema = z.object({
+  email: z.string({ required_error: 'Email is required' }).email('Invalid email format'),
+  password: z.string({ required_error: 'Password is required' }).min(1, 'Password is required'),
+});

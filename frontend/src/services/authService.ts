@@ -1,8 +1,10 @@
 /**
  * DealFlow360 — Authentication Service
- * Talks to the real backend: POST /auth/login, POST /auth/signup (staff),
- * POST /portal/request-link + POST /portal/verify-link (customer portal
- * magic-link flow). See docs/architecture notes in backend/src/modules/auth.
+ * Talks to the real backend: POST /auth/login (staff), POST /auth/signup
+ * (staff), POST /portal/login (customer portal, plain email/password). The
+ * older POST /portal/request-link + POST /portal/verify-link magic-link
+ * flow still exists on the backend but is no longer used by the login form.
+ * See docs/architecture notes in backend/src/modules/auth.
  */
 
 import { User, UserRole } from '../types';
@@ -86,21 +88,13 @@ function toUser(raw: { id: string; name: string; email: string; role?: string },
 
 class AuthService {
   /**
-   * Internal staff login. Customer-portal login does NOT go through this
-   * method on the real backend — it's the two-step magic-link flow below
-   * (requestPortalLink / verifyPortalLink). `isCustomerPortal` is kept on
-   * the credentials shape for backward compatibility with existing call
-   * sites, but is rejected here with guidance to use the magic-link flow.
+   * Staff login, or customer-portal login when `isCustomerPortal` is set —
+   * both are plain email/password against the backend (POST /auth/login or
+   * POST /portal/login respectively). The magic-link flow further below
+   * (requestPortalLink / verifyPortalLink) still exists but the portal
+   * sign-in form no longer uses it.
    */
   public async login(credentials: LoginCredentials): Promise<AuthResult> {
-    if (credentials.isCustomerPortal) {
-      return {
-        success: false,
-        targetRoute: '/login',
-        error: 'Customer portal sign-in uses a secure access link. Request one below.',
-      };
-    }
-
     const email = credentials.email.trim().toLowerCase();
     const password = credentials.password || '';
 
@@ -111,11 +105,37 @@ class AuthService {
       return { success: false, targetRoute: '/login', error: 'Password is required.' };
     }
 
+    if (credentials.isCustomerPortal) {
+      return this.portalLogin(email, password);
+    }
+
     try {
       const result = await httpClient.post<InternalLoginResponse>('/auth/login', { email, password });
       tokenStore.setToken(result.accessToken);
       const user = toUser(result.user);
       return { success: true, user, targetRoute: targetRouteForRole(user.role) };
+    } catch (err) {
+      return {
+        success: false,
+        targetRoute: '/login',
+        error: err instanceof ApiError ? err.message : 'Unable to sign in. Please retry.',
+      };
+    }
+  }
+
+  /**
+   * Customer portal login: POST /portal/login (email/password, same shape
+   * as internal login). Returns a portal-scoped token via signPortalToken.
+   */
+  public async portalLogin(email: string, password: string): Promise<AuthResult> {
+    try {
+      const result = await httpClient.post<PortalVerifyResponse>('/portal/login', {
+        email: email.trim().toLowerCase(),
+        password,
+      });
+      tokenStore.setToken(result.accessToken);
+      const user = toUser({ ...result.user, role: 'CUSTOMER' }, result.customerId);
+      return { success: true, user, targetRoute: '/portal/quotation' };
     } catch (err) {
       return {
         success: false,
@@ -239,15 +259,7 @@ class AuthService {
       // Meridian's) — fall back to the default portal account only when
       // none is given, so multiple customer demos stay distinct tenants.
       const email = specificEmailOrId || DEMO_ROLE_EMAILS.customer!;
-      const linkResult = await this.requestPortalLink(email);
-      if (!linkResult.devToken) {
-        return {
-          success: false,
-          targetRoute: '/login',
-          error: 'Demo customer login requires a dev backend (no devToken returned).',
-        };
-      }
-      return this.verifyPortalLink(linkResult.devToken);
+      return this.portalLogin(email, DEMO_PASSWORD);
     }
 
     const demoKey = Object.keys(DEMO_ROLE_EMAILS).find(

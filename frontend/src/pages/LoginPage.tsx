@@ -19,7 +19,6 @@ import {
   User as UserIcon,
   Mail,
   Lock,
-  Sparkles,
   AlertCircle,
   HelpCircle,
   X,
@@ -55,8 +54,10 @@ export const LoginPage: React.FC = () => {
   const [signupRole, setSignupRole] = useState<UserRole>('sales_rep');
   const [showSignupPassword, setShowSignupPassword] = useState(false);
 
-  // Customer Portal Form State (magic-link flow)
+  // Customer Portal Form State (plain email/password, same shape as internal login)
   const [customerEmail, setCustomerEmail] = useState('portal@dev.local');
+  const [customerPassword, setCustomerPassword] = useState('');
+  const [showCustomerPassword, setShowCustomerPassword] = useState(false);
 
   // Interaction / Validation State
   const [isLoading, setIsLoading] = useState(false);
@@ -196,18 +197,22 @@ export const LoginPage: React.FC = () => {
     }
   };
 
-  // ── Customer Portal: two-step magic-link flow ──────────────────────────
-  // Step 1: POST /portal/request-link. Step 2 (after "requestSent"):
-  // POST /portal/verify-link with the token from the link (or pasted
-  // manually / auto-verified from a ?token= query param — see effect below).
-  const [portalStep, setPortalStep] = useState<'request' | 'sent'>('request');
-  const [portalDevToken, setPortalDevToken] = useState<string | null>(null);
-  const [portalVerifyToken, setPortalVerifyToken] = useState('');
-
-  const handlePortalRequestLink = async (e: React.FormEvent) => {
+  // ── Customer Portal: plain email/password login ─────────────────────────
+  // POST /portal/login — same demo credentials (DevPassword123!) seeded for
+  // every account, no access-link/token step.
+  const handlePortalLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    const newErrors: Record<string, string> = {};
+
     if (!customerEmail.trim() || !validateEmailFormat(customerEmail.trim())) {
-      setErrors({ customerEmail: 'Enter a valid email address.' });
+      newErrors.customerEmail = 'Enter a valid email address.';
+    }
+    if (!customerPassword) {
+      newErrors.customerPassword = 'Password is required.';
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
       return;
     }
 
@@ -216,45 +221,19 @@ export const LoginPage: React.FC = () => {
     setAuthFeedback(null);
 
     try {
-      const { authService } = await import('../services/authService');
-      const result = await authService.requestPortalLink(customerEmail.trim());
-      setPortalDevToken(result.devToken || null);
-      // Dev-only convenience: no email service is configured, so pre-fill the
-      // token the backend already handed back instead of making the user
-      // copy it out of the box below and paste it into the field themselves.
-      setPortalVerifyToken(result.devToken || '');
-      setPortalStep('sent');
-      toast.info('Check your link', result.message);
-    } catch {
-      setAuthFeedback('Unable to request a secure access link right now. Please retry.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handlePortalVerifyLink = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const token = portalVerifyToken.trim();
-    if (!token) {
-      setErrors({ portalToken: 'Paste the token from your access link.' });
-      return;
-    }
-
-    setErrors({});
-    setIsLoading(true);
-    setAuthFeedback(null);
-
-    try {
-      const { authService } = await import('../services/authService');
-      const result = await authService.verifyPortalLink(token);
+      const result = await login({
+        email: customerEmail.trim(),
+        password: customerPassword,
+        isCustomerPortal: true,
+      });
       if (!result.success) {
-        setAuthFeedback(result.error || 'This link is invalid or has expired.');
+        setAuthFeedback(result.error || 'The email or password does not match a demo account.');
         return;
       }
       toast.success('Procurement Portal', `Welcome, ${result.user?.name || 'there'}`);
       navigate(result.targetRoute);
     } catch {
-      setAuthFeedback('Unable to verify this link. Please request a new one.');
+      setAuthFeedback('Unable to sign in. Please retry when the server is available.');
     } finally {
       setIsLoading(false);
     }
@@ -903,12 +882,11 @@ export const LoginPage: React.FC = () => {
           {/* ================================================================= */}
           {/* CUSTOMER PORTAL LOGIN FORM                                        */}
           {/* ================================================================= */}
-          {authMode === 'customer' && portalStep === 'request' && (
-            <form onSubmit={handlePortalRequestLink} className="space-y-3.5" noValidate>
+          {authMode === 'customer' && (
+            <form onSubmit={handlePortalLogin} className="space-y-3.5" noValidate>
               <div className="p-2.5 bg-[#F3EDF2] border border-[#E0D0DC] rounded-md text-xs text-[#54374D]">
                 <span className="font-semibold">Procurement Sourcing:</span> Review submitted
                 proposals, submit pricing counter-offers, and view order fulfillment progress.
-                Sign-in uses a secure one-time access link — no password needed.
               </div>
 
               {/* Email */}
@@ -924,7 +902,7 @@ export const LoginPage: React.FC = () => {
                   <input
                     id="customer-email"
                     type="email"
-                    autoComplete="email"
+                    autoComplete="username"
                     value={customerEmail}
                     onChange={(e) => {
                       setCustomerEmail(e.target.value);
@@ -945,78 +923,53 @@ export const LoginPage: React.FC = () => {
                 )}
               </div>
 
-              {/* Submit Button */}
-              <button
-                id="btn-customer-request-link"
-                type="submit"
-                disabled={isLoading}
-                className="w-full py-2 px-4 rounded-md font-semibold text-xs text-white bg-[#714B67] hover:bg-[#62415A] active:bg-[#54374D] shadow-2xs focus:outline-none focus:ring-2 focus:ring-[#714B67]/30 transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
-              >
-                {isLoading ? (
-                  <>
-                    <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    <span>Sending secure link...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>Send Me a Secure Access Link</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </>
-                )}
-              </button>
-            </form>
-          )}
-
-          {authMode === 'customer' && portalStep === 'sent' && (
-            <form onSubmit={handlePortalVerifyLink} className="space-y-3.5" noValidate>
-              <div className="p-2.5 bg-[#F3EDF2] border border-[#E0D0DC] rounded-md text-xs text-[#54374D] space-y-1">
-                <div className="font-semibold">Check your link</div>
-                <div>
-                  If <span className="font-medium">{customerEmail}</span> is registered for portal
-                  access, we've sent a one-time sign-in link. Open it on this device to continue,
-                  or paste its token below.
-                </div>
-              </div>
-
-              {portalDevToken && (
-                <div className="p-2 bg-[#FFFBEB] border border-[#FDE68A] rounded-md text-[11px] text-[#92400E] break-all">
-                  <span className="font-semibold">Dev mode token</span> (no email service configured):
-                  <br />
-                  <code>{portalDevToken}</code>
-                </div>
-              )}
-
-              {/* Token */}
+              {/* Password */}
               <div className="space-y-1">
-                <label htmlFor="portal-token" className="block text-xs font-semibold text-[#374151]">
-                  Access link token
+                <label
+                  htmlFor="customer-password"
+                  className="block text-xs font-semibold text-[#374151]"
+                >
+                  Password
                 </label>
                 <div className="relative">
                   <Lock className="w-3.5 h-3.5 text-[#9CA3AF] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
-                    id="portal-token"
-                    type="text"
-                    value={portalVerifyToken}
+                    id="customer-password"
+                    type={showCustomerPassword ? 'text' : 'password'}
+                    autoComplete="current-password"
+                    value={customerPassword}
                     onChange={(e) => {
-                      setPortalVerifyToken(e.target.value);
-                      clearFieldError('portalToken');
+                      setCustomerPassword(e.target.value);
+                      clearFieldError('customerPassword');
                     }}
-                    placeholder="Paste the token from your link"
-                    className={`w-full text-xs bg-white text-[#1F2937] border rounded-md pl-8.5 pr-3 py-2 focus:outline-none focus:ring-2 transition-colors ${
-                      errors.portalToken
+                    placeholder="DevPassword123!"
+                    className={`w-full text-xs bg-white text-[#1F2937] border rounded-md pl-8.5 pr-8 py-2 focus:outline-none focus:ring-2 transition-colors ${
+                      errors.customerPassword
                         ? 'border-[#F87171] focus:ring-[#FCA5A5]'
                         : 'border-[#D1D5DB] focus:ring-[#714B67]/20 focus:border-[#714B67]'
                     }`}
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowCustomerPassword(!showCustomerPassword)}
+                    aria-label={showCustomerPassword ? 'Hide password' : 'Show password'}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#9CA3AF] hover:text-[#4B5563] cursor-pointer"
+                  >
+                    {showCustomerPassword ? (
+                      <EyeOff className="w-3.5 h-3.5" />
+                    ) : (
+                      <Eye className="w-3.5 h-3.5" />
+                    )}
+                  </button>
                 </div>
-                {errors.portalToken && (
-                  <p className="text-[11px] text-[#DC2626] font-medium">{errors.portalToken}</p>
+                {errors.customerPassword && (
+                  <p className="text-[11px] text-[#DC2626] font-medium">{errors.customerPassword}</p>
                 )}
               </div>
 
+              {/* Submit Button */}
               <button
-                id="btn-customer-verify-link"
+                id="btn-customer-login"
                 type="submit"
                 disabled={isLoading}
                 className="w-full py-2 px-4 rounded-md font-semibold text-xs text-white bg-[#714B67] hover:bg-[#62415A] active:bg-[#54374D] shadow-2xs focus:outline-none focus:ring-2 focus:ring-[#714B67]/30 transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
@@ -1024,7 +977,7 @@ export const LoginPage: React.FC = () => {
                 {isLoading ? (
                   <>
                     <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    <span>Connecting to portal...</span>
+                    <span>Signing in...</span>
                   </>
                 ) : (
                   <>
@@ -1033,21 +986,6 @@ export const LoginPage: React.FC = () => {
                   </>
                 )}
               </button>
-
-              <div className="pt-1.5 text-center">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPortalStep('request');
-                    setPortalDevToken(null);
-                    setPortalVerifyToken('');
-                    setAuthFeedback(null);
-                  }}
-                  className="text-xs text-[#4B5563] hover:text-[#714B67] font-medium cursor-pointer"
-                >
-                  Use a different email
-                </button>
-              </div>
             </form>
           )}
 

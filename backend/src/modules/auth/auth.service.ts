@@ -116,6 +116,53 @@ export async function signup(input: {
 }
 
 /**
+ * POST /portal/login
+ *
+ * Simple demo-friendly alternative to the magic-link flow below: a portal
+ * (CUSTOMER-role) user signs in with the same email/password they were
+ * seeded with, exactly like internal login, and gets back a portal-scoped
+ * token. Same generic-error, timing-shape, and customer-link requirement as
+ * the magic-link path — this is not a weaker check, just a different way to
+ * reach the same signPortalToken() outcome.
+ */
+export async function portalLogin(email: string, password: string): Promise<VerifyMagicLinkResult> {
+  const invalidCredentials = () =>
+    new AppError('INVALID_CREDENTIALS', 401, 'Invalid email or password');
+
+  const user = await authRepository.findUserByEmail(email);
+  if (!user) {
+    throw invalidCredentials();
+  }
+  if (user.status !== 'ACTIVE' || user.role_name !== 'CUSTOMER') {
+    throw invalidCredentials();
+  }
+
+  const passwordMatches = await bcrypt.compare(password, user.password_hash);
+  if (!passwordMatches) {
+    throw invalidCredentials();
+  }
+
+  const customerLink = await authRepository.findActiveCustomerLink(user.id);
+  if (!customerLink) {
+    throw invalidCredentials();
+  }
+
+  await authRepository.updateLastLogin(user.id);
+
+  const accessToken = signPortalToken(user.id, customerLink.customer_id);
+
+  return {
+    accessToken,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+    },
+    customerId: customerLink.customer_id,
+  };
+}
+
+/**
  * In-memory magic-link store — STUB for this phase.
  *
  * A real implementation would persist this in a database table (so it

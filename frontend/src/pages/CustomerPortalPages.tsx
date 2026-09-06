@@ -20,7 +20,7 @@
  * fabricating the governance simulation.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   FileText,
@@ -43,7 +43,7 @@ import { useNegotiation } from '../hooks/useNegotiation';
 import { usePortalProfile } from '../hooks/usePortal';
 import { toast } from '../components/ui/Toast';
 import { portalService, negotiationService } from '../services';
-import { ApiQuotationWithItems } from '../services/apiTypes';
+import { ApiQuotationWithItems, ApiPortalQuotation } from '../services/apiTypes';
 import { ApiError } from '../services/httpClient';
 
 // =========================================================================
@@ -54,6 +54,11 @@ export const PortalQuotationPage: React.FC = () => {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
 
+  // Lightweight list — used only to populate the "Your Proposals" tab
+  // switcher (id + quotation_number). GET /portal/quotations never includes
+  // line items (see portal.repository.ts::listQuotationsForCustomer), so the
+  // actual selected quotation is fetched separately in full below — using
+  // this list directly as "the" quotation used to always render 0 items.
   const [quotes, setQuotes] = useState<ApiQuotationWithItems[]>([]);
   const [quotesLoading, setQuotesLoading] = useState(true);
   const [quotesError, setQuotesError] = useState<string | null>(null);
@@ -73,7 +78,32 @@ export const PortalQuotationPage: React.FC = () => {
   }, []);
 
   const selectedQuoteId = searchParams.get('id') || quotes[0]?.id;
-  const quote = useMemo(() => quotes.find((q) => q.id === selectedQuoteId) || null, [quotes, selectedQuoteId]);
+
+  // Full detail (with real line items) for whichever quotation is selected —
+  // GET /portal/quotations/:id, backed by portal.repository.ts::
+  // findQuotationForCustomer, which does join quotation_item_amounts.
+  const [quote, setQuote] = useState<ApiPortalQuotation | null>(null);
+  const [detailLoading, setDetailLoading] = useState(true);
+  const [detailError, setDetailError] = useState<string | null>(null);
+
+  const fetchDetail = useCallback(() => {
+    if (!selectedQuoteId) {
+      setQuote(null);
+      setDetailLoading(false);
+      return Promise.resolve();
+    }
+    setDetailLoading(true);
+    setDetailError(null);
+    return portalService
+      .getQuotationById(selectedQuoteId)
+      .then((data) => setQuote(data))
+      .catch((err) => setDetailError(err instanceof ApiError ? err.message : 'Failed to load this quotation.'))
+      .finally(() => setDetailLoading(false));
+  }, [selectedQuoteId]);
+
+  useEffect(() => {
+    fetchDetail();
+  }, [fetchDetail]);
 
   const [showRequestChangesForm, setShowRequestChangesForm] = useState(false);
   const [negotiationMessage, setNegotiationMessage] = useState(
@@ -85,15 +115,15 @@ export const PortalQuotationPage: React.FC = () => {
   const [isConfirming, setIsConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
 
-  if (quotesLoading) {
+  if (quotesLoading || detailLoading) {
     return <div className="max-w-xl mx-auto py-12 text-center text-xs text-gray-500">Loading your quotations…</div>;
   }
 
-  if (quotesError) {
+  if (quotesError || detailError) {
     return (
       <div className="max-w-xl mx-auto py-12 text-center">
         <AlertTriangle className="w-10 h-10 text-amber-500 mx-auto mb-3" />
-        <p className="text-xs text-gray-600">{quotesError}</p>
+        <p className="text-xs text-gray-600">{quotesError || detailError}</p>
       </div>
     );
   }
@@ -153,7 +183,7 @@ export const PortalQuotationPage: React.FC = () => {
       // POST /quotations/:id/convert is internal-only and always 401s here.
       const result = await portalService.confirmQuotation(quote.id);
       setShowConfirmModal(false);
-      await fetchQuotes();
+      await Promise.all([fetchQuotes(), fetchDetail()]);
       if (result.requiresApproval) {
         toast.info(
           'Submitted for Review',
@@ -319,11 +349,11 @@ export const PortalQuotationPage: React.FC = () => {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    {/* Product listing is ADMIN-gated (no portal-accessible directory
-                        endpoint), so fall back to the line's own description snapshot
-                        rather than the raw product_id. */}
+                    {/* GET /portal/quotations/:id joins products/product_categories
+                        (portal.repository.ts::findQuotationForCustomer) for a real
+                        label — product_id is the last-resort fallback only. */}
                     <span className="text-sm font-bold text-gray-900">
-                      {line.description || line.product_id}
+                      {line.product_name || line.description || line.product_id}
                     </span>
                     {line.billing_type === 'RECURRING' && (
                       <span className="text-[10px] font-semibold px-2 py-0.5 rounded border bg-purple-50 text-purple-700 border-purple-200">
@@ -331,6 +361,9 @@ export const PortalQuotationPage: React.FC = () => {
                       </span>
                     )}
                   </div>
+                  {line.product_category && (
+                    <div className="text-[11px] text-gray-400">{line.product_category}</div>
+                  )}
                   <div className="flex flex-wrap items-center gap-x-3 text-xs text-gray-500 mt-1">
                     <span>{line.quantity} × ₹{Number(line.unit_price).toLocaleString()}</span>
                     {Number(line.discount_percent) > 0 && (
