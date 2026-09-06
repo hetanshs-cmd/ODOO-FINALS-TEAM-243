@@ -32,11 +32,19 @@ import { useDealHealthAlerts } from '../hooks/useDealHealth';
 import { toast } from '../components/ui/Toast';
 import { CommandPalette } from '../components/ui/CommandPalette';
 import { ChatWidget } from '../components/ai/ChatWidget';
+import { UserRole } from '../types';
+
+// Mirrors the backend's requireRole() allow-list for GET /quotations and
+// GET /deal-health (see docs/api.md) — FINANCE and OPERATIONS can't read
+// either, so fetching them unconditionally here (just for sidebar badge
+// counts) 403'd on every page load for those roles.
+const PIPELINE_VISIBLE_ROLES: UserRole[] = ['sales_rep', 'sales_manager', 'admin'];
 
 export const InternalShell: React.FC = () => {
-  const { user, logout } = useAuth();
-  const { quotations, refetch: refetchQuotations } = useQuotations();
-  const { alerts, refetch: refetchAlerts } = useDealHealthAlerts();
+  const { user, logout, hasRole } = useAuth();
+  const canViewPipeline = hasRole(PIPELINE_VISIBLE_ROLES);
+  const { quotations, refetch: refetchQuotations } = useQuotations(undefined, canViewPipeline);
+  const { alerts, refetch: refetchAlerts } = useDealHealthAlerts(undefined, canViewPipeline);
   const navigate = useNavigate();
   const location = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
