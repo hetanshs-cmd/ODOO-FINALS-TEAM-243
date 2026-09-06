@@ -3,9 +3,11 @@
 **Repository:** `hetanshs-cmd/ODOO-FINALS-TEAM-243` — DealFlow360
 **Branch audited:** `dev` @ `f1c5538`, then remediated in place; `dev` @ `bebd087` after a mid-pass
 `git pull` brought in a teammate's schema refactor (see §9 update).
-**Date:** 2026-09-05
+**Date:** 2026-09-05; **fourth pass 2026-09-06** (`dev` @ `f1f9783`) — see §1c for the current
+production-readiness verdict, which supersedes the status of everything below it.
 **Mode:** Original pass was READ-ONLY. A second, active remediation pass followed (same day, this
 document), fixing confirmed findings in source and adding one new migration — see §1a and §9.1.
+The fourth pass (§1c) was verification-only against a running stack; it changed no code.
 **Auditor roles applied:** Principal Architect · Staff Full-Stack · DB Architect · Security · QA Lead · DevOps · Code Reviewer
 
 ## 1a. Remediation Pass Summary (same day, follow-up to the audit below)
@@ -128,6 +130,88 @@ already present and are well-targeted.
 
 **Not done this pass (out of the stated scope of "database"):** the frontend split-brain (A2),
 the CI coverage gate, and every non-DB finding in §26 remain as documented above.
+
+---
+
+## 1c. Fourth Pass — Full Production-Readiness Audit (2026-09-06)
+
+**Branch:** `dev` @ `f1f9783`. **Mode:** verification-first; every claim below was proven against the
+running stack (live Postgres `odoo_hackathon`, backend on :4000, frontend on :3000), not inferred
+from source or from earlier sections of this document.
+
+**Verdict: READY WITH MINOR NON-BLOCKING ISSUES.** The application is genuinely connected —
+frontend ↔ API ↔ backend ↔ database — and the earlier passes' P0/P1 defects are confirmed fixed.
+Two real findings remain, neither blocking a demo.
+
+### Evidence gathered
+
+| Check | Result |
+|---|---|
+| Backend suite (`vitest run`) | **212/212 passing**, 31 files |
+| Backend lint (`eslint src`) | clean |
+| Backend typecheck / frontend typecheck | clean |
+| Frontend production build (`vite build`) | succeeds, 2605 modules |
+| DB connectivity | connected — `odoo_hackathon` as `odoo_user` |
+| Migrations | **28 applied = 28 on disk**, zero drift either direction |
+| Seed/data state | all 42 tables populated except 2 (see FP-3) |
+| Quotation totals invariant | 22/22 exact, 0 mismatches |
+| Sales-order totals invariant | 9/9 exact | 
+| Invoice totals invariant | 7/7 exact |
+| Referential integrity (7 orphan classes) | 0 real orphans |
+| Encoding integrity (source + DB text) | clean; DB is UTF8/`en_US.utf8` |
+| Swallowed errors / stray `console.log` (frontend) | 0 / 0 |
+
+**Cross-feature chain proven on real records** — every converted quotation traces end to end,
+e.g. `Q-SEED-SO-PARTIAL → SO-SEED-PARTIAL(PARTIALLY_FULFILLED) → 2 fulfillments →
+INV-SEED-OVERDUE(OVERDUE) → 1 payment`, and `Q-SEED-CONVERTED → SO-SEED-FULFILLED → 1 fulfillment
+→ INV-SEED-PAID(PAID) → 2 payments`. There is no parallel/disconnected dataset.
+
+**Write round-trip proven with no residue** — `PATCH /quotations/:id` with
+`order_discount_percent: 15` on `Q-SEED-DRAFT` persisted to the DB and the Postgres views
+recomputed correctly (subtotal 5000.00, discount 250.00→962.50, tax 380.00→323.00, grand
+5130.00→4360.50; invariant `subtotal − discount + tax = grand` held to the cent). Original value
+restored afterwards.
+
+**Security verified by live probe, not by reading guards.** Customer A (Dev Test Customer) against
+customer B's (Meridian Industrial) quotation: `GET /portal/quotations/:id` → **404**,
+`GET|POST /quotations/:id/negotiations` → **403**, `POST /portal/quotations/:id/confirm` → **404**;
+B reading its own → **200**. A portal token is rejected with **401** from every internal endpoint
+tested (`/quotations`, `/customers`, `/users`, `/products`, `/deal-health`, `/admin/products`,
+`/negotiations`). This specifically confirms the negotiations router-mount reordering (§ PR #61 /
+`f1f9783`) opened **no** privilege-escalation path.
+
+**Deal Health is real, not decorative.** `GET /deal-health` returns alerts joined to real
+quotation numbers and customer names; `GET /quotations/:id/deal-health` returns a scored record
+with a component breakdown (`discount_risk` / `negotiation_risk` / `delay_risk` /
+`fulfillment_risk`); `POST .../recalculate` produces a fresh row with an advanced timestamp. The
+frontend page is backed by `useDealHealthAlerts` + `dealHealthService` with no mock involvement.
+
+### Findings
+
+| ID | Sev | Finding | Status |
+|---|---|---|---|
+| FP-1 | **P1** | **Three admin config pages persist to `localStorage`, not the database.** `AdminProductsConfigPage` (`saveProduct`/`archiveProduct`/`savePriceList`), `AdminSubscriptionsPage` (`saveSubscriptionPlan`), and `AdminReportingConfigPage` (`saveReportingConfig`) call `useDealStore()` exclusively and make **zero** real API calls. Real, working backends already exist for the first two — `GET /admin/products`, `/admin/price-lists`, `/admin/subscription-plans` all return 200 and `adminService` already exposes typed CRUD for them. Net effect: an admin edits a product, the UI reports success, the database is untouched, and the change is invisible to every other user and lost on cache clear. This is precisely the "admin UI that merely appears to save" failure mode. | **Open** — fix is a real migration (~1,200 lines across 2–3 files, mock-shaped `Product`/`PriceList`/`SubscriptionPlan` types vs snake_case `ApiProduct`), deliberately not attempted unilaterally while teammates hold these files. `AdminReportingConfigPage` additionally has **no** backend equivalent, so it needs an endpoint before it can be migrated at all. |
+| FP-2 | P2 | **Quotation audit trail has gaps.** `insertAuditLog` is called in `create` (`QUOTATION_CREATED`) and `submit` (`QUOTATION_SUBMITTED`) but **not** in `update`, `addItem`, `updateItem`, or `removeItem` — so discount and line-item edits, the most audit-worthy events in a deal-governance product, leave no trace. Proven live: two successful `PATCH` calls changing `order_discount_percent` produced **zero** new timeline rows; `GET /quotations/:id/timeline` still returned only the single `CREATE` entry. The timeline UI in `ApprovalsPages` therefore renders a near-empty history. | **Open** — the correct fix threads a transaction client through four repository methods (`insertAuditLog`'s own contract requires the audit row to commit with the mutation); doing it via the pool instead would risk unaudited mutations. |
+| FP-3 | P3 | `permissions` and `role_permissions` are the only empty tables — and **zero application code references either**. Authorization runs entirely on JWT role names via `requireRole()`. Vestigial schema, not a defect. | **Won't fix** — dropping them is an unnecessary schema change. |
+| FP-4 | P3 | Frontend bundle is a single 1.93 MB chunk (549 kB gzipped); Vite warns about it. Fine for a demo, would want code-splitting for real production. | **Won't fix** — speculative optimization, out of audit scope. |
+
+### Explicitly could not reproduce
+
+The long-standing **"unwanted symbols / garbled characters in the Customer Portal"** complaint is
+**not reproducible and no supporting evidence exists.** Every source file under `frontend/src` and
+`backend/src` decodes as valid UTF-8; there are zero U+FFFD replacement characters and zero
+`Ã`/`â€`/`Â` mojibake sequences anywhere in source; and a direct scan of `customers.company_name`,
+`products.name`, `products.description`, `quotations.title`, `quotation_items.description`, and
+`negotiation_messages.message` found zero corrupted rows against a UTF8/`en_US.utf8` database.
+Reported as unconfirmed rather than guessing at a fix — consistent with the same conclusion reached
+in an earlier session.
+
+### Intentionally unchanged
+
+No code was modified during this pass. Every P0/P1 from prior passes verified as genuinely fixed;
+the two open findings above are both substantial changes to working code in a repository with
+several teammates actively pushing, so they are documented for an explicit go/no-go rather than
+started unilaterally mid-audit.
 
 ---
 
