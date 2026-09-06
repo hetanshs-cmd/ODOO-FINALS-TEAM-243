@@ -113,6 +113,14 @@ app.use('/api/v1', healthRouter);
 app.use('/api/v1', authRouter);
 app.use('/api/v1', portalRouter);
 app.use('/api/v1/admin', adminRouter);
+// MUST be mounted before quotationsRouter: negotiations are the one
+// /quotations/:id/* sub-resource a portal (scope: "portal") token may call,
+// and it authenticates internal-OR-portal. quotationsRouter's blanket
+// `authenticate` middleware fires for every /quotations/* request that
+// reaches it — matched route or not (same gotcha as productsRouter below) —
+// so a portal token hitting GET /quotations/:id/negotiations would 401 there
+// and force a portal logout before this router ever sees the request.
+app.use('/api/v1/quotations', quotationNegotiationsRouter);
 app.use('/api/v1/quotations', quotationsRouter);
 // Mounted at the same base path as quotationsRouter — discount-engine owns
 // only the /:id/check-discounts route, kept as its own module per
@@ -133,9 +141,9 @@ app.use('/api/v1/sales-orders', salesOrderBillingRouter);
 app.use('/api/v1/invoices', invoicesRouter);
 app.use('/api/v1/subscriptions', subscriptionsRouter);
 // Opening a negotiation is a quotation-scoped action (POST
-// /quotations/:id/negotiations); everything else on an existing negotiation
-// (read, post a message) lives under /negotiations/:id/*.
-app.use('/api/v1/quotations', quotationNegotiationsRouter);
+// /quotations/:id/negotiations) — mounted above, before quotationsRouter.
+// Everything else on an existing negotiation (read, post a message) lives
+// under /negotiations/:id/* and has no path collision, so order is free here.
 app.use('/api/v1/negotiations', negotiationsRouter);
 app.use('/api/v1/quotations', quotationDealHealthRouter);
 app.use('/api/v1/deal-health', dealHealthAlertsRouter);
