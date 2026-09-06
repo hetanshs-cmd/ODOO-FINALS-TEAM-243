@@ -70,11 +70,11 @@ export const DealHealthFlagCard: React.FC<DealHealthFlagCardProps> = ({
         <p className="text-xs text-slate-700 leading-relaxed">{flag.message}</p>
       </div>
 
-      <div className="flex items-center justify-between pt-3 border-t border-slate-100 gap-2">
+      <div className="flex flex-wrap items-center justify-between pt-3 border-t border-slate-100 gap-x-2 gap-y-2">
         <span className="text-[10px] text-slate-400">
           Flagged {new Date(flag.created_at).toLocaleDateString()}
         </span>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
           {onDraftNudge && (
             <Button variant="ghost" size="sm" icon={<Sparkles className="w-3 h-3" />} onClick={() => onDraftNudge(flag.id)}>
               Draft Nudge

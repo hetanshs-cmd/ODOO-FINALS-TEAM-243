@@ -11,6 +11,7 @@ export const approvalsRepository = {
   async list(
     status: string | undefined,
     requestedBy: string | undefined,
+    quotationId: string | undefined,
     limit: number,
     offset: number,
   ): Promise<ApprovalRequest[]> {
@@ -18,11 +19,15 @@ export const approvalsRepository = {
     const params: unknown[] = [];
     if (status) {
       params.push(status);
-      conditions.push(`status = $${params.length}`);
+      conditions.push(`ar.status = $${params.length}`);
     }
     if (requestedBy) {
       params.push(requestedBy);
-      conditions.push(`requested_by = $${params.length}`);
+      conditions.push(`ar.requested_by = $${params.length}`);
+    }
+    if (quotationId) {
+      params.push(quotationId);
+      conditions.push(`ar.quotation_id = $${params.length}`);
     }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     params.push(limit, offset);
@@ -37,7 +42,11 @@ export const approvalsRepository = {
     return rows as ApprovalRequest[];
   },
 
-  async count(status: string | undefined, requestedBy: string | undefined): Promise<number> {
+  async count(
+    status: string | undefined,
+    requestedBy: string | undefined,
+    quotationId: string | undefined,
+  ): Promise<number> {
     const conditions: string[] = [];
     const params: unknown[] = [];
     if (status) {
@@ -47,6 +56,10 @@ export const approvalsRepository = {
     if (requestedBy) {
       params.push(requestedBy);
       conditions.push(`requested_by = $${params.length}`);
+    }
+    if (quotationId) {
+      params.push(quotationId);
+      conditions.push(`quotation_id = $${params.length}`);
     }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const { rows } = await db.query(

@@ -570,10 +570,15 @@ export const ApprovalDetailPage: React.FC = () => {
     );
   }
 
-  // Most recent approval request for this quotation (there may be several
-  // across resubmissions — the backend does not scope "current" for us).
-  const approval: ApiApprovalRequest | null = approvals.length
-    ? [...approvals].sort((a, b) => new Date(b.requested_at).getTime() - new Date(a.requested_at).getTime())[0]
+  // Most recent approval request for THIS quotation (there may be several
+  // across resubmissions/escalations). The list is already scoped server-side
+  // by quotation_id, but filter again defensively so a stray row can never
+  // make the action buttons act on another quotation's request.
+  const quotationApprovals = approvals.filter((a) => a.quotation_id === quotation.id);
+  const approval: ApiApprovalRequest | null = quotationApprovals.length
+    ? [...quotationApprovals].sort(
+        (a, b) => new Date(b.requested_at).getTime() - new Date(a.requested_at).getTime(),
+      )[0]
     : null;
 
   const isPending = approval?.status === 'PENDING';
