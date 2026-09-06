@@ -33,6 +33,7 @@ export const approvalsService = {
   async list(
     query: {
       status?: string;
+      quotation_id?: string;
       page?: unknown;
       limit?: unknown;
     },
@@ -44,8 +45,14 @@ export const approvalsService = {
     const requestedBy = requester.role === 'SALES_REP' ? requester.id : undefined;
     const pagination = getPaginationParams(query);
     const [items, total] = await Promise.all([
-      approvalsRepository.list(query.status, requestedBy, pagination.limit, pagination.offset),
-      approvalsRepository.count(query.status, requestedBy),
+      approvalsRepository.list(
+        query.status,
+        requestedBy,
+        query.quotation_id,
+        pagination.limit,
+        pagination.offset,
+      ),
+      approvalsRepository.count(query.status, requestedBy, query.quotation_id),
     ]);
     return buildPaginatedResult(items, total, pagination);
   },

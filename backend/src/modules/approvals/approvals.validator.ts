@@ -4,6 +4,9 @@ export const idParamSchema = z.object({ id: z.string().uuid('id must be a valid 
 
 export const listApprovalsQuerySchema = z.object({
   status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'ESCALATED', 'CANCELLED']).optional(),
+  // Scopes the list to one quotation — the approval detail screen needs the
+  // request(s) for the quotation it is showing, not the newest one system-wide.
+  quotation_id: z.string().uuid('quotation_id must be a valid UUID').optional(),
   page: z.string().optional(),
   limit: z.string().optional(),
 });

@@ -5,7 +5,10 @@ import { approvalsService } from './approvals.service';
 export const approvalsController = {
   async list(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const result = await approvalsService.list(req.query as { status?: string }, req.user!);
+      const result = await approvalsService.list(
+        req.query as { status?: string; quotation_id?: string },
+        req.user!,
+      );
       sendSuccess({ res, data: result, message: 'Approval requests retrieved successfully' });
     } catch (err) {
       next(err);
