@@ -8,12 +8,13 @@ import { customerService } from '../services';
 import { ApiError } from '../services/httpClient';
 import { ApiCustomer, ListQuery } from '../services/apiTypes';
 
-export function useCustomers(query?: ListQuery) {
+export function useCustomers(query?: ListQuery, enabled = true) {
   const [customers, setCustomers] = useState<ApiCustomer[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<ApiError | null>(null);
 
   const refetch = useCallback(async () => {
+    if (!enabled) return;
     setLoading(true);
     setError(null);
     try {
@@ -25,7 +26,7 @@ export function useCustomers(query?: ListQuery) {
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(query)]);
+  }, [JSON.stringify(query), enabled]);
 
   useEffect(() => {
     refetch();

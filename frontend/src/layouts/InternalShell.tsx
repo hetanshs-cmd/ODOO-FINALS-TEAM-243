@@ -32,11 +32,19 @@ import { useDealHealthAlerts } from '../hooks/useDealHealth';
 import { toast } from '../components/ui/Toast';
 import { CommandPalette } from '../components/ui/CommandPalette';
 import { ChatWidget } from '../components/ai/ChatWidget';
+import { UserRole } from '../types';
+
+// Mirrors the backend's requireRole() allow-list for GET /quotations and
+// GET /deal-health (see docs/api.md) — FINANCE and OPERATIONS can't read
+// either, so fetching them unconditionally here (just for sidebar badge
+// counts) 403'd on every page load for those roles.
+const PIPELINE_VISIBLE_ROLES: UserRole[] = ['sales_rep', 'sales_manager', 'admin'];
 
 export const InternalShell: React.FC = () => {
-  const { user, logout } = useAuth();
-  const { quotations, refetch: refetchQuotations } = useQuotations();
-  const { alerts, refetch: refetchAlerts } = useDealHealthAlerts();
+  const { user, logout, hasRole } = useAuth();
+  const canViewPipeline = hasRole(PIPELINE_VISIBLE_ROLES);
+  const { quotations, refetch: refetchQuotations } = useQuotations(undefined, canViewPipeline);
+  const { alerts, refetch: refetchAlerts } = useDealHealthAlerts(undefined, canViewPipeline);
   const navigate = useNavigate();
   const location = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
@@ -59,6 +67,13 @@ export const InternalShell: React.FC = () => {
   if (user.role.toLowerCase() === 'customer') {
     return <Navigate to="/portal/quotation" replace />;
   }
+
+  // The "Customer Portal" quick-link is a dead end for these internal roles —
+  // it points at /portal/quotation, which only a portal-scoped (customer) token can
+  // access, so clicking it as an internal user has no actual significance.
+  const showCustomerPortalLink = !['sales_rep', 'sales_manager', 'admin', 'finance'].includes(
+    user.role.toLowerCase()
+  );
 
   const pendingApprovalsCount = quotations.filter((q) => q.status === 'PENDING_APPROVAL').length;
 
@@ -305,14 +320,16 @@ export const InternalShell: React.FC = () => {
               <span>New Quotation</span>
             </button>
 
-            <Link
-              to="/portal/quotation"
-              className="flex items-center justify-center gap-1.5 text-[11px] text-[#714B67] hover:text-[#62415A] font-medium py-1 text-center"
-              title="Open Customer Procurement & Negotiation Portal"
-            >
-              <UserCheck className="w-3.5 h-3.5" />
-              <span>Customer Portal</span>
-            </Link>
+            {showCustomerPortalLink && (
+              <Link
+                to="/portal/quotation"
+                className="flex items-center justify-center gap-1.5 text-[11px] text-[#714B67] hover:text-[#62415A] font-medium py-1 text-center"
+                title="Open Customer Procurement & Negotiation Portal"
+              >
+                <UserCheck className="w-3.5 h-3.5" />
+                <span>Customer Portal</span>
+              </Link>
+            )}
           </div>
         </aside>
 
@@ -377,13 +394,15 @@ export const InternalShell: React.FC = () => {
                   <Plus className="w-3.5 h-3.5" />
                   <span>New Quotation</span>
                 </button>
-                <Link
-                  to="/portal/quotation"
-                  onClick={() => setIsMobileMenuOpen(false)}
-                  className="block text-center text-xs text-[#714B67] font-medium py-1"
-                >
-                  Open Customer Portal
-                </Link>
+                {showCustomerPortalLink && (
+                  <Link
+                    to="/portal/quotation"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="block text-center text-xs text-[#714B67] font-medium py-1"
+                  >
+                    Open Customer Portal
+                  </Link>
+                )}
               </div>
             </div>
             <div className="flex-1" onClick={() => setIsMobileMenuOpen(false)} />

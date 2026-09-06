@@ -23,6 +23,19 @@ const envSchema = z.object({
   JWT_REFRESH_EXPIRY: z.string().default('7d'),
   BCRYPT_ROUNDS: z.string().default('12').transform(Number),
   FRONTEND_URL: z.string().url('FRONTEND_URL must be a valid URL'),
+  // ── Rate limiting ──────────────────────────────────────────────────────────
+  // Unset => on in production, off everywhere else (dev hot-reloads and
+  // shared proxy IPs during testing kept 429ing legitimate traffic). Set
+  // explicitly to force it either way. Windows/maxes are tunable so a
+  // deployment can tighten or loosen without a code change.
+  RATE_LIMIT_ENABLED: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((value) => (value === undefined ? undefined : value === 'true')),
+  RATE_LIMIT_WINDOW_MS: z.string().default('900000').transform(Number), // 15m
+  RATE_LIMIT_MAX: z.string().default('2000').transform(Number), // general API, per IP/window
+  RATE_LIMIT_LOGIN_MAX: z.string().default('20').transform(Number), // POST /auth/login
+  RATE_LIMIT_AUTH_MAX: z.string().default('10').transform(Number), // signup + portal magic-link
   // Explicit opt-in for returning the magic-link token in the API response.
   // Previously this was inferred from `NODE_ENV !== 'production'`, so any
   // environment that wasn't explicitly production handed out portal sessions

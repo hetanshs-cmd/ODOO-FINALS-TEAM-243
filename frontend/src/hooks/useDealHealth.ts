@@ -10,12 +10,13 @@ import { dealHealthService } from '../services';
 import { ApiError } from '../services/httpClient';
 import { ApiDealAlert, ListQuery } from '../services/apiTypes';
 
-export function useDealHealthAlerts(query?: ListQuery) {
+export function useDealHealthAlerts(query?: ListQuery, enabled = true) {
   const [alerts, setAlerts] = useState<ApiDealAlert[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<ApiError | null>(null);
 
   const refetch = useCallback(async () => {
+    if (!enabled) return;
     setLoading(true);
     setError(null);
     try {
@@ -29,7 +30,7 @@ export function useDealHealthAlerts(query?: ListQuery) {
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(query)]);
+  }, [JSON.stringify(query), enabled]);
 
   useEffect(() => {
     refetch();

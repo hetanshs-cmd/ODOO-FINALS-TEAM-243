@@ -47,3 +47,13 @@ export async function verifyLink(req: Request, res: Response, next: NextFunction
     next(error);
   }
 }
+
+export async function portalLogin(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { email, password } = req.body;
+    const result = await authService.portalLogin(email, password);
+    sendSuccess({ res, data: result, message: 'Login successful' });
+  } catch (error) {
+    next(error);
+  }
+}

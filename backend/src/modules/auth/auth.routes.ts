@@ -4,7 +4,7 @@
  */
 import { Router } from 'express';
 import { validate } from '../../middleware/validate';
-import { authLimiter } from '../../middleware/authRateLimit';
+import { authLimiter } from '../../middleware/rateLimit';
 import { loginSchema, signupSchema } from './auth.validator';
 import * as authController from './auth.controller';
 

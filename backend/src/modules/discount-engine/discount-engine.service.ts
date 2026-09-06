@@ -9,7 +9,7 @@ import { evaluateQuotationDiscounts } from './discountEngine';
 import { discountEngineRepository } from './discount-engine.repository';
 import { CheckDiscountsResult } from './discount-engine.model';
 
-const CHECKABLE_STATUSES = new Set(['DRAFT', 'SUBMITTED', 'NEGOTIATION']);
+const CHECKABLE_STATUSES = new Set(['DRAFT', 'SUBMITTED', 'NEGOTIATION', 'SENT_TO_CUSTOMER']);
 
 export const discountEngineService = {
   /**

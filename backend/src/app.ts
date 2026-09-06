@@ -1,8 +1,8 @@
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
-import rateLimit from 'express-rate-limit';
 import { config } from './config/env';
+import { apiLimiter, loginLimiter } from './middleware/rateLimit';
 import { errorHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/requestLogger';
 import { notFoundHandler } from './middleware/notFoundHandler';
@@ -63,42 +63,9 @@ app.use(
 );
 
 // ── Rate Limiting ────────────────────────────────────────────────────────────
-// A single SPA page load fans out into 5-6+ parallel GET requests (quotations,
-// approvals, customers, users, deal-health, notifications, ...), so 100/15min
-// was exhausted by ordinary navigation plus a refresh or two within minutes —
-// not abuse — and every page silently went blank as every fetch 429'd. Raised
-// well above realistic browsing volume for one client; write-heavy abuse is
-// still bounded by this window, and login has its own tighter budget below.
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 2000,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    error: 'RATE_LIMIT_EXCEEDED',
-    message: 'Too many requests. Please try again later.',
-  },
-});
-app.use(limiter);
-
-// Login has its own, tighter budget so brute-force attempts are throttled
-// without being drowned out by the app-wide limiter's shared 100/15min
-// bucket — dev traffic (hot reloads, other routes, multiple testers behind
-// the same tunnel/proxy IP) was exhausting that bucket and returning 429s
-// on legitimate login attempts.
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  skipSuccessfulRequests: true,
-  message: {
-    success: false,
-    error: 'RATE_LIMIT_EXCEEDED',
-    message: 'Too many login attempts. Please wait a few minutes and try again.',
-  },
-});
+// All limiters live in middleware/rateLimit.ts and are pass-throughs unless
+// RATE_LIMIT_ENABLED (defaulting to "production only") turns them on.
+app.use(apiLimiter);
 app.use('/api/v1/auth/login', loginLimiter);
 
 // ── Body Parsing ─────────────────────────────────────────────────────────────

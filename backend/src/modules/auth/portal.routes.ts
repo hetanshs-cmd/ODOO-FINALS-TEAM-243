@@ -12,12 +12,18 @@
  */
 import { Router } from 'express';
 import { validate } from '../../middleware/validate';
-import { authLimiter } from '../../middleware/authRateLimit';
-import { portalRequestLinkSchema, portalVerifyLinkSchema } from './auth.validator';
+import { authLimiter } from '../../middleware/rateLimit';
+import { portalRequestLinkSchema, portalVerifyLinkSchema, portalLoginSchema } from './auth.validator';
 import * as authController from './auth.controller';
 
 const router = Router();
 
+router.post(
+  '/portal/login',
+  authLimiter,
+  validate({ body: portalLoginSchema }),
+  authController.portalLogin,
+);
 router.post(
   '/portal/request-link',
   authLimiter,
