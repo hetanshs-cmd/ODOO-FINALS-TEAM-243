@@ -16,6 +16,10 @@ export interface ApprovalRequest {
    * internal id column, not what callers of this API see.
    */
   approval_level: string;
+  /** approval_levels.level (1-based). Present on reads that join it in (`act`). */
+  approval_level_num?: number;
+  /** approval_levels.required_role — the staff role that may action this step. */
+  approval_level_required_role?: string;
   status: ApprovalRequestStatus;
   reason: string | null;
   requested_at: string;

@@ -14,6 +14,7 @@ import { dealHealthService } from '../deal-health/deal-health.service';
 
 interface CreateQuotationDto {
   customer_id: string;
+  title?: string | null;
   price_list_id?: string | null;
   currency: string;
   valid_until?: string | null;
@@ -49,6 +50,7 @@ export const quotationsService = {
       return await withTransaction(async (client) => {
         const quotation = await quotationsRepository.create(client, {
           quotation_number: generateDocumentNumber('Q'),
+          title: dto.title?.trim() ? dto.title.trim() : null,
           customer_id: dto.customer_id,
           // Always the authenticated caller — never client-supplied — so a
           // quotation can't be created under someone else's name.
@@ -100,19 +102,40 @@ export const quotationsService = {
   /** Only DRAFT quotations are editable — matches addItem's own rule. */
   async update(
     id: string,
-    dto: { price_list_id?: string | null; currency?: string; valid_until?: string | null },
+    dto: {
+      title?: string | null;
+      price_list_id?: string | null;
+      currency?: string;
+      valid_until?: string | null;
+      order_discount_percent?: number;
+    },
     requester: AuthenticatedUser,
   ): Promise<Quotation> {
     const quotation = await quotationsRepository.findById(id);
     if (!quotation) throw Errors.notFound('Quotation');
     assertCanAccessQuotation(quotation, requester);
-    if (quotation.status !== 'DRAFT') {
+    // The title is just a label with no bearing on pricing or governance, so
+    // renaming a proposal stays allowed at any status. Every other field here
+    // feeds the money math and remains DRAFT-only.
+    const editsBeyondTitle = Object.keys(dto).some((k) => k !== 'title' && dto[k as keyof typeof dto] !== undefined);
+    if (quotation.status !== 'DRAFT' && editsBeyondTitle) {
       throw Errors.businessRuleViolation(
         `Cannot edit a quotation in status ${quotation.status}; only DRAFT quotations are editable`,
       );
     }
-    const updated = await quotationsRepository.update(id, dto);
+    const normalized =
+      dto.title !== undefined ? { ...dto, title: dto.title?.trim() ? dto.title.trim() : null } : dto;
+    const updated = await quotationsRepository.update(id, normalized);
     if (!updated) throw Errors.notFound('Quotation');
+
+    if (dto.order_discount_percent !== undefined) {
+      // Same reasoning as addItem: the order-level discount is itself a
+      // discount/negotiation signal deal-health scores on.
+      await runPostCommit('quotations.update', () =>
+        dealHealthService.recalculate(id).then(() => undefined),
+      );
+    }
+
     return updated;
   },
 
@@ -173,10 +196,78 @@ export const quotationsService = {
     // The item is already committed, so a scoring failure must not 500 the
     // request and invite a retry that adds the line a second time.
     await runPostCommit('quotations.addItem', () =>
-      dealHealthService.recalculate(quotationId).then(() => undefined)
+      dealHealthService.recalculate(quotationId).then(() => undefined),
     );
 
     return item;
+  },
+
+  /** Same DRAFT-only rule and margin/deal-health handling as addItem. */
+  async updateItem(
+    quotationId: string,
+    itemId: string,
+    dto: Partial<{
+      quantity: number;
+      unit_price: number;
+      discount_percent: number;
+      tax_percent: number;
+      description: string | null;
+    }>,
+    requester: AuthenticatedUser,
+  ): Promise<QuotationItem> {
+    const quotation = await quotationsRepository.findById(quotationId);
+    if (!quotation) throw Errors.notFound('Quotation');
+    assertCanAccessQuotation(quotation, requester);
+    if (quotation.status !== 'DRAFT') {
+      throw Errors.businessRuleViolation(
+        `Cannot edit items on a quotation in status ${quotation.status}; only DRAFT quotations are editable`,
+      );
+    }
+    const existingItem = await quotationsRepository.findItem(quotationId, itemId);
+    if (!existingItem) throw Errors.notFound('Quotation item');
+
+    let item: QuotationItem | null;
+    try {
+      item = await quotationsRepository.updateItem(itemId, dto);
+    } catch (err) {
+      throw mapDbError(err, 'Quotation item');
+    }
+    if (!item) throw Errors.notFound('Quotation item');
+
+    if (item.product_id) {
+      const costPrice = await quotationsRepository.findProductCostPrice(item.product_id);
+      const unitPrice = Number(item.unit_price);
+      item.margin_percent =
+        costPrice !== null && unitPrice !== 0
+          ? roundMoney(((unitPrice - Number(costPrice)) / unitPrice) * 100)
+          : null;
+    }
+
+    await runPostCommit('quotations.updateItem', () =>
+      dealHealthService.recalculate(quotationId).then(() => undefined),
+    );
+
+    return item;
+  },
+
+  /** Same DRAFT-only rule as addItem/updateItem. */
+  async removeItem(quotationId: string, itemId: string, requester: AuthenticatedUser): Promise<void> {
+    const quotation = await quotationsRepository.findById(quotationId);
+    if (!quotation) throw Errors.notFound('Quotation');
+    assertCanAccessQuotation(quotation, requester);
+    if (quotation.status !== 'DRAFT') {
+      throw Errors.businessRuleViolation(
+        `Cannot remove items from a quotation in status ${quotation.status}; only DRAFT quotations are editable`,
+      );
+    }
+    const existingItem = await quotationsRepository.findItem(quotationId, itemId);
+    if (!existingItem) throw Errors.notFound('Quotation item');
+
+    await quotationsRepository.removeItem(itemId);
+
+    await runPostCommit('quotations.removeItem', () =>
+      dealHealthService.recalculate(quotationId).then(() => undefined),
+    );
   },
 
   async getTimeline(id: string, requester: AuthenticatedUser) {

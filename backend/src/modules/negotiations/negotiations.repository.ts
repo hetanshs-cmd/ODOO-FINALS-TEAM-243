@@ -112,15 +112,19 @@ export const negotiationsRepository = {
     return rows as Negotiation[];
   },
 
-  async findByIdWithCustomer(id: string): Promise<(Negotiation & { customer_id: string }) | null> {
+  async findByIdWithCustomer(
+    id: string,
+  ): Promise<(Negotiation & { customer_id: string; sales_rep_id: string }) | null> {
     const { rows } = await db.query(
-      `SELECT n.*, q.customer_id
+      `SELECT n.*, q.customer_id, q.sales_rep_id
        FROM negotiations n
        JOIN quotations q ON q.id = n.quotation_id
        WHERE n.id = $1`,
       [id],
     );
-    return (rows[0] as (Negotiation & { customer_id: string }) | undefined) ?? null;
+    return (
+      (rows[0] as (Negotiation & { customer_id: string; sales_rep_id: string }) | undefined) ?? null
+    );
   },
 
   async updateStatus(client: PoolClient, id: string, status: string): Promise<void> {
@@ -178,10 +182,10 @@ export const negotiationsRepository = {
     itemId: string,
     input: { discountPercent: number },
   ): Promise<void> {
-    await client.query(
-      `UPDATE quotation_items SET discount_percent = $2 WHERE id = $1`,
-      [itemId, input.discountPercent],
-    );
+    await client.query(`UPDATE quotation_items SET discount_percent = $2 WHERE id = $1`, [
+      itemId,
+      input.discountPercent,
+    ]);
   },
 
   async insertChange(

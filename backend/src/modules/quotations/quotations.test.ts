@@ -27,11 +27,13 @@ function makeQuotation(overrides: Partial<Quotation> = {}): Quotation {
   return {
     id: 'quote-1',
     quotation_number: 'Q-0001',
+    title: null,
     customer_id: 'customer-1',
     sales_rep_id: 'rep-1',
     price_list_id: null,
     status: 'DRAFT',
     currency: 'USD',
+    order_discount_percent: '0.00',
     subtotal: '100.00',
     discount_total: '0.00',
     tax_total: '0.00',

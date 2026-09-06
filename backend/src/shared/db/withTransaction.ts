@@ -13,9 +13,7 @@ import { db } from '../../config/database';
  * scale; a DB transaction gives the same all-or-nothing guarantee for a
  * sequence that lives entirely inside one request.
  */
-export async function withTransaction<T>(
-  fn: (client: PoolClient) => Promise<T>
-): Promise<T> {
+export async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
   const client = await db.connect();
   try {
     await client.query('BEGIN');

@@ -25,20 +25,18 @@ export function mapDbError(err: unknown, resourceName: string): AppError {
 
   switch (pgErr.code) {
     case UNIQUE_VIOLATION:
-      return Errors.conflict(
-        `${resourceName} with the same unique value already exists`
-      );
+      return Errors.conflict(`${resourceName} with the same unique value already exists`);
     case FOREIGN_KEY_VIOLATION:
       return new AppError(
         'BUSINESS_RULE_VIOLATION',
         422,
-        `${resourceName} references a record that does not exist, or is still referenced by another record`
+        `${resourceName} references a record that does not exist, or is still referenced by another record`,
       );
     case CHECK_VIOLATION:
       return new AppError(
         'VALIDATION_ERROR',
         400,
-        `${resourceName} violates a database constraint${pgErr.constraint ? ` (${pgErr.constraint})` : ''}`
+        `${resourceName} violates a database constraint${pgErr.constraint ? ` (${pgErr.constraint})` : ''}`,
       );
     case NOT_NULL_VIOLATION:
       return new AppError('VALIDATION_ERROR', 400, `${resourceName} is missing a required field`);

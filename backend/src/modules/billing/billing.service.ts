@@ -61,101 +61,101 @@ export const billingService = {
 
     try {
       return await withTransaction(async (client) => {
-      const locked = await billingRepository.lockOrderForBilling(client, salesOrderId);
-      if (!locked) throw Errors.notFound('Sales order');
-      if (locked.status === 'CANCELLED') {
-        throw Errors.businessRuleViolation('Cannot bill a cancelled sales order');
-      }
-      if (await billingRepository.hasBillingForOrder(client, salesOrderId)) {
-        throw Errors.conflict('Billing has already been generated for this order');
-      }
-      if (await billingRepository.hasUnshippedOneTimeItems(client, salesOrderId)) {
-        throw Errors.businessRuleViolation(
-          'All one-time goods must be shipped before billing this order',
-        );
-      }
-      let invoice: Invoice | null = null;
-      if (oneTimeItems.length > 0) {
-        // quotation_items.line_total already includes tax.
-        const netAmount = (item: (typeof oneTimeItems)[number]) =>
-          roundMoney(
-            Number(item.quantity) * Number(item.unit_price) - Number(item.discount_amount),
+        const locked = await billingRepository.lockOrderForBilling(client, salesOrderId);
+        if (!locked) throw Errors.notFound('Sales order');
+        if (locked.status === 'CANCELLED') {
+          throw Errors.businessRuleViolation('Cannot bill a cancelled sales order');
+        }
+        if (await billingRepository.hasBillingForOrder(client, salesOrderId)) {
+          throw Errors.conflict('Billing has already been generated for this order');
+        }
+        if (await billingRepository.hasUnshippedOneTimeItems(client, salesOrderId)) {
+          throw Errors.businessRuleViolation(
+            'All one-time goods must be shipped before billing this order',
+          );
+        }
+        let invoice: Invoice | null = null;
+        if (oneTimeItems.length > 0) {
+          // quotation_items.line_total already includes tax.
+          const netAmount = (item: (typeof oneTimeItems)[number]) =>
+            roundMoney(
+              Number(item.quantity) * Number(item.unit_price) - Number(item.discount_amount),
+            );
+
+          invoice = await billingRepository.insertInvoice(client, {
+            invoiceNumber: generateDocumentNumber('INV'),
+            customerId: order.customer_id,
+            salesOrderId,
+            quotationId: order.quotation_id,
+            dueDate: addDays(new Date(), INVOICE_DUE_NET_DAYS),
+          });
+
+          for (const item of oneTimeItems) {
+            // invoice_items has no discount column (015_billing_invoices.sql) —
+            // the quotation-line discount is netted into unit_price here so
+            // quantity * unit_price already equals the discounted amount the
+            // customer agreed to; tax_percent carries over unchanged.
+            const effectiveUnitPrice =
+              Number(item.quantity) > 0 ? roundMoney(netAmount(item) / Number(item.quantity)) : 0;
+            await billingRepository.insertInvoiceItem(client, {
+              invoiceId: invoice.id,
+              productId: item.product_id,
+              description: item.product_name,
+              quantity: item.quantity,
+              unitPrice: String(effectiveUnitPrice),
+              taxPercent: item.tax_percent,
+            });
+          }
+
+          // invoices stores no totals — read the just-inserted items back
+          // through invoice_totals so the response carries subtotal/tax_total/total.
+          const totals = await billingRepository.findInvoiceTotals(client, invoice.id);
+          invoice = { ...invoice, ...totals, discount_total: '0.00' };
+        }
+
+        let subscription = null;
+        if (recurringItems.length > 0 && plan) {
+          const startDate = new Date().toISOString().slice(0, 10);
+          const nextBillingDate = computeNextBillingDate(new Date(), plan.billing_frequency);
+          const currentPrice = roundMoney(
+            recurringItems.reduce((sum, item) => sum + Number(item.line_total), 0),
           );
 
-        invoice = await billingRepository.insertInvoice(client, {
-          invoiceNumber: generateDocumentNumber('INV'),
-          customerId: order.customer_id,
-          salesOrderId,
-          quotationId: order.quotation_id,
-          dueDate: addDays(new Date(), INVOICE_DUE_NET_DAYS),
-        });
-
-        for (const item of oneTimeItems) {
-          // invoice_items has no discount column (015_billing_invoices.sql) —
-          // the quotation-line discount is netted into unit_price here so
-          // quantity * unit_price already equals the discounted amount the
-          // customer agreed to; tax_percent carries over unchanged.
-          const effectiveUnitPrice =
-            Number(item.quantity) > 0 ? roundMoney(netAmount(item) / Number(item.quantity)) : 0;
-          await billingRepository.insertInvoiceItem(client, {
-            invoiceId: invoice.id,
-            productId: item.product_id,
-            description: item.product_name,
-            quantity: item.quantity,
-            unitPrice: String(effectiveUnitPrice),
-            taxPercent: item.tax_percent,
+          subscription = await billingRepository.insertSubscription(client, {
+            customerId: order.customer_id,
+            salesOrderId,
+            quotationId: order.quotation_id,
+            planId: plan.id,
+            startDate,
+            nextBillingDate,
+            currentPrice,
           });
-        }
 
-        // invoices stores no totals — read the just-inserted items back
-        // through invoice_totals so the response carries subtotal/tax_total/total.
-        const totals = await billingRepository.findInvoiceTotals(client, invoice.id);
-        invoice = { ...invoice, ...totals, discount_total: '0.00' };
-      }
+          for (const item of recurringItems) {
+            await billingRepository.insertSubscriptionItem(client, {
+              subscriptionId: subscription.id,
+              productId: item.product_id,
+              quantity: item.quantity,
+              unitPrice: item.unit_price,
+            });
+          }
 
-      let subscription = null;
-      if (recurringItems.length > 0 && plan) {
-        const startDate = new Date().toISOString().slice(0, 10);
-        const nextBillingDate = computeNextBillingDate(new Date(), plan.billing_frequency);
-        const currentPrice = roundMoney(
-          recurringItems.reduce((sum, item) => sum + Number(item.line_total), 0),
-        );
-
-        subscription = await billingRepository.insertSubscription(client, {
-          customerId: order.customer_id,
-          salesOrderId,
-          quotationId: order.quotation_id,
-          planId: plan.id,
-          startDate,
-          nextBillingDate,
-          currentPrice,
-        });
-
-        for (const item of recurringItems) {
-          await billingRepository.insertSubscriptionItem(client, {
+          await billingRepository.insertBillingSchedule(client, {
             subscriptionId: subscription.id,
-            productId: item.product_id,
-            quantity: item.quantity,
-            unitPrice: item.unit_price,
+            billingDate: nextBillingDate,
+            amount: currentPrice,
           });
         }
 
-        await billingRepository.insertBillingSchedule(client, {
-          subscriptionId: subscription.id,
-          billingDate: nextBillingDate,
-          amount: currentPrice,
+        await insertAuditLog(client, {
+          entityType: 'sales_order',
+          entityId: salesOrderId,
+          action: 'BILLING_GENERATED',
+          actorId,
+          newValue: { invoiceId: invoice?.id ?? null, subscriptionId: subscription?.id ?? null },
         });
-      }
 
-      await insertAuditLog(client, {
-        entityType: 'sales_order',
-        entityId: salesOrderId,
-        action: 'BILLING_GENERATED',
-        actorId,
-        newValue: { invoiceId: invoice?.id ?? null, subscriptionId: subscription?.id ?? null },
-      });
-
-      return { invoice, subscription };
+        return { invoice, subscription };
       });
     } catch (err) {
       if (err instanceof AppError) throw err;

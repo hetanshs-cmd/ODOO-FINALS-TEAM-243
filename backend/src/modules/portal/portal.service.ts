@@ -42,6 +42,16 @@ export const portalService = {
     return invoice;
   },
 
+  async getProfile(customerId: string) {
+    const profile = await portalRepository.findProfileForCustomer(customerId);
+    if (!profile) throw Errors.notFound('Customer');
+    return profile;
+  },
+
+  async listNegotiations(customerId: string) {
+    return portalRepository.listNegotiationsForCustomer(customerId);
+  },
+
   /**
    * FR9 — customer confirmation.
    *

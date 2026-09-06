@@ -55,12 +55,28 @@ function availabilityByWarehouse(inventory: InventoryRow[]): Map<string, Map<str
   return byWarehouse;
 }
 
+/** Total quantity demanded per product across every order line. */
+function demandByProduct(items: OrderItemToAllocate[]): Map<string, number> {
+  const demand = new Map<string, number>();
+  for (const item of items) {
+    demand.set(item.productId, (demand.get(item.productId) ?? 0) + item.quantity);
+  }
+  return demand;
+}
+
 function findSingleWarehouseCoveringAll(
   items: OrderItemToAllocate[],
-  byWarehouse: Map<string, Map<string, number>>
+  byWarehouse: Map<string, Map<string, number>>,
 ): string | null {
+  // Compare warehouse stock against the SUMMED demand per product, not each
+  // line independently — otherwise two lines of the same product (6 + 6)
+  // each pass against a stock of 10 and the warehouse is picked even though
+  // it only holds 10 of the 12 required, over-reserving inventory downstream.
+  const demand = demandByProduct(items);
   for (const [warehouseId, stock] of byWarehouse) {
-    const coversAll = items.every((item) => (stock.get(item.productId) ?? 0) >= item.quantity);
+    const coversAll = [...demand.entries()].every(
+      ([productId, qty]) => (stock.get(productId) ?? 0) >= qty,
+    );
     if (coversAll) return warehouseId;
   }
   return null;
@@ -68,7 +84,7 @@ function findSingleWarehouseCoveringAll(
 
 export function allocateAcrossWarehouses(
   items: OrderItemToAllocate[],
-  inventory: InventoryRow[]
+  inventory: InventoryRow[],
 ): AllocationResult {
   const byWarehouse = availabilityByWarehouse(inventory);
 
@@ -89,7 +105,11 @@ export function allocateAcrossWarehouses(
     };
   }
 
-  const remaining = new Map(byWarehouse);
+  // Deep copy: the greedy loop below decrements per-warehouse stock as it
+  // consumes it, and must not mutate the caller's inventory view.
+  const remaining = new Map(
+    [...byWarehouse].map(([warehouseId, stock]) => [warehouseId, new Map(stock)] as const),
+  );
   const perWarehouseLines = new Map<string, WarehouseAllocationLine[]>();
   const backorders: BackorderLine[] = [];
 
@@ -127,7 +147,7 @@ export function allocateAcrossWarehouses(
   }
 
   const allocations: WarehouseAllocation[] = [...perWarehouseLines.entries()].map(
-    ([warehouseId, lines]) => ({ warehouseId, items: lines })
+    ([warehouseId, lines]) => ({ warehouseId, items: lines }),
   );
 
   return { allocations, backorders };

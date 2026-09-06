@@ -10,11 +10,12 @@
  * than letting it surface as an unhandled crash.
  */
 
-import { httpClient, ApiError } from './httpClient';
+import { httpClient, ApiError, getListItems } from './httpClient';
 import type {
   ListQuery,
   ApiWarehouse,
   ApiProduct,
+  ApiProductCategory,
   ApiRecommendationRule,
   ApiDiscountRule,
   ApiApprovalLevel,
@@ -23,8 +24,13 @@ import type {
 export function createAdminResource<T extends { id: string }>(resourcePath: string) {
   const base = `/admin/${resourcePath}`;
   return {
+    // Every /admin/* list route returns the pagination envelope (see
+    // shared/crud), never a bare array — getListItems unwraps .items so
+    // this factory's own Promise<T[]> return type is actually true. Every
+    // admin list page (warehouses, discount tiers, products, ...) had been
+    // assigning the raw envelope straight into an array-typed state.
     async list(query?: ListQuery): Promise<T[]> {
-      return httpClient.get<T[]>(base, { query });
+      return getListItems<T>(base, { query });
     },
     async getById(id: string): Promise<T> {
       return httpClient.get<T>(`${base}/${id}`);
@@ -42,7 +48,7 @@ export function createAdminResource<T extends { id: string }>(resourcePath: stri
 }
 
 export const adminService = {
-  productCategories: createAdminResource('product-categories'),
+  productCategories: createAdminResource<ApiProductCategory>('product-categories'),
   products: createAdminResource<ApiProduct>('products'),
   priceLists: createAdminResource('price-lists'),
   customers: createAdminResource('customers'),

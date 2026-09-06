@@ -225,6 +225,18 @@ npm audit
 
 Do not ignore audit warnings without documented justification.
 
+### Accepted exceptions
+
+CI (`.github/workflows/security-checks.yml`) enforces `npm audit --audit-level=high`
+via `scripts/ci-npm-audit-check.cjs`, which fails the build on any high/critical
+vulnerability **except** packages explicitly allowlisted below. Adding to this
+allowlist requires updating both this table and the `node scripts/ci-npm-audit-check.cjs
+audit.json <package>` invocation in the workflow.
+
+| Package | Where used | Severity | Why accepted |
+|---------|-----------|----------|---------------|
+| `xlsx` (frontend) | `frontend/src/services/reportingExport.ts` (report-to-Excel export) | High — [GHSA-4r6h-8v6p-xvw6](https://github.com/advisories/GHSA-4r6h-8v6p-xvw6) (prototype pollution), [GHSA-5pgg-2g8v-p4x9](https://github.com/advisories/GHSA-5pgg-2g8v-p4x9) (ReDoS) | No patched version is published to the npm registry (SheetJS only ships the fix via their own CDN). Both advisories require attacker-controlled spreadsheet *input*; this app only ever writes exports, never parses untrusted uploads through this library. Revisit if that changes, or if a patched npm release appears. |
+
 ---
 
 ## Security Checklist (Pre-commit)

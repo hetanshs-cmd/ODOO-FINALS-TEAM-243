@@ -70,9 +70,9 @@ describe('subscriptionsService.modify', () => {
       makeSubscription({ status: 'CANCELLED' }),
     );
 
-    await expect(
-      subscriptionsService.modify('sub-1', { plan_id: 'plan-2' }),
-    ).rejects.toMatchObject({ statusCode: 422 });
+    await expect(subscriptionsService.modify('sub-1', { plan_id: 'plan-2' })).rejects.toMatchObject(
+      { statusCode: 422 },
+    );
   });
 
   it('rejects moving to an inactive plan', async () => {
@@ -81,9 +81,9 @@ describe('subscriptionsService.modify', () => {
       makePlan({ id: 'plan-2', status: 'INACTIVE' }),
     );
 
-    await expect(
-      subscriptionsService.modify('sub-1', { plan_id: 'plan-2' }),
-    ).rejects.toMatchObject({ statusCode: 422 });
+    await expect(subscriptionsService.modify('sub-1', { plan_id: 'plan-2' })).rejects.toMatchObject(
+      { statusCode: 422 },
+    );
   });
 
   it('applies a plan upgrade and prorates the price delta into a billing_schedules row', async () => {
@@ -149,14 +149,16 @@ describe('subscriptionsService.modify', () => {
     );
   });
 
-  it('derives quantity from the subscription\'s items when omitted, instead of defaulting to 1', async () => {
+  it("derives quantity from the subscription's items when omitted, instead of defaulting to 1", async () => {
     // A plan-only change (no `quantity` in the request) used to silently
     // treat the subscription as quantity 1, collapsing a 5-seat
     // subscription's price to a single seat's price on any plan-only PATCH.
     vi.mocked(subscriptionsRepository.findByIdForUpdate).mockResolvedValue(
       makeSubscription({ current_price: '500.00', next_billing_date: null }),
     );
-    vi.mocked(subscriptionsRepository.findPlanById).mockResolvedValue(makePlan({ id: 'plan-2', price: '100.00' }));
+    vi.mocked(subscriptionsRepository.findPlanById).mockResolvedValue(
+      makePlan({ id: 'plan-2', price: '100.00' }),
+    );
     vi.mocked(subscriptionsRepository.sumItemQuantity).mockResolvedValue(5);
     vi.mocked(subscriptionsRepository.applyModification).mockResolvedValue(
       makeSubscription({ plan_id: 'plan-2', current_price: '500.00', status: 'MODIFIED' }),
@@ -176,16 +178,18 @@ describe('subscriptionsService.modify', () => {
     vi.mocked(subscriptionsRepository.findPlanById).mockResolvedValue(makePlan({ id: 'plan-2' }));
     vi.mocked(subscriptionsRepository.sumItemQuantity).mockResolvedValue(null);
 
-    await expect(
-      subscriptionsService.modify('sub-1', { plan_id: 'plan-2' }),
-    ).rejects.toMatchObject({ statusCode: 422 });
+    await expect(subscriptionsService.modify('sub-1', { plan_id: 'plan-2' })).rejects.toMatchObject(
+      { statusCode: 422 },
+    );
   });
 
   it('applies quantity as a multiplier against the plan price', async () => {
     vi.mocked(subscriptionsRepository.findByIdForUpdate).mockResolvedValue(
       makeSubscription({ current_price: '100.00', next_billing_date: null }),
     );
-    vi.mocked(subscriptionsRepository.findPlanById).mockResolvedValue(makePlan({ price: '100.00' }));
+    vi.mocked(subscriptionsRepository.findPlanById).mockResolvedValue(
+      makePlan({ price: '100.00' }),
+    );
     vi.mocked(subscriptionsRepository.applyModification).mockResolvedValue(
       makeSubscription({ current_price: '300.00', status: 'MODIFIED' }),
     );

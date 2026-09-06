@@ -35,8 +35,7 @@ import { AuditTrail } from '../components/domain/AuditTrail';
 import { aiService } from '../services/ai/aiService';
 import { AIInsightPanel } from '../components/ai/AIInsightPanel';
 import { AIDraftEditorModal } from '../components/ai/AIDraftEditorModal';
-import { AIResult, AIAction } from '../services/ai/types';
-import { useDealStore } from '../hooks/useDealStore';
+import { AIResult } from '../services/ai/types';
 import { useAuth } from '../hooks/useAuth';
 import { Quotation, QuotationLine, RiskLevel, ApprovalRole, User } from '../types';
 import {
@@ -45,12 +44,14 @@ import {
   formatRelativeTime,
   formatExactDateTime,
   formatWaitingTime,
+  humanizeStatus,
 } from '../utils/formatters';
 import { computeBlendedRiskScore, getEffectiveDiscountLimit } from '../domain/discounts';
 import { canUserPerformAction } from '../domain/permissions';
 import { useApprovals } from '../hooks/useApprovals';
 import { useQuotations, useQuotation } from '../hooks/useQuotations';
 import { useUsers } from '../hooks/useUsers';
+import { useCustomers } from '../hooks/useCustomers';
 import { approvalService, quotationService } from '../services';
 import { ApiApprovalRequest, ApiQuotation, ApiApprovalAction, ApiTimelineEvent } from '../services/apiTypes';
 import { ApiError } from '../services/httpClient';
@@ -70,11 +71,14 @@ export const ApprovalsListPage: React.FC = () => {
   const { approvals, loading, refetch } = useApprovals();
   const { quotations } = useQuotations();
   const { users } = useUsers();
+  const { customers } = useCustomers();
   const navigate = useNavigate();
 
   const quotationsById = useMemo(() => new Map(quotations.map((q) => [q.id, q])), [quotations]);
   const usersById = useMemo(() => new Map(users.map((u) => [u.id, u])), [users]);
+  const customersById = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
   const getUserName = (id: string | null | undefined) => (id && usersById.get(id)?.name) || 'Unassigned';
+  const getCustomerName = (id: string | null | undefined) => (id && customersById.get(id)?.name) || 'Unknown Customer';
 
   // Approximate risk from discount-to-subtotal ratio — the real API has no
   // per-line risk score (see the same approximation in QuotationsListPage).
@@ -130,9 +134,10 @@ export const ApprovalsListPage: React.FC = () => {
         if (searchQuery.trim()) {
           const query = searchQuery.toLowerCase().trim();
           const matchCode = (q?.quotation_number || '').toLowerCase().includes(query);
+          const matchCustomer = getCustomerName(q?.customer_id).toLowerCase().includes(query);
           const matchReviewer = getUserName(a.assigned_to).toLowerCase().includes(query);
           const matchRequester = getUserName(a.requested_by).toLowerCase().includes(query);
-          if (!matchCode && !matchReviewer && !matchRequester) return false;
+          if (!matchCode && !matchCustomer && !matchReviewer && !matchRequester) return false;
         }
 
         // Risk filter dropdown
@@ -160,12 +165,12 @@ export const ApprovalsListPage: React.FC = () => {
           const valB = parseFloat(qB?.grand_total || '0') || 0;
           comparison = valB - valA;
         } else if (sortKey === 'customer') {
-          comparison = (qA?.customer_id || '').localeCompare(qB?.customer_id || '');
+          comparison = getCustomerName(qA?.customer_id).localeCompare(getCustomerName(qB?.customer_id));
         }
 
         return sortOrder === 'desc' ? comparison : -comparison;
       });
-  }, [approvals, quotationsById, usersById, quickFilter, searchQuery, riskFilter, sortKey, sortOrder]);
+  }, [approvals, quotationsById, usersById, customersById, quickFilter, searchQuery, riskFilter, sortKey, sortOrder]);
 
   return (
     <div className="space-y-5 pb-12">
@@ -395,11 +400,10 @@ export const ApprovalsListPage: React.FC = () => {
                         </div>
                       </td>
 
-                      {/* 2. Customer — no customer-directory lookup on this
-                          list page's scope; shown by id. */}
+                      {/* 2. Customer */}
                       <td className="px-3 py-3 align-middle">
-                        <div className="font-mono text-[11px] text-slate-600 max-w-[170px] truncate" title={q?.customer_id}>
-                          {q?.customer_id || '—'}
+                        <div className="text-[13px] font-medium text-slate-800 max-w-[170px] truncate" title={getCustomerName(q?.customer_id)}>
+                          {getCustomerName(q?.customer_id)}
                         </div>
                       </td>
 
@@ -495,6 +499,9 @@ export const ApprovalDetailPage: React.FC = () => {
   const { approvals, loading: approvalsLoading, refetch: refetchApprovals } = useApprovals(
     quotation ? { quotation_id: quotation.id } : undefined
   );
+  const { customers } = useCustomers();
+  const customerName =
+    (quotation && customers.find((c) => c.id === quotation.customer_id)?.name) || quotation?.customer_id || '—';
 
   const [timeline, setTimeline] = useState<ApiTimelineEvent[]>([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
@@ -528,6 +535,13 @@ export const ApprovalDetailPage: React.FC = () => {
   const [successToast, setSuccessToast] = useState<string | null>(null);
   const [isActing, setIsActing] = useState(false);
 
+  // AI Insights — real local-model-backed calls, grounded in this approval
+  // request's live DB record via backend/src/modules/ai.
+  const [aiResult, setAiResult] = useState<AIResult | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [showDraftModal, setShowDraftModal] = useState(false);
+
   if (quoteLoading || approvalsLoading) {
     return (
       <div className="max-w-3xl mx-auto py-16 text-center text-xs text-slate-500">
@@ -556,10 +570,15 @@ export const ApprovalDetailPage: React.FC = () => {
     );
   }
 
-  // Most recent approval request for this quotation (there may be several
-  // across resubmissions — the backend does not scope "current" for us).
-  const approval: ApiApprovalRequest | null = approvals.length
-    ? [...approvals].sort((a, b) => new Date(b.requested_at).getTime() - new Date(a.requested_at).getTime())[0]
+  // Most recent approval request for THIS quotation (there may be several
+  // across resubmissions/escalations). The list is already scoped server-side
+  // by quotation_id, but filter again defensively so a stray row can never
+  // make the action buttons act on another quotation's request.
+  const quotationApprovals = approvals.filter((a) => a.quotation_id === quotation.id);
+  const approval: ApiApprovalRequest | null = quotationApprovals.length
+    ? [...quotationApprovals].sort(
+        (a, b) => new Date(b.requested_at).getTime() - new Date(a.requested_at).getTime(),
+      )[0]
     : null;
 
   const isPending = approval?.status === 'PENDING';
@@ -622,11 +641,40 @@ export const ApprovalDetailPage: React.FC = () => {
     );
   };
 
+  const handleExplainApproval = async () => {
+    if (!approval) return;
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const result = await aiService.getInsight('explain_approval', approval.id);
+      setAiResult(result);
+    } catch (err) {
+      setAiError(err instanceof ApiError ? err.message : 'The local AI model is unavailable. It may not be running.');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleDraftNote = async () => {
+    if (!approval) return;
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const result = await aiService.getInsight('draft_approval_note', approval.id);
+      setAiResult(result);
+      setShowDraftModal(true);
+    } catch (err) {
+      setAiError(err instanceof ApiError ? err.message : 'The local AI model is unavailable. It may not be running.');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   const auditEvents: DealEvent[] = timeline.map((e) => ({
     id: e.id,
-    type: e.event_type,
-    description: e.note || '',
-    user: e.actor_user_id || 'system',
+    type: e.action,
+    description: humanizeStatus(e.action),
+    user: e.user_id || 'system',
     timestamp: e.created_at,
   })) as unknown as DealEvent[];
 
@@ -644,7 +692,7 @@ export const ApprovalDetailPage: React.FC = () => {
       {/* 1. Header & Navigation */}
       <PageHeader
         title={`Approval Review: ${quotation.quotation_number}`}
-        description={`Commercial governance review for customer ${quotation.customer_id}. TODO: resolve customer display name once a customers directory hook lands.`}
+        description={`Commercial governance review for customer ${customerName}.`}
         breadcrumbs={[
           { label: 'Workspace' },
           { label: 'Approvals', href: '/approvals' },
@@ -671,10 +719,9 @@ export const ApprovalDetailPage: React.FC = () => {
       <div className="bg-white rounded-lg border border-slate-200 shadow-2xs overflow-hidden">
         <div className="p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
           <div>
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Customer ID</span>
-            {/* TODO: enrich with customer name once useCustomers()/directoryService is reconciled in. */}
-            <div className="font-semibold text-slate-900 mt-0.5 truncate font-mono" title={quotation.customer_id}>
-              {quotation.customer_id}
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Customer</span>
+            <div className="font-semibold text-slate-900 mt-0.5 truncate" title={quotation.customer_id}>
+              {customerName}
             </div>
           </div>
           <div>
@@ -841,7 +888,6 @@ export const ApprovalDetailPage: React.FC = () => {
                   disabled={!canAct}
                   onClick={() => {
                     setErrorMessage(null);
-                    setActionNote('');
                     setIsReturnModalOpen(true);
                   }}
                   className="border-amber-300 text-amber-900 hover:bg-amber-50 disabled:opacity-40"
@@ -856,7 +902,6 @@ export const ApprovalDetailPage: React.FC = () => {
                   disabled={!canAct}
                   onClick={() => {
                     setErrorMessage(null);
-                    setActionNote('');
                     setIsRejectModalOpen(true);
                   }}
                   className="disabled:opacity-40"
@@ -871,7 +916,6 @@ export const ApprovalDetailPage: React.FC = () => {
                   disabled={!canAct}
                   onClick={() => {
                     setErrorMessage(null);
-                    setActionNote('');
                     setIsApproveModalOpen(true);
                   }}
                   className="bg-emerald-600 hover:bg-emerald-700 border-emerald-600 disabled:opacity-40"
@@ -884,6 +928,52 @@ export const ApprovalDetailPage: React.FC = () => {
           )}
         </div>
       </Card>
+
+      {/* AI Insights — real local-model-backed calls */}
+      {approval && (
+        <Card
+          title="AI Insights"
+          subtitle="Grounded in this approval request's live record via the local AI model."
+          padding="md"
+          className="border-slate-200"
+        >
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" icon={<Sparkles className="w-3.5 h-3.5" />} isLoading={aiLoading} onClick={handleExplainApproval}>
+                Explain Approval
+              </Button>
+              <Button variant="outline" size="sm" icon={<Sparkles className="w-3.5 h-3.5" />} isLoading={aiLoading} disabled={!canAct} onClick={handleDraftNote}>
+                Draft Note
+              </Button>
+            </div>
+            {(aiResult || aiLoading || aiError) && (
+              <AIInsightPanel
+                result={aiResult}
+                isLoading={aiLoading}
+                loadingMessage="Consulting the local AI model…"
+                errorMessage={aiError}
+                onRetry={handleExplainApproval}
+                compact
+              />
+            )}
+          </div>
+        </Card>
+      )}
+
+      {showDraftModal && aiResult?.summary && (
+        <AIDraftEditorModal
+          isOpen={showDraftModal}
+          onClose={() => setShowDraftModal(false)}
+          title="Draft Approval Note"
+          initialBody={aiResult.summary}
+          actionButtonLabel="Use This Note"
+          onApplyOrSend={(body) => {
+            setActionNote(body);
+            setShowDraftModal(false);
+            setErrorMessage(null);
+          }}
+        />
+      )}
 
       {/* 5. Live Audit Trail (real quotation timeline endpoint) */}
       <div id="audit-section">

@@ -8,7 +8,7 @@
  * No new dependency is introduced here on purpose — fetch is native.
  */
 
-import { getToken } from './tokenStore';
+import { getToken, clearToken } from './tokenStore';
 
 const DEFAULT_BASE_URL = '/api/v1';
 
@@ -146,6 +146,19 @@ export async function request<T = unknown>(
 
   if (!response.ok || !payload || payload.success === false) {
     const errPayload = payload as ApiEnvelopeError | undefined;
+
+    // A 401 on a request that DID carry a token means the session itself is
+    // invalid/expired (not "wrong password" — an unauthenticated login/
+    // portal-verify attempt has no token to send in the first place, and
+    // must surface as a normal form error instead of a forced logout).
+    // Clearing the token and notifying AuthContext (shared across every
+    // consumer, see context/AuthContext.tsx) makes every ProtectedRoute
+    // redirect to /login on its next render — no full-page reload needed.
+    if (response.status === 401 && token) {
+      clearToken();
+      window.dispatchEvent(new Event('auth:unauthorized'));
+    }
+
     throw new ApiError(
       errPayload?.message || `Request failed with status ${response.status}`,
       errPayload?.error || 'UNKNOWN_ERROR',
@@ -155,6 +168,35 @@ export async function request<T = unknown>(
   }
 
   return (payload as ApiEnvelopeSuccess<T>).data;
+}
+
+/** Pagination envelope produced by the backend's utils/pagination.ts. */
+export interface PaginatedEnvelope<T> {
+  items: T[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
+/**
+ * List endpoints are split on the backend: most wrap their rows in the
+ * pagination envelope above, while /customers, /users, /portal/* and the
+ * per-parent sub-resources return a bare array. Reading either as an array
+ * directly is what broke the migrated list pages — the envelope has no
+ * .map/.filter — so every list call goes through here instead.
+ *
+ * `limit` defaults to the server's MAX_LIMIT because the server's own
+ * default is 20: without this, every list silently showed its first 20 rows.
+ * Past 100 rows the UI needs real pagination controls, which no list page
+ * has yet.
+ */
+export async function getListItems<T>(path: string, options?: RequestOptions): Promise<T[]> {
+  const query = { limit: 100, ...options?.query };
+  const data = await request<T[] | PaginatedEnvelope<T>>('GET', path, { ...options, query });
+  return Array.isArray(data) ? data : data.items;
 }
 
 export const httpClient = {

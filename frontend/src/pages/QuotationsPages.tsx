@@ -32,6 +32,7 @@ import {
   formatCurrency,
   formatRelativeTime,
   formatExactDateTime,
+  humanizeStatus,
 } from '../utils/formatters';
 
 // The mock QuotationToolbar's stage filter/groupBy still speaks the legacy
@@ -45,14 +46,6 @@ const STAGE_LABEL_TO_STATUS: Record<string, ApiQuotationStatus> = {
   Negotiation: 'NEGOTIATION',
   Confirmed: 'CONVERTED',
 };
-
-function humanizeStatus(status: string): string {
-  return status
-    .toLowerCase()
-    .split('_')
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ');
-}
 
 export const QuotationsListPage: React.FC = () => {
   const { quotations, loading, error, refetch } = useQuotations();
@@ -193,13 +186,20 @@ export const QuotationsListPage: React.FC = () => {
     return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
   }, [customers, quotations]);
 
-  // Stage counts for quick filter tabs — keyed by the real status enum.
+  // Stage counts for quick filter tabs — QuotationToolbar's STAGES tabs are
+  // keyed by the legacy mock-store label (e.g. 'Draft'), not the real status
+  // enum, so translate through STAGE_LABEL_TO_STATUS to keep the keys the
+  // toolbar actually looks up in sync with what's counted here.
   const stageCounts = useMemo(() => {
     const counts: Record<string, number> = { all: quotations.length };
     quotations.forEach((q) => {
       counts[q.status] = (counts[q.status] || 0) + 1;
     });
-    return counts;
+    const labeled: Record<string, number> = { all: quotations.length };
+    Object.entries(STAGE_LABEL_TO_STATUS).forEach(([label, status]) => {
+      labeled[label] = counts[status] || 0;
+    });
+    return labeled;
   }, [quotations]);
 
   // Check if current user is sales rep
@@ -216,10 +216,11 @@ export const QuotationsListPage: React.FC = () => {
       if (filters.search.trim()) {
         const query = filters.search.toLowerCase().trim();
         const codeMatch = q.quotation_number.toLowerCase().includes(query);
+        const titleMatch = (q.title ?? '').toLowerCase().includes(query);
         const custMatch = customerName.toLowerCase().includes(query);
         const repMatch = repName.toLowerCase().includes(query);
         const stageMatch = q.status.toLowerCase().includes(query);
-        if (!codeMatch && !custMatch && !repMatch && !stageMatch) {
+        if (!codeMatch && !titleMatch && !custMatch && !repMatch && !stageMatch) {
           return false;
         }
       }
@@ -302,6 +303,13 @@ export const QuotationsListPage: React.FC = () => {
           const dateA = a.updated_at ? new Date(a.updated_at).getTime() : 0;
           const dateB = b.updated_at ? new Date(b.updated_at).getTime() : 0;
           comparison = dateA - dateB;
+          // Tiebreaker: newest-created first, so a freshly added quotation
+          // lands on top even when timestamps collide at second precision.
+          if (comparison === 0) {
+            const createdA = a.created_at ? new Date(a.created_at).getTime() : 0;
+            const createdB = b.created_at ? new Date(b.created_at).getTime() : 0;
+            comparison = createdA - createdB;
+          }
           break;
         }
       }
@@ -409,6 +417,7 @@ export const QuotationsListPage: React.FC = () => {
     try {
       const duplicated = await quotationService.create({
         customer_id: q.customer_id,
+        title: q.title ? `${q.title} (copy)` : null,
         price_list_id: q.price_list_id,
         currency: q.currency,
         valid_until: q.valid_until,
@@ -446,9 +455,14 @@ export const QuotationsListPage: React.FC = () => {
       >
         {/* Quotation ID */}
         <td className="px-3.5 py-2.5 whitespace-nowrap align-middle">
-          <span className="font-mono font-medium text-xs text-[#1F2937] group-hover:text-[#714B67] transition-colors">
+          <span className="font-mono font-medium text-xs text-[#1F2937] group-hover:text-[#714B67] transition-colors block">
             {q.quotation_number}
           </span>
+          {q.title && (
+            <span className="text-[11px] text-[#6B7280] font-normal block truncate max-w-[200px]" title={q.title}>
+              {q.title}
+            </span>
+          )}
         </td>
 
         {/* Customer */}

@@ -136,11 +136,7 @@ export const subscriptionsRepository = {
     );
   },
 
-  async cancel(
-    client: PoolClient,
-    id: string,
-    input: { endDate: string },
-  ): Promise<Subscription> {
+  async cancel(client: PoolClient, id: string, input: { endDate: string }): Promise<Subscription> {
     const { rows } = await client.query(
       `UPDATE subscriptions
        SET status = 'CANCELLED', end_date = $2, next_billing_date = NULL

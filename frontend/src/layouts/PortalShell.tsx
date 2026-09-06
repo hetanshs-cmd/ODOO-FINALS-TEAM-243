@@ -4,27 +4,25 @@
  */
 
 import React from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { FileText, MessageSquare, User, ShieldCheck, LogOut } from 'lucide-react';
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { FileText, MessageSquare, User, ShieldCheck, LogOut, ArrowLeft } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import { useDealStore } from '../hooks/useDealStore';
+import { usePortalProfile, usePortalNegotiations } from '../hooks/usePortal';
 
 export const PortalShell: React.FC = () => {
   const { user, logout } = useAuth();
-  const { customers, negotiations } = useDealStore();
+  const { profile } = usePortalProfile();
+  const { negotiations } = usePortalNegotiations();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleSignOut = () => {
     logout();
     navigate('/login');
   };
 
-  const customerRecord = customers.find((c) => c.id === user.customerId);
-  const companyName = customerRecord?.company || customerRecord?.name || 'Procurement Customer';
-
-  // Count unread / pending negotiation messages for this customer
-  const customerMessagesCount = negotiations.filter(
-    (n) => n.customerId === user.customerId && (n.status === 'Pending' || n.status === 'UnderReview')
+  const openNegotiationsCount = negotiations.filter(
+    (n) => n.status === 'OPEN' || n.status === 'IN_PROGRESS'
   ).length;
 
   const navLinks = [
@@ -33,7 +31,7 @@ export const PortalShell: React.FC = () => {
       label: 'Messages',
       path: '/portal/messages',
       icon: <MessageSquare className="w-4 h-4" />,
-      badge: customerMessagesCount > 0 ? customerMessagesCount : undefined,
+      badge: openNegotiationsCount > 0 ? openNegotiationsCount : undefined,
     },
     { label: 'Profile', path: '/portal/profile', icon: <User className="w-4 h-4" /> },
   ];
@@ -61,7 +59,19 @@ export const PortalShell: React.FC = () => {
           <div className="flex items-center gap-3">
             <div className="flex flex-col text-right">
               <span className="text-xs font-bold text-[#1F2937]">{user.name}</span>
-              <span className="text-[11px] text-[#6B7280]">{companyName}</span>
+              <span className="text-[11px] text-[#6B7280]">
+                {profile?.company_name ?? '—'}
+              </span>
+            </div>
+
+            <div className="relative w-8 h-8 rounded-full bg-[#714B67] text-white border border-[#5d3b53] flex items-center justify-center font-bold text-[11px] shadow-2xs">
+              <span>{user.name.split(' ').map((n) => n[0]).join('').slice(0, 2)}</span>
+              <span
+                className="absolute -bottom-1 -right-1 bg-white rounded-full ring-1 ring-[#E0D0DC] p-[1px] text-[#714B67]"
+                aria-hidden="true"
+              >
+                <User className="w-2.5 h-2.5" />
+              </span>
             </div>
 
             <div className="h-6 w-px bg-slate-200" />
@@ -106,6 +116,16 @@ export const PortalShell: React.FC = () => {
 
       {/* Customer Portal Content Surface */}
       <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6">
+        {location.pathname !== '/portal/quotation' && (
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="inline-flex items-center gap-1.5 mb-3 text-xs font-semibold text-[#4B5563] hover:text-[#714B67] border border-[#E5E7EB] px-2.5 py-1.5 rounded-md transition-colors cursor-pointer shadow-2xs bg-white"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Back</span>
+          </button>
+        )}
         <Outlet />
       </main>
 

@@ -28,10 +28,28 @@ async function bootstrap(): Promise<void> {
       console.log('✅ Database pool closed');
       process.exit(0);
     });
+    // server.close() waits for in-flight connections to finish on their own;
+    // a hung/keep-alive connection would otherwise block shutdown forever.
+    setTimeout(() => {
+      console.error('❌ Forced exit — shutdown did not complete within 10s');
+      process.exit(1);
+    }, 10_000).unref();
   };
 
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
+
+  // A rejected promise or thrown error with no handler anywhere up the chain
+  // would otherwise crash the process silently (or, pre-Node 15, not at
+  // all) with no record of why. Log first so the cause is visible, then
+  // fail fast rather than continue in a possibly-corrupted state.
+  process.on('unhandledRejection', (reason) => {
+    console.error('❌ Unhandled promise rejection:', reason);
+  });
+  process.on('uncaughtException', (error) => {
+    console.error('❌ Uncaught exception:', error);
+    process.exit(1);
+  });
 }
 
 bootstrap().catch((error) => {

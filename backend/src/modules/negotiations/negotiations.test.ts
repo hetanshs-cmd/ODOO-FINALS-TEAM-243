@@ -17,11 +17,7 @@ describe('negotiationsService.listAll', () => {
 
     await negotiationsService.listAll({}, { id: 'rep-1', role: 'SALES_REP' } as never);
 
-    expect(negotiationsRepository.listAll).toHaveBeenCalledWith(
-      { salesRepId: 'rep-1' },
-      20,
-      0,
-    );
+    expect(negotiationsRepository.listAll).toHaveBeenCalledWith({ salesRepId: 'rep-1' }, 20, 0);
   });
 
   it('does not scope a sales manager', async () => {
@@ -93,5 +89,59 @@ describe('negotiationsService.listForQuotation', () => {
     expect(result).toHaveLength(1);
     expect(result[0]?.messages).toHaveLength(1);
     expect(negotiationsRepository.listByQuotationId).toHaveBeenCalledWith('quote-1');
+  });
+});
+
+/**
+ * Regression for the reported authorization hole: Rep B could not read
+ * Rep A's quotation but could still open / act on a negotiation for it,
+ * because the shared internal-or-portal route has no role/ownership guard.
+ * Internal callers are now scoped to quotations they own (SALES_REP) in the
+ * service, mirroring quotations.service.assertCanAccessQuotation.
+ */
+describe('negotiationsService internal ownership scope', () => {
+  const OWNED = {
+    id: 'quote-1',
+    status: 'NEGOTIATION' as const,
+    sales_rep_id: 'rep-1',
+    customer_id: 'customer-1',
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(negotiationsRepository.findQuotationForNegotiation).mockResolvedValue(OWNED);
+    vi.mocked(negotiationsRepository.insertNegotiation).mockResolvedValue({
+      id: 'neg-1',
+      quotation_id: 'quote-1',
+      initiated_by: 'rep-1',
+      status: 'OPEN',
+      created_at: '2026-01-01T00:00:00.000Z',
+    } as never);
+    vi.mocked(negotiationsRepository.listByQuotationId).mockResolvedValue([]);
+  });
+
+  it('lets the owning rep open a negotiation', async () => {
+    await expect(
+      negotiationsService.open('quote-1', 'rep-1', undefined, { id: 'rep-1', role: 'SALES_REP' }),
+    ).resolves.toMatchObject({ id: 'neg-1' });
+  });
+
+  it('blocks a different sales rep from opening a negotiation (403)', async () => {
+    await expect(
+      negotiationsService.open('quote-1', 'rep-2', undefined, { id: 'rep-2', role: 'SALES_REP' }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(negotiationsRepository.insertNegotiation).not.toHaveBeenCalled();
+  });
+
+  it('blocks a different sales rep from listing a foreign quotation’s negotiations (403)', async () => {
+    await expect(
+      negotiationsService.listForQuotation('quote-1', undefined, { id: 'rep-2', role: 'SALES_REP' }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it('lets a sales manager act on any quotation', async () => {
+    await expect(
+      negotiationsService.open('quote-1', 'mgr-1', undefined, { id: 'mgr-1', role: 'SALES_MANAGER' }),
+    ).resolves.toMatchObject({ id: 'neg-1' });
   });
 });

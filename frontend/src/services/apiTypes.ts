@@ -27,11 +27,13 @@ export type ApiQuotationStatus =
 export interface ApiQuotation {
   id: string;
   quotation_number: string;
+  title: string | null;
   customer_id: string;
   sales_rep_id: string;
   price_list_id: string | null;
   status: ApiQuotationStatus;
   currency: string;
+  order_discount_percent: string;
   subtotal: string;
   discount_total: string;
   tax_total: string;
@@ -51,27 +53,79 @@ export interface ApiQuotationItem {
   discount_percent: string;
   discount_amount: string;
   tax_percent: string;
+  line_subtotal?: string;
+  taxable_amount?: string;
+  tax_amount?: string;
   line_total: string;
   billing_type: 'ONE_TIME' | 'RECURRING';
   created_at: string;
   updated_at: string;
+  /** Computed server-side from the product's cost_price — null when it has none on record. */
+  margin_percent?: number | null;
+}
+
+export interface UpdateQuotationItemInput {
+  description?: string | null;
+  quantity?: number;
+  unit_price?: number;
+  discount_percent?: number;
+  tax_percent?: number;
 }
 
 export interface ApiQuotationWithItems extends ApiQuotation {
   items: ApiQuotationItem[];
 }
 
+// ── Customer portal ──────────────────────────────────────────────────────────
+// GET /portal/quotations/:id joins products so the customer-facing line list
+// has a real label; /customers and /admin/products are gated away from portal
+// tokens, so these fields have no other source.
+export interface ApiPortalQuotationItem extends ApiQuotationItem {
+  product_name: string;
+  product_category: string;
+}
+
+export interface ApiPortalQuotation extends ApiQuotation {
+  items: ApiPortalQuotationItem[];
+}
+
+export interface ApiPortalProfile {
+  id: string;
+  company_name: string;
+  customer_code: string;
+  industry: string | null;
+  email: string | null;
+  phone: string | null;
+  website: string | null;
+  tier: string;
+}
+
+export interface ApiPortalNegotiation {
+  id: string;
+  quotation_id: string;
+  quotation_number: string;
+  initiated_by: string;
+  status: 'OPEN' | 'IN_PROGRESS' | 'ACCEPTED' | 'REJECTED' | 'CLOSED';
+  created_at: string;
+  closed_at: string | null;
+}
+
 export interface CreateQuotationInput {
   customer_id: string;
+  /** Optional human-friendly proposal name (≤200 chars). */
+  title?: string | null;
   price_list_id?: string | null;
   currency: string;
   valid_until?: string | null;
 }
 
 export interface UpdateQuotationInput {
+  /** Rename the proposal — allowed at any status, unlike the other fields. */
+  title?: string | null;
   price_list_id?: string | null;
   currency?: string;
   valid_until?: string | null;
+  order_discount_percent?: number;
 }
 
 export interface CreateQuotationItemInput {
@@ -248,13 +302,20 @@ export interface ApiDealHealthScore {
   created_at: string;
 }
 
+export type ApiDealAlertType = 'STALLED' | 'DISCOUNT_ANOMALY' | 'DELIVERY_SLIPPAGE';
+export type ApiDealAlertSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
 export interface ApiDealAlert {
   id: string;
   quotation_id: string;
-  alert_type: string;
-  severity: string;
+  /** Joined in by the list endpoint so callers don't need a second lookup. */
+  quotation_number: string;
+  customer_id: string;
+  customer_name: string;
+  alert_type: ApiDealAlertType;
+  severity: ApiDealAlertSeverity;
   message: string;
-  status: string;
+  status: 'OPEN' | 'ESCALATED' | 'NUDGED' | 'RESOLVED';
   created_at: string;
   resolved_at: string | null;
 }
@@ -274,12 +335,17 @@ export interface ApiNotification {
 }
 
 // ── Upsell ───────────────────────────────────────────────────────────────────
+// GET /products/:id/recommendations joins in the recommended product's own
+// fields, so callers don't need a second product lookup.
 export interface ApiRecommendation {
-  id: string;
-  product_id: string;
   recommended_product_id: string;
+  name: string;
+  base_price: string;
+  cost_price: string | null;
+  margin_percent: string | null;
+  recommendation_type: 'UPSELL' | 'CROSS_SELL';
+  priority: number;
   reason: string | null;
-  [key: string]: unknown;
 }
 
 // ── Reporting ────────────────────────────────────────────────────────────────
@@ -319,15 +385,18 @@ export interface ApiUser {
 }
 
 // ── Quotation timeline (audit-log-backed activity feed) ─────────────────────
+// GET /quotations/:id/timeline reads straight from audit_logs (see
+// quotations.repository.ts::listTimeline) — action/old_value/new_value/
+// user_id, not event_type/note/metadata.
 export interface ApiTimelineEvent {
   id: string;
-  quotation_id: string;
-  actor_user_id?: string | null;
-  event_type: string;
-  note?: string | null;
-  metadata?: Record<string, unknown> | null;
+  entity_type: string;
+  entity_id: string;
+  action: string;
+  user_id: string | null;
+  old_value: Record<string, unknown> | null;
+  new_value: Record<string, unknown> | null;
   created_at: string;
-  [key: string]: unknown;
 }
 
 // ── Admin: Warehouses ────────────────────────────────────────────────────────
@@ -356,6 +425,13 @@ export interface ApiProduct {
   price?: string | number;
   status?: string;
   [key: string]: unknown;
+}
+
+export interface ApiProductCategory {
+  id: string;
+  name: string;
+  description: string | null;
+  parent_category_id: string | null;
 }
 
 // ── Admin: Recommendation Rules (= "Upsell rules" in the mock UI) ───────────

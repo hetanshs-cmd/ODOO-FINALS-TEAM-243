@@ -1,8 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { PageHeader } from '../components/ui/PageHeader';
 import { StatusBadge } from '../components/ui/Badge';
-import { useDealStore } from '../hooks/useDealStore';
 import { Quotation, WarehouseSplitResult, WarehouseSplitAllocation } from '../types';
 import {
   computeWarehouseSplit,
@@ -33,72 +32,85 @@ import {
 import { toast } from '../components/ui/Toast';
 import { Modal } from '../components/ui/Modal';
 import { Button } from '../components/ui/Button';
-import { useSalesOrder } from '../hooks/useSalesOrders';
+import { useSalesOrders, useSalesOrder } from '../hooks/useSalesOrders';
+import { useCustomers } from '../hooks/useCustomers';
+import { useUsers } from '../hooks/useUsers';
 import { useBackorders } from '../hooks/useBackorders';
-import { fulfillmentService, backorderService, salesOrderService } from '../services';
-import { ApiFulfillment } from '../services/apiTypes';
+import { warehouseService, productService, fulfillmentService, backorderService, salesOrderService } from '../services';
+import { ApiWarehouse, ApiProduct, ApiFulfillment } from '../services/apiTypes';
 import { ApiError } from '../services/httpClient';
+import { SalesOrder, SalesOrderStatus } from '../types';
 
 // ============================================================================
 // SCREEN 7: FULFILLMENT & STOCK LIST PAGE
 // ============================================================================
 
+// Real sales orders are a distinct entity from mock Quotations (see
+// SalesOrder in types/index.ts); this list is now driven by the real
+// GET /sales-orders endpoint via useSalesOrders instead of the mock
+// quotation-stage filter.
+const NON_CANCELLED_STATUSES: SalesOrderStatus[] = [
+  'PENDING',
+  'CONFIRMED',
+  'PROCESSING',
+  'PARTIALLY_FULFILLED',
+  'FULFILLED',
+];
+
 export const FulfillmentListPage: React.FC = () => {
-  const { quotations, warehouses, products, activeFulfillmentSplits, restockWarehouse } = useDealStore();
+  const { salesOrders, loading } = useSalesOrders();
+  const { customers } = useCustomers();
+  const { users } = useUsers();
   const navigate = useNavigate();
+
+  // Local fetch for warehouses/products (admin-gated resources; no
+  // dedicated resource hook was in this migration's scope). Restock is
+  // handled entirely inside the Stock tab below since the real API has no
+  // restock endpoint — see the TODO there.
+  const [warehouses, setWarehouses] = useState<ApiWarehouse[]>([]);
+  const [products, setProducts] = useState<ApiProduct[]>([]);
+  useEffect(() => {
+    warehouseService.getAll().then((data) => setWarehouses(data as unknown as ApiWarehouse[])).catch(() => setWarehouses([]));
+    productService.getAll().then((data) => setProducts(data as unknown as ApiProduct[])).catch(() => setProducts([]));
+  }, []);
+
+  const customersById = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
+  const usersById = useMemo(() => new Map(users.map((u) => [u.id, u])), [users]);
+  const getCustomerName = (id: string) => customersById.get(id)?.name || id;
+  const getRepName = (id: string) => usersById.get(id)?.name || 'Unassigned';
 
   const [activeTab, setActiveTab] = useState<'orders' | 'stock'>('orders');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // Orders eligible for fulfillment: Approved, Confirmed, Fulfillment, Completed
-  const eligibleQuotations = useMemo(() => {
-    return quotations.filter((q) =>
-      ['Approved', 'Confirmed', 'Fulfillment', 'Completed'].includes(q.stage)
-    );
-  }, [quotations]);
-
-  // Enrich quotations with canonical fulfillment status from domain engine
-  const enrichedOrders = useMemo(() => {
-    return eligibleQuotations.map((q) => {
-      const savedSplit = activeFulfillmentSplits[q.id];
-      const fulfillmentInfo = getQuotationFulfillmentStatus(q, savedSplit, warehouses);
-      const physicalLines = q.lines.filter((l) => l.category === 'Hardware' && !l.isSubscription);
-      const physicalQty = physicalLines.reduce((sum, l) => sum + l.quantity, 0);
-
-      return {
-        quotation: q,
-        savedSplit,
-        fulfillmentInfo,
-        physicalLinesCount: physicalLines.length,
-        physicalQty,
-      };
-    });
-  }, [eligibleQuotations, activeFulfillmentSplits, warehouses]);
+  // Orders eligible for fulfillment: everything except CANCELLED.
+  const eligibleOrders = useMemo(
+    () => salesOrders.filter((o) => NON_CANCELLED_STATUSES.includes(o.status)),
+    [salesOrders]
+  );
 
   // Filter based on search and status
   const filteredOrders = useMemo(() => {
-    return enrichedOrders.filter(({ quotation: q, fulfillmentInfo }) => {
+    return eligibleOrders.filter((o) => {
       // Status filter
-      if (statusFilter !== 'all' && fulfillmentInfo.status.toLowerCase() !== statusFilter.toLowerCase()) {
+      if (statusFilter !== 'all' && o.status.toLowerCase() !== statusFilter.toLowerCase()) {
         return false;
       }
 
       // Search filter
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
-        const matchesCode = q.code.toLowerCase().includes(query);
-        const matchesCustomer = q.customerName.toLowerCase().includes(query);
-        const matchesRep = q.repName?.toLowerCase().includes(query) || false;
-        const matchesSku = q.lines.some((l) => l.productId.toLowerCase().includes(query));
-        if (!matchesCode && !matchesCustomer && !matchesRep && !matchesSku) {
+        const matchesCode = o.order_number.toLowerCase().includes(query);
+        const matchesCustomer = getCustomerName(o.customer_id).toLowerCase().includes(query);
+        const matchesRep = getRepName(o.sales_rep_id).toLowerCase().includes(query);
+        if (!matchesCode && !matchesCustomer && !matchesRep) {
           return false;
         }
       }
 
       return true;
     });
-  }, [enrichedOrders, statusFilter, searchQuery]);
+  }, [eligibleOrders, statusFilter, searchQuery, customersById, usersById]);
 
   return (
     <div className="space-y-5">
@@ -129,7 +141,7 @@ export const FulfillmentListPage: React.FC = () => {
                 : 'bg-slate-200 text-slate-700'
             }`}
           >
-            {enrichedOrders.length}
+            {eligibleOrders.length}
           </span>
         </button>
 
@@ -166,10 +178,11 @@ export const FulfillmentListPage: React.FC = () => {
               <span className="text-xs text-slate-500 font-medium mr-1">Status:</span>
               {[
                 { id: 'all', label: 'All Orders' },
-                { id: 'ready', label: 'Ready' },
-                { id: 'allocated', label: 'Allocated' },
-                { id: 'backordered', label: 'Backordered' },
-                { id: 'shipped', label: 'Shipped' },
+                { id: 'pending', label: 'Pending' },
+                { id: 'confirmed', label: 'Confirmed' },
+                { id: 'processing', label: 'Processing' },
+                { id: 'partially_fulfilled', label: 'Partially Fulfilled' },
+                { id: 'fulfilled', label: 'Fulfilled' },
               ].map((chip) => (
                 <button
                   key={chip.id}
@@ -204,105 +217,83 @@ export const FulfillmentListPage: React.FC = () => {
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200 uppercase text-[10px] tracking-wider">
-                  <th className="py-2.5 px-3.5">Order / Quote ID</th>
-                  <th className="py-2.5 px-3.5">Customer & Tier</th>
+                  <th className="py-2.5 px-3.5">Order Number</th>
+                  <th className="py-2.5 px-3.5">Customer</th>
                   <th className="py-2.5 px-3.5">Sales Rep</th>
-                  <th className="py-2.5 px-3.5">Physical Demand</th>
+                  <th className="py-2.5 px-3.5 text-right">Order Value</th>
                   <th className="py-2.5 px-3.5">Fulfillment Status</th>
-                  <th className="py-2.5 px-3.5">Fulfilling Facilities</th>
-                  <th className="py-2.5 px-3.5 text-center">Shipments</th>
+                  <th className="py-2.5 px-3.5">Order Date</th>
                   <th className="py-2.5 px-3.5 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 font-normal">
-                {filteredOrders.length === 0 ? (
+                {loading ? (
                   <tr>
-                    <td colSpan={8} className="text-center py-10 text-slate-500 italic">
-                      No approved quotations match the current fulfillment filter.
+                    <td colSpan={7} className="text-center py-10 text-slate-400 italic">
+                      Loading sales orders…
+                    </td>
+                  </tr>
+                ) : filteredOrders.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="text-center py-10 text-slate-500 italic">
+                      No sales orders match the current fulfillment filter.
                     </td>
                   </tr>
                 ) : (
-                  filteredOrders.map(({ quotation: q, fulfillmentInfo, physicalLinesCount, physicalQty }) => {
-                    const hasBackorder = fulfillmentInfo.backorderCount > 0;
+                  filteredOrders.map((o) => {
+                    const isBackordered = o.status === 'PARTIALLY_FULFILLED';
+                    const isFulfilled = o.status === 'FULFILLED';
                     return (
                       <tr
-                        key={q.id}
-                        onClick={() => navigate(`/fulfillment/${q.id}`)}
+                        key={o.id}
+                        onClick={() => navigate(`/fulfillment/${o.id}`)}
                         className="hover:bg-purple-50/30 transition-colors cursor-pointer"
                       >
-                        {/* Order Code */}
+                        {/* Order Number */}
                         <td className="py-2.5 px-3.5 font-mono font-bold text-blue-900">
-                          {q.code}
+                          {o.order_number}
                         </td>
 
                         {/* Customer */}
                         <td className="py-2.5 px-3.5">
-                          <div className="font-semibold text-slate-900">{q.customerName}</div>
-                          <span className="inline-block text-[10px] text-slate-500 uppercase font-mono">
-                            {q.customerTier || 'Standard'} Tier
-                          </span>
+                          <div className="font-semibold text-slate-900">{getCustomerName(o.customer_id)}</div>
                         </td>
 
                         {/* Sales Rep */}
                         <td className="py-2.5 px-3.5 text-slate-600">
-                          {q.repName || 'Alex Rivera'}
+                          {getRepName(o.sales_rep_id)}
                         </td>
 
-                        {/* Physical Items */}
-                        <td className="py-2.5 px-3.5">
-                          {physicalLinesCount > 0 ? (
-                            <span className="font-mono text-slate-800">
-                              <strong>{physicalQty}</strong> units ({physicalLinesCount} SKU)
-                            </span>
-                          ) : (
-                            <span className="text-slate-400 italic">Digital / Services</span>
-                          )}
+                        {/* Order Value */}
+                        <td className="py-2.5 px-3.5 text-right font-mono text-slate-800">
+                          ₹{(parseFloat(o.grand_total) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </td>
 
-                        {/* Fulfillment Status Badge */}
+                        {/* Fulfillment Status Badge — driven directly by the
+                            real SalesOrderStatus; per-facility split/backorder
+                            detail requires a per-order fulfillments fetch,
+                            left for the detail view (see TODO there). */}
                         <td className="py-2.5 px-3.5">
                           <span
                             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border ${
-                              fulfillmentInfo.variant === 'success'
+                              isFulfilled
                                 ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                : fulfillmentInfo.variant === 'warning'
+                                : isBackordered
                                 ? 'bg-amber-50 text-amber-900 border-amber-300 font-semibold'
-                                : fulfillmentInfo.variant === 'info'
+                                : o.status === 'PROCESSING'
                                 ? 'bg-blue-50 text-blue-800 border-blue-200'
                                 : 'bg-slate-100 text-slate-700 border-slate-200'
                             }`}
                           >
-                            {hasBackorder && <AlertTriangle className="w-3 h-3 text-amber-600" />}
-                            {fulfillmentInfo.status === 'Allocated' && (
-                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                            )}
-                            {fulfillmentInfo.label}
+                            {isBackordered && <AlertTriangle className="w-3 h-3 text-amber-600" />}
+                            {isFulfilled && <CheckCircle2 className="w-3 h-3 text-emerald-600" />}
+                            {o.status.replace(/_/g, ' ')}
                           </span>
                         </td>
 
-                        {/* Allocated Facilities */}
-                        <td className="py-2.5 px-3.5">
-                          {fulfillmentInfo.warehousesUsed.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                              {fulfillmentInfo.warehousesUsed.map((wName, idx) => (
-                                <span
-                                  key={idx}
-                                  className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-mono border border-slate-200"
-                                >
-                                  {wName.replace(' Distribution Center', '').replace(' Logistics Hub', '')}
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-slate-400 italic text-[11px]">Unassigned</span>
-                          )}
-                        </td>
-
-                        {/* Shipments Count */}
-                        <td className="py-2.5 px-3.5 text-center font-mono text-slate-700">
-                          {fulfillmentInfo.warehousesUsed.length > 0
-                            ? `${fulfillmentInfo.warehousesUsed.length} Shipments`
-                            : '—'}
+                        {/* Order Date */}
+                        <td className="py-2.5 px-3.5 text-slate-500 font-mono text-[11px]">
+                          {o.order_date?.split('T')[0]}
                         </td>
 
                         {/* Action */}
@@ -311,7 +302,7 @@ export const FulfillmentListPage: React.FC = () => {
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              navigate(`/fulfillment/${q.id}`);
+                              navigate(`/fulfillment/${o.id}`);
                             }}
                             className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#714B67] hover:text-[#5E3E56] hover:underline"
                           >
@@ -328,13 +319,65 @@ export const FulfillmentListPage: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 2: GLOBAL WAREHOUSE STOCK MATRIX */}
+      {/* TAB 2: WAREHOUSE FACILITIES — the real API has no per-product,
+          per-warehouse stock ledger endpoint yet (only /admin/warehouses
+          facility records), so the detailed inventory matrix is simplified
+          to a facility list rather than fabricating stock numbers. Full
+          facility CRUD lives on the Admin > Warehouses page. */}
       {activeTab === 'stock' && (
-        <WarehouseStockTable
-          warehouses={warehouses}
-          products={products}
-          onRestock={restockWarehouse}
-        />
+        <div className="bg-white border border-slate-200 rounded-sm shadow-xs overflow-hidden">
+          <div className="p-3.5 bg-slate-50 border-b border-slate-200 text-xs text-slate-600">
+            Per-SKU stock levels are not yet exposed by the backend API (only
+            facility records are). Manage facilities on{' '}
+            <Link to="/admin/warehouses" className="text-[#714B67] font-semibold hover:underline">
+              Admin → Warehouses
+            </Link>
+            .
+          </div>
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200 uppercase text-[10px] tracking-wider">
+                <th className="py-2.5 px-3.5">Facility Name / Code</th>
+                <th className="py-2.5 px-3.5">Location</th>
+                <th className="py-2.5 px-3.5 text-center">Shipping Cost Weight</th>
+                <th className="py-2.5 px-3.5 text-center">Eligibility</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {warehouses.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="text-center py-8 text-slate-500 italic">
+                    No facilities configured.
+                  </td>
+                </tr>
+              ) : (
+                warehouses.map((w) => (
+                  <tr key={w.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="py-2.5 px-3.5 font-semibold text-slate-900">
+                      {w.name}{' '}
+                      <span className="text-[11px] font-mono text-slate-500">{w.code || w.id}</span>
+                    </td>
+                    <td className="py-2.5 px-3.5 text-slate-600">{w.location || '—'}</td>
+                    <td className="py-2.5 px-3.5 text-center font-mono">
+                      {w.shipping_cost_weight ?? 1.0}x
+                    </td>
+                    <td className="py-2.5 px-3.5 text-center">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          w.active
+                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                            : 'bg-rose-50 text-rose-800 border border-rose-200'
+                        }`}
+                      >
+                        {w.active ? 'Active' : 'Disabled'}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
@@ -385,6 +428,11 @@ export const FulfillmentDetailPage: React.FC = () => {
   }, [id]);
 
   const { salesOrder, loading: soLoading, error: soError, refetch: refetchSalesOrder } = useSalesOrder(salesOrderId);
+  const { customers: detailCustomers } = useCustomers();
+  const customerName =
+    (salesOrder && detailCustomers.find((c) => c.id === salesOrder.customer_id)?.name) ||
+    salesOrder?.customer_id ||
+    '—';
   const { backorders, loading: boLoading, refetch: refetchBackorders } = useBackorders(
     salesOrder ? { sales_order_id: salesOrder.id } : undefined
   );
@@ -546,8 +594,7 @@ export const FulfillmentDetailPage: React.FC = () => {
               <div className="flex items-center gap-2">
                 <span className="font-mono text-base font-bold text-slate-900">{salesOrder.order_number}</span>
                 <span className="text-slate-400">/</span>
-                {/* TODO: resolve customer display name once a customers directory hook lands. */}
-                <span className="text-sm font-semibold text-slate-800 font-mono">{salesOrder.customer_id}</span>
+                <span className="text-sm font-semibold text-slate-800">{customerName}</span>
               </div>
               <div className="text-xs text-slate-500 mt-0.5">
                 Order Date: <strong className="text-slate-700">{new Date(salesOrder.order_date).toLocaleDateString()}</strong>
@@ -573,7 +620,7 @@ export const FulfillmentDetailPage: React.FC = () => {
           </div>
           <div className="p-2.5 bg-slate-50 rounded border border-slate-200">
             <div className="text-[10px] text-slate-500 uppercase">Grand Total</div>
-            <div className="text-sm font-bold text-blue-900 mt-0.5">${Number(salesOrder.grand_total).toLocaleString()}</div>
+            <div className="text-sm font-bold text-blue-900 mt-0.5">₹{Number(salesOrder.grand_total).toLocaleString()}</div>
           </div>
         </div>
       </div>
@@ -697,7 +744,7 @@ export const FulfillmentDetailPage: React.FC = () => {
                       <td className="py-2 px-3 text-right font-bold text-slate-900">{line.quantity}</td>
                       <td className="py-2 px-3 text-right text-emerald-700">{line.fulfilled_quantity}</td>
                       <td className="py-2 px-3 text-right text-amber-700">{line.backordered_quantity}</td>
-                      <td className="py-2 px-3 text-right text-slate-900">${Number(line.total).toLocaleString()}</td>
+                      <td className="py-2 px-3 text-right text-slate-900">₹{Number(line.total).toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -714,8 +761,8 @@ export const FulfillmentDetailPage: React.FC = () => {
             </h4>
             <div className="space-y-2 text-xs">
               <div className="flex justify-between">
-                <span className="text-slate-500">Customer ID:</span>
-                <span className="font-mono font-semibold text-slate-900">{salesOrder.customer_id}</span>
+                <span className="text-slate-500">Customer:</span>
+                <span className="font-semibold text-slate-900">{customerName}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Quotation ID:</span>
@@ -723,7 +770,7 @@ export const FulfillmentDetailPage: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Grand Total:</span>
-                <span className="font-mono font-bold text-blue-900">${Number(salesOrder.grand_total).toLocaleString()}</span>
+                <span className="font-mono font-bold text-blue-900">₹{Number(salesOrder.grand_total).toLocaleString()}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Status:</span>

@@ -1,9 +1,11 @@
 import { Errors } from '../../errors/AppError';
 import { withTransaction } from '../../shared/db/withTransaction';
 import { generateDocumentNumber } from '../../shared/documentNumber';
+import { assertInternalCanAccessQuotationOwner } from '../../shared/ownership';
 import { getPaginationParams, buildPaginatedResult, PaginatedResult } from '../../utils/pagination';
 import { salesOrdersRepository } from './sales-orders.repository';
 import { SalesOrder, SalesOrderWithItems } from './sales-orders.model';
+import { AuthenticatedUser } from '../auth/auth.types';
 
 /**
  * A quotation is convertible once governance has cleared it: either the
@@ -26,7 +28,13 @@ export const salesOrdersService = {
    * same as discount-engine) so a partial failure never leaves a half-created
    * order or a quotation stuck in CONVERTED with no order behind it.
    */
-  async convertFromQuotation(quotationId: string): Promise<SalesOrderWithItems> {
+  async convertFromQuotation(
+    quotationId: string,
+    // Optional: the internal /quotations/:id/convert route always passes the
+    // authenticated staff user; the portal confirm flow calls this after its
+    // own customer-ownership check, so it has no internal requester.
+    requester?: AuthenticatedUser,
+  ): Promise<SalesOrderWithItems> {
     const items = await salesOrdersRepository.listQuotationItemsForConversion(quotationId);
 
     return withTransaction(async (client) => {
@@ -37,6 +45,10 @@ export const salesOrdersService = {
         quotationId,
       );
       if (!quotation) throw Errors.notFound('Quotation');
+
+      // Ownership: the route only checks role, so a SALES_REP could otherwise
+      // convert a peer's quotation by UUID even though they cannot read it.
+      if (requester) assertInternalCanAccessQuotationOwner(quotation.sales_rep_id, requester);
 
       if (!CONVERTIBLE_STATUSES.has(quotation.status)) {
         throw Errors.businessRuleViolation(
@@ -79,21 +91,32 @@ export const salesOrdersService = {
     });
   },
 
-  async getWithItems(id: string): Promise<SalesOrderWithItems> {
+  async getWithItems(id: string, requester: AuthenticatedUser): Promise<SalesOrderWithItems> {
     const order = await salesOrdersRepository.findById(id);
     if (!order) throw Errors.notFound('Sales order');
+    assertInternalCanAccessQuotationOwner(order.sales_rep_id, requester);
     const items = await salesOrdersRepository.listItems(id);
     return { ...order, items };
   },
 
-  async list(query: {
-    status?: string;
-    customer_id?: string;
-    page?: unknown;
-    limit?: unknown;
-  }): Promise<PaginatedResult<SalesOrder>> {
+  async list(
+    query: {
+      status?: string;
+      customer_id?: string;
+      quotation_id?: string;
+      page?: unknown;
+      limit?: unknown;
+    },
+    requester: AuthenticatedUser,
+  ): Promise<PaginatedResult<SalesOrder>> {
     const pagination = getPaginationParams(query);
-    const filters = { status: query.status, customerId: query.customer_id };
+    const filters = {
+      status: query.status,
+      customerId: query.customer_id,
+      quotationId: query.quotation_id,
+      // A plain rep's list is scoped to their own orders; managers/ops/admin see all.
+      salesRepId: requester.role === 'SALES_REP' ? requester.id : undefined,
+    };
     const [items, total] = await Promise.all([
       salesOrdersRepository.list(filters, pagination.limit, pagination.offset),
       salesOrdersRepository.count(filters),

@@ -149,6 +149,19 @@ describe('authService.signup', () => {
     expect(authRepository.findRoleByName).toHaveBeenCalledWith('SALES_REP');
   });
 
+  it('rejects signup with a 403 when a non-default role is requested', async () => {
+    vi.mocked(authRepository.findUserByEmail).mockResolvedValue(null);
+
+    await expect(
+      authService.signup({
+        name: 'New User',
+        email: 'new@example.com',
+        password: PASSWORD,
+        role: 'FINANCE',
+      }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+  });
+
   it('rejects signup with a 409 when the email is already registered', async () => {
     const existing = await makeUser();
     vi.mocked(authRepository.findUserByEmail).mockResolvedValue(existing);

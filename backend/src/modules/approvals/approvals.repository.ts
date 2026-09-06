@@ -11,6 +11,7 @@ export const approvalsRepository = {
   async list(
     status: string | undefined,
     requestedBy: string | undefined,
+    quotationId: string | undefined,
     limit: number,
     offset: number,
   ): Promise<ApprovalRequest[]> {
@@ -18,11 +19,15 @@ export const approvalsRepository = {
     const params: unknown[] = [];
     if (status) {
       params.push(status);
-      conditions.push(`status = $${params.length}`);
+      conditions.push(`ar.status = $${params.length}`);
     }
     if (requestedBy) {
       params.push(requestedBy);
-      conditions.push(`requested_by = $${params.length}`);
+      conditions.push(`ar.requested_by = $${params.length}`);
+    }
+    if (quotationId) {
+      params.push(quotationId);
+      conditions.push(`ar.quotation_id = $${params.length}`);
     }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     params.push(limit, offset);
@@ -37,7 +42,11 @@ export const approvalsRepository = {
     return rows as ApprovalRequest[];
   },
 
-  async count(status: string | undefined, requestedBy: string | undefined): Promise<number> {
+  async count(
+    status: string | undefined,
+    requestedBy: string | undefined,
+    quotationId: string | undefined,
+  ): Promise<number> {
     const conditions: string[] = [];
     const params: unknown[] = [];
     if (status) {
@@ -47,6 +56,10 @@ export const approvalsRepository = {
     if (requestedBy) {
       params.push(requestedBy);
       conditions.push(`requested_by = $${params.length}`);
+    }
+    if (quotationId) {
+      params.push(quotationId);
+      conditions.push(`quotation_id = $${params.length}`);
     }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const { rows } = await db.query(
@@ -75,7 +88,8 @@ export const approvalsRepository = {
    */
   async findByIdForUpdate(client: PoolClient, id: string): Promise<ApprovalRequest | null> {
     const { rows } = await client.query(
-      `SELECT ar.*, al.name AS approval_level
+      `SELECT ar.*, al.name AS approval_level, al.level AS approval_level_num,
+              al.required_role AS approval_level_required_role
        FROM approval_requests ar
        JOIN approval_levels al ON al.id = ar.approval_level_id
        WHERE ar.id = $1
@@ -83,6 +97,40 @@ export const approvalsRepository = {
       [id],
     );
     return (rows[0] as ApprovalRequest | undefined) ?? null;
+  },
+
+  /**
+   * The highest per-item risk level from the quotation's most recent
+   * discount evaluation — used by `act` to know how many approval steps the
+   * chain has (MEDIUM = 1, HIGH = 2). Returns null if never evaluated.
+   */
+  async findLatestRiskLevelForQuotation(
+    client: PoolClient,
+    quotationId: string,
+  ): Promise<'LOW' | 'MEDIUM' | 'HIGH' | null> {
+    const { rows } = await client.query(
+      `SELECT risk_level
+       FROM discount_evaluations
+       WHERE quotation_id = $1
+       ORDER BY CASE risk_level WHEN 'HIGH' THEN 3 WHEN 'MEDIUM' THEN 2 ELSE 1 END DESC,
+                evaluated_at DESC
+       LIMIT 1`,
+      [quotationId],
+    );
+    return (rows[0] as { risk_level: 'LOW' | 'MEDIUM' | 'HIGH' } | undefined)?.risk_level ?? null;
+  },
+
+  async createNextChainRequest(
+    client: PoolClient,
+    input: { quotationId: string; requestedBy: string; approvalLevelId: string; reason: string },
+  ): Promise<string> {
+    const { rows } = await client.query(
+      `INSERT INTO approval_requests (quotation_id, requested_by, approval_level_id, reason)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id`,
+      [input.quotationId, input.requestedBy, input.approvalLevelId, input.reason],
+    );
+    return (rows[0] as { id: string }).id;
   },
 
   async listActions(approvalRequestId: string): Promise<ApprovalActionRow[]> {
@@ -149,9 +197,7 @@ export const approvalsRepository = {
   },
 
   /** For the approval-detail screen's risk breakdown (docs/architecture.md). */
-  async findLatestEvaluationsForQuotation(
-    quotationId: string,
-  ): Promise<
+  async findLatestEvaluationsForQuotation(quotationId: string): Promise<
     {
       quotation_item_id: string | null;
       requested_discount: string;

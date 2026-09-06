@@ -1,57 +1,86 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   FileText,
-  CheckSquare,
-  AlertTriangle,
-  TrendingUp,
   Plus,
-  ArrowRight,
-  Sparkles,
   ShieldAlert,
-  Clock,
-  ExternalLink,
   ChevronRight,
-  ShieldCheck,
   CheckCircle2,
+  Clock,
+  TrendingUp,
+  Truck,
+  AlertCircle,
 } from 'lucide-react';
-import { useDealStore } from '../hooks/useDealStore';
-import { useAuth } from '../hooks/useAuth';
+import { useQuotations } from '../hooks/useQuotations';
+import { useCustomers } from '../hooks/useCustomers';
+import { useDealHealthAlerts } from '../hooks/useDealHealth';
 import { StatusBadge, RiskBadge } from '../components/ui/Badge';
-import { formatCurrency, formatRelativeTime } from '../utils/formatters';
+import { formatCurrency, humanizeStatus } from '../utils/formatters';
+import { ApiDealAlert, ApiQuotation } from '../services/apiTypes';
+import { RiskLevel } from '../types';
+
+// Quotations that are still "in play" — not yet converted, cancelled, or
+// closed out one way or another. Matches the enum's own semantics rather
+// than an invented business rule.
+const OPEN_STATUSES = new Set<ApiQuotation['status']>([
+  'DRAFT',
+  'SUBMITTED',
+  'PENDING_APPROVAL',
+  'APPROVED',
+  'SENT_TO_CUSTOMER',
+  'NEGOTIATION',
+  'ACCEPTED',
+]);
+
+const ALERT_TYPE_LABELS: Record<ApiDealAlert['alert_type'], string> = {
+  STALLED: 'Stalled Deal',
+  DISCOUNT_ANOMALY: 'Discount Anomaly',
+  DELIVERY_SLIPPAGE: 'Delivery Slippage',
+};
+
+const ALERT_TYPE_ICONS: Record<ApiDealAlert['alert_type'], React.ReactNode> = {
+  STALLED: <Clock className="w-3.5 h-3.5 text-amber-600" />,
+  DISCOUNT_ANOMALY: <TrendingUp className="w-3.5 h-3.5 text-rose-600" />,
+  DELIVERY_SLIPPAGE: <Truck className="w-3.5 h-3.5 text-blue-600" />,
+};
+
+/** No per-quotation risk score exists server-side — an open HIGH/CRITICAL
+ * deal-health alert is the real signal this dashboard has for "at risk". */
+function riskFromAlerts(alerts: ApiDealAlert[]): RiskLevel {
+  if (alerts.some((a) => a.severity === 'CRITICAL' || a.severity === 'HIGH')) return 'HIGH';
+  if (alerts.some((a) => a.severity === 'MEDIUM')) return 'MEDIUM';
+  return 'LOW';
+}
 
 export const DashboardPage: React.FC = () => {
-  const { quotations, dealHealthFlags, approvalSteps, customers, upsellSuggestions } = useDealStore();
-  const { user } = useAuth();
+  const { quotations } = useQuotations();
+  const { customers } = useCustomers();
+  const { alerts } = useDealHealthAlerts();
   const navigate = useNavigate();
 
-  // Metrics calculations
-  const pendingApprovals = quotations.filter(
-    (q) => q.stage === 'Pending Approval' || q.stage === 'PendingApproval'
-  );
-  const openQuotations = quotations.filter(
-    (q) =>
-      q.stage === 'Draft' ||
-      q.stage === 'Pending Approval' ||
-      q.stage === 'PendingApproval' ||
-      q.stage === 'Negotiation' ||
-      q.stage === 'Sent'
-  );
-  const atRiskDeals = quotations.filter(
-    (q) => q.blendedRiskValue === 'HIGH' || q.blendedRiskScore >= 70
-  );
-  const totalPipelineRevenue = openQuotations.reduce(
-    (sum, q) => sum + (q.grandTotal || q.totalAmount || 0),
-    0
-  );
+  const customersById = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
+  const getCustomerName = (id: string) => customersById.get(id)?.name || 'Unnamed Customer';
 
-  // Recent quotations (sorted by activity)
+  const alertsByQuotation = useMemo(() => {
+    const map = new Map<string, ApiDealAlert[]>();
+    for (const alert of alerts) {
+      const list = map.get(alert.quotation_id) || [];
+      list.push(alert);
+      map.set(alert.quotation_id, list);
+    }
+    return map;
+  }, [alerts]);
+
+  const pendingApprovals = quotations.filter((q) => q.status === 'PENDING_APPROVAL');
+  const openQuotations = quotations.filter((q) => OPEN_STATUSES.has(q.status));
+  const atRiskDeals = openQuotations.filter((q) => riskFromAlerts(alertsByQuotation.get(q.id) || []) === 'HIGH');
+  const totalPipelineRevenue = openQuotations.reduce((sum, q) => sum + Number(q.grand_total || 0), 0);
+
   const recentQuotations = [...quotations]
-    .sort((a, b) => new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime())
+    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
     .slice(0, 5);
 
-  // Unresolved deal health flags
-  const activeFlags = dealHealthFlags.filter((f) => !f.isResolved).slice(0, 3);
+  const activeFlags = alerts.slice(0, 3);
 
   return (
     <div className="space-y-5">
@@ -124,11 +153,11 @@ export const DashboardPage: React.FC = () => {
           <div className="mt-1 flex items-baseline justify-between">
             <div className="text-2xl font-bold text-[#1F2937]">{atRiskDeals.length}</div>
             <span className="text-[11px] font-medium text-[#B91C1C] bg-[#FEF2F2] px-1.5 py-0.5 rounded border border-[#FECACA]">
-              Over Limit
+              Deal Health Alert
             </span>
           </div>
           <div className="text-[11px] text-[#6B7280] mt-1 truncate">
-            Exceeding permitted discount tiers
+            Open HIGH/CRITICAL deal-health flags
           </div>
         </div>
 
@@ -187,8 +216,8 @@ export const DashboardPage: React.FC = () => {
                 </thead>
                 <tbody className="divide-y divide-[#E4E4E7]">
                   {recentQuotations.map((q) => {
-                    const effDiscount =
-                      q.subtotal > 0 ? (q.totalDiscount / q.subtotal) * 100 : 0;
+                    const subtotal = Number(q.subtotal || 0);
+                    const effDiscount = subtotal > 0 ? (Number(q.discount_total || 0) / subtotal) * 100 : 0;
                     return (
                       <tr
                         key={q.id}
@@ -196,13 +225,13 @@ export const DashboardPage: React.FC = () => {
                         className="hover:bg-[#FAF5F8]/70 transition-colors cursor-pointer group"
                       >
                         <td className="py-2.5 px-3 font-semibold text-[#714B67] group-hover:underline">
-                          {q.code}
+                          {q.quotation_number}
                         </td>
                         <td className="py-2.5 px-3 font-medium text-[#182033] truncate max-w-[150px]">
-                          {q.customerName}
+                          {getCustomerName(q.customer_id)}
                         </td>
                         <td className="py-2.5 px-3 font-medium text-[#182033] text-right">
-                          {formatCurrency(q.grandTotal || q.totalAmount || 0)}
+                          {formatCurrency(Number(q.grand_total || 0))}
                         </td>
                         <td className="py-2.5 px-3 text-center">
                           <span className="font-mono text-[#4B5563]">
@@ -210,10 +239,10 @@ export const DashboardPage: React.FC = () => {
                           </span>
                         </td>
                         <td className="py-2.5 px-3 text-center">
-                          <RiskBadge risk={q.blendedRiskValue} />
+                          <RiskBadge level={riskFromAlerts(alertsByQuotation.get(q.id) || [])} />
                         </td>
                         <td className="py-2.5 px-3">
-                          <StatusBadge status={q.stage} />
+                          <StatusBadge status={humanizeStatus(q.status)} />
                         </td>
                         <td className="py-2.5 px-3 text-right">
                           <span className="text-[11px] font-semibold text-[#714B67] group-hover:underline">
@@ -223,6 +252,13 @@ export const DashboardPage: React.FC = () => {
                       </tr>
                     );
                   })}
+                  {recentQuotations.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-6 px-3 text-center text-[#6B7280]">
+                        No quotations yet.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -256,8 +292,8 @@ export const DashboardPage: React.FC = () => {
             ) : (
               <div className="divide-y divide-[#E4E4E7] mt-1">
                 {pendingApprovals.slice(0, 3).map((q) => {
-                  const effDiscount =
-                    q.subtotal > 0 ? (q.totalDiscount / q.subtotal) * 100 : 0;
+                  const subtotal = Number(q.subtotal || 0);
+                  const effDiscount = subtotal > 0 ? (Number(q.discount_total || 0) / subtotal) * 100 : 0;
                   return (
                     <div
                       key={q.id}
@@ -269,18 +305,18 @@ export const DashboardPage: React.FC = () => {
                             to={`/quotations/${q.id}`}
                             className="font-bold text-[#714B67] hover:underline"
                           >
-                            {q.code}
+                            {q.quotation_number}
                           </Link>
                           <span className="text-[#6B7280]">•</span>
-                          <span className="font-semibold text-[#182033]">{q.customerName}</span>
+                          <span className="font-semibold text-[#182033]">{getCustomerName(q.customer_id)}</span>
                         </div>
                         <div className="text-[11px] text-[#4B5563] mt-0.5">
-                          Amount: <strong>{formatCurrency(q.grandTotal || q.totalAmount || 0)}</strong> • Effective
+                          Amount: <strong>{formatCurrency(Number(q.grand_total || 0))}</strong> • Effective
                           Discount: <strong>{effDiscount.toFixed(1)}%</strong>
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <RiskBadge risk={q.blendedRiskValue} />
+                        <RiskBadge level={riskFromAlerts(alertsByQuotation.get(q.id) || [])} />
                         <Link
                           to={`/approvals/${q.id}`}
                           className="bg-[#FAF5F8] hover:bg-[#F3EDF2] border border-[#E8DCE7] text-[#714B67] font-semibold px-2.5 py-1 rounded text-xs transition-colors"
@@ -296,70 +332,8 @@ export const DashboardPage: React.FC = () => {
           </div>
         </div>
 
-        {/* RIGHT COLUMN: AI Deal Insights, Recommendations & Deal Health Alerts */}
+        {/* RIGHT COLUMN: Deal Health Alerts */}
         <div className="space-y-6">
-          {/* 27. AI DEAL INSIGHT & RECOMMENDATION (Embedded Contextual Intelligence) */}
-          <div className="bg-white rounded-lg border border-[#E4E4E7] shadow-2xs p-4 space-y-3.5">
-            <div className="flex items-center gap-2 text-xs font-bold text-[#182033]">
-              <Sparkles className="w-4 h-4 text-[#714B67]" />
-              <span>AI Deal Insights & Recommendations</span>
-            </div>
-
-            {/* AI Deal Insight Card 1 */}
-            <div className="bg-[#FAF5F8] rounded-md p-3 border border-[#E8DCE7] space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#714B67]">
-                  Deal Health Anomaly
-                </span>
-                <span className="text-[10px] font-mono text-[#B91C1C] font-semibold bg-[#FEF2F2] px-1.5 py-0.5 rounded border border-[#FECACA]">
-                  High Risk
-                </span>
-              </div>
-              <p className="text-xs text-[#182033] font-medium leading-tight">
-                Service discount on Q-1042 is 8 points above the permitted tier.
-              </p>
-              <div className="flex items-center gap-2 pt-1">
-                <Link
-                  to="/admin/discount-tiers"
-                  className="text-[11px] font-semibold text-[#4B5563] hover:text-[#182033] underline"
-                >
-                  View Rule
-                </Link>
-                <span className="text-[#D1D5DB]">•</span>
-                <Link
-                  to="/approvals/QT-Q1042"
-                  className="text-[11px] font-semibold text-[#714B67] hover:underline"
-                >
-                  Review Deal
-                </Link>
-              </div>
-            </div>
-
-            {/* AI Upsell Recommendation Card */}
-            <div className="bg-[#F0FDFA] rounded-md p-3 border border-[#CCFBF1] space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#0D9488]">
-                  AI Cross-Sell Opportunity
-                </span>
-                <span className="text-[10px] font-mono text-[#2E7D32] font-semibold bg-[#ECFDF5] px-1.5 py-0.5 rounded border border-[#A7F3D0]">
-                  +₹18,200
-                </span>
-              </div>
-              <p className="text-xs text-[#182033] font-medium leading-tight">
-                Recommended: <strong>24/7 SLA Premium Support</strong> for Acme Corporation hardware bundle.
-              </p>
-              <div className="flex items-center justify-between pt-1">
-                <span className="text-[11px] text-[#6B7280]">Expected Margin: +14%</span>
-                <Link
-                  to="/quotations/QT-Q1042"
-                  className="text-[11px] font-semibold text-[#0D9488] hover:underline"
-                >
-                  Apply to Quote →
-                </Link>
-              </div>
-            </div>
-          </div>
-
           {/* Deal Health Anomaly Triage */}
           <div className="bg-white rounded-lg border border-[#E4E4E7] shadow-2xs p-4 space-y-3">
             <div className="flex items-center justify-between pb-2 border-b border-[#E4E4E7]">
@@ -382,13 +356,17 @@ export const DashboardPage: React.FC = () => {
                 {activeFlags.map((flag) => (
                   <div
                     key={flag.id}
-                    className="p-2.5 rounded border border-[#E4E4E7] hover:border-[#D1D5DB] transition-colors text-xs space-y-1"
+                    onClick={() => navigate(`/quotations/${flag.quotation_id}`)}
+                    className="p-2.5 rounded border border-[#E4E4E7] hover:border-[#D1D5DB] transition-colors text-xs space-y-1 cursor-pointer"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-semibold text-[#182033]">{flag.type}</span>
+                      <span className="font-semibold text-[#182033] flex items-center gap-1.5">
+                        {ALERT_TYPE_ICONS[flag.alert_type] || <AlertCircle className="w-3.5 h-3.5 text-slate-400" />}
+                        {ALERT_TYPE_LABELS[flag.alert_type] || flag.alert_type}
+                      </span>
                       <span
                         className={`text-[9px] font-bold uppercase px-1 rounded ${
-                          flag.severity === 'Critical'
+                          flag.severity === 'CRITICAL' || flag.severity === 'HIGH'
                             ? 'bg-[#FEF2F2] text-[#B91C1C] border border-[#FECACA]'
                             : 'bg-[#FFFBEB] text-[#B45309] border border-[#FDE68A]'
                         }`}
@@ -396,9 +374,9 @@ export const DashboardPage: React.FC = () => {
                         {flag.severity}
                       </span>
                     </div>
-                    <p className="text-[11px] text-[#4B5563] leading-tight">{flag.detail}</p>
+                    <p className="text-[11px] text-[#4B5563] leading-tight">{flag.message}</p>
                     <div className="text-[10px] text-[#6B7280] pt-0.5">
-                      Quote: <strong className="text-[#714B67]">{flag.quotationId}</strong>
+                      Quote: <strong className="text-[#714B67]">{flag.quotation_number}</strong>
                     </div>
                   </div>
                 ))}

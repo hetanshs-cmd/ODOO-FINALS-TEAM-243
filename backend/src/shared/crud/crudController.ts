@@ -21,7 +21,7 @@ export interface CrudController {
  */
 export function createCrudController<T>(
   service: CrudService<T>,
-  resourceName: string
+  resourceName: string,
 ): CrudController {
   function actorId(req: Request): string | null {
     return (req as { user?: { id: string } }).user?.id ?? null;
@@ -61,11 +61,7 @@ export function createCrudController<T>(
 
     async update(req, res, next) {
       try {
-        const updated = await service.update(
-          req.params['id'] as string,
-          req.body,
-          actorId(req)
-        );
+        const updated = await service.update(req.params['id'] as string, req.body, actorId(req));
         sendSuccess({ res, data: updated, message: `${resourceName} updated successfully` });
       } catch (err) {
         next(err);

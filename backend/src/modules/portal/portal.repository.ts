@@ -2,6 +2,18 @@ import { PoolClient } from 'pg';
 import { db } from '../../config/database';
 import { Quotation, QuotationWithItems } from '../quotations/quotations.model';
 import { Invoice, InvoiceWithItems } from '../billing/billing.model';
+import { Negotiation } from '../negotiations/negotiations.model';
+
+export interface PortalProfile {
+  id: string;
+  company_name: string;
+  customer_code: string;
+  industry: string | null;
+  email: string | null;
+  phone: string | null;
+  website: string | null;
+  tier: string;
+}
 
 // These two list queries have no pagination params on their routes (unlike
 // every other list endpoint in the app) — changing that is an API contract
@@ -29,7 +41,10 @@ export const portalRepository = {
   },
 
   /** Scoped by customer_id in the WHERE clause itself — a quotation belonging to another customer simply doesn't come back. */
-  async findQuotationForCustomer(id: string, customerId: string): Promise<QuotationWithItems | null> {
+  async findQuotationForCustomer(
+    id: string,
+    customerId: string,
+  ): Promise<QuotationWithItems | null> {
     const { rows } = await db.query(
       `SELECT q.*, qt.subtotal, qt.discount_total, qt.tax_total, qt.grand_total
        FROM quotations q
@@ -107,5 +122,33 @@ export const portalRepository = {
       [id],
     );
     return { ...invoice, items: items.rows };
+  },
+
+  /** The portal's own account/profile screen — read-only, scoped to the authenticated customer. */
+  async findProfileForCustomer(customerId: string): Promise<PortalProfile | null> {
+    const { rows } = await db.query(
+      `SELECT c.id, c.company_name, c.customer_code, c.industry, c.email, c.phone, c.website,
+              ct.name AS tier
+       FROM customers c
+       JOIN customer_tiers ct ON ct.id = c.customer_tier_id
+       WHERE c.id = $1`,
+      [customerId],
+    );
+    return (rows[0] as PortalProfile | undefined) ?? null;
+  },
+
+  /** Every negotiation across the customer's own quotations — same join shape as negotiations.repository.ts::listAll. */
+  async listNegotiationsForCustomer(
+    customerId: string,
+  ): Promise<(Negotiation & { quotation_number: string })[]> {
+    const { rows } = await db.query(
+      `SELECT n.*, q.quotation_number
+       FROM negotiations n
+       JOIN quotations q ON q.id = n.quotation_id
+       WHERE q.customer_id = $1
+       ORDER BY n.created_at DESC LIMIT $2`,
+      [customerId, PORTAL_LIST_SAFETY_CAP],
+    );
+    return rows as (Negotiation & { quotation_number: string })[];
   },
 };

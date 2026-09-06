@@ -147,7 +147,14 @@ export const billingRepository = {
       `INSERT INTO invoice_items (invoice_id, product_id, description, quantity, unit_price, tax_percent)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id`,
-      [input.invoiceId, input.productId, input.description, input.quantity, input.unitPrice, input.taxPercent],
+      [
+        input.invoiceId,
+        input.productId,
+        input.description,
+        input.quantity,
+        input.unitPrice,
+        input.taxPercent,
+      ],
     );
     const insertedId = (rows[0] as { id: string }).id;
     const { rows: amountRows } = await client.query(

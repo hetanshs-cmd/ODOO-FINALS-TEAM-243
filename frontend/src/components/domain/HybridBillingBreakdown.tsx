@@ -28,7 +28,7 @@ export const HybridBillingBreakdown: React.FC<HybridBillingBreakdownProps> = ({
             Hardware & Physical
           </div>
           <div className="text-xl font-bold font-mono text-slate-900">
-            ${summary.physicalTotal.toLocaleString()}
+            ₹{summary.physicalTotal.toLocaleString()}
           </div>
           <div className="text-[11px] text-slate-500 mt-1">
             {summary.physicalLines.length} line item(s) • Split fulfillment
@@ -41,7 +41,7 @@ export const HybridBillingBreakdown: React.FC<HybridBillingBreakdownProps> = ({
             Services & Deployment
           </div>
           <div className="text-xl font-bold font-mono text-slate-900">
-            ${summary.servicesTotal.toLocaleString()}
+            ₹{summary.servicesTotal.toLocaleString()}
           </div>
           <div className="text-[11px] text-emerald-700 font-medium mt-1 flex items-center gap-1">
             <CheckCircle2 className="w-3 h-3" /> 100% Milestone Invoicable
@@ -54,7 +54,7 @@ export const HybridBillingBreakdown: React.FC<HybridBillingBreakdownProps> = ({
             Invoicable Today
           </div>
           <div className="text-xl font-bold font-mono text-emerald-950">
-            ${summary.immediatelyInvoicableTotal.toLocaleString()}
+            ₹{summary.immediatelyInvoicableTotal.toLocaleString()}
           </div>
           <div className="text-[11px] text-emerald-800 mt-1">
             Fulfilled items + services cleared
@@ -67,11 +67,11 @@ export const HybridBillingBreakdown: React.FC<HybridBillingBreakdownProps> = ({
             Recurring Cloud MRR
           </div>
           <div className="text-xl font-bold font-mono text-blue-950">
-            ${summary.recurringMRR.toLocaleString()}
+            ₹{summary.recurringMRR.toLocaleString()}
             <span className="text-xs font-normal text-blue-700">/mo</span>
           </div>
           <div className="text-[11px] text-blue-800 mt-1">
-            ARR: ${(summary.recurringMRR * 12).toLocaleString()} • Isolated cadence
+            ARR: ₹{(summary.recurringMRR * 12).toLocaleString()} • Isolated cadence
           </div>
         </div>
       </div>
@@ -134,18 +134,18 @@ export const HybridBillingBreakdown: React.FC<HybridBillingBreakdownProps> = ({
                       )}
                     </td>
                     <td className="py-3 px-4 text-right font-mono text-slate-700">
-                      ${line.unitPrice.toLocaleString()}
+                      ₹{line.unitPrice.toLocaleString()}
                     </td>
                     <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">
-                      ${line.lineTotal.toLocaleString()}
+                      ₹{line.lineTotal.toLocaleString()}
                     </td>
                     <td className="py-3 px-4 text-right">
                       <div className="font-mono font-bold text-emerald-700">
-                        ${line.invoicableAmount.toLocaleString()}
+                        ₹{line.invoicableAmount.toLocaleString()}
                       </div>
                       {line.deferredAmount > 0 && (
                         <div className="font-mono text-[10px] text-amber-700">
-                          (${line.deferredAmount.toLocaleString()} deferred)
+                          (₹{line.deferredAmount.toLocaleString()} deferred)
                         </div>
                       )}
                     </td>
@@ -187,10 +187,10 @@ export const HybridBillingBreakdown: React.FC<HybridBillingBreakdownProps> = ({
                       </td>
                       <td className="py-3 px-4 text-center font-mono">{line.quantity}</td>
                       <td className="py-3 px-4 text-right font-mono text-slate-700">
-                        ${line.unitPrice.toLocaleString()}
+                        ₹{line.unitPrice.toLocaleString()}
                       </td>
                       <td className="py-3 px-4 text-right font-mono font-bold text-emerald-700">
-                        ${line.lineTotal.toLocaleString()}
+                        ₹{line.lineTotal.toLocaleString()}
                       </td>
                     </tr>
                   ))}
@@ -239,7 +239,7 @@ export const HybridBillingBreakdown: React.FC<HybridBillingBreakdownProps> = ({
                         </span>
                       </td>
                       <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">
-                        ${line.unitPrice.toLocaleString()}/mo
+                        ₹{line.unitPrice.toLocaleString()}/mo
                       </td>
                       <td className="py-3 px-4 text-center">
                         <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">

@@ -33,12 +33,14 @@ import {
 } from './modules/deal-health/deal-health.routes';
 import { notificationsRouter } from './modules/notifications/notifications.routes';
 import { upsellRouter } from './modules/upsell/upsell.routes';
+import { productsRouter } from './modules/products/products.routes';
 import { reportingRouter } from './modules/reporting/reporting.routes';
 import { customersRouter } from './modules/customers/customers.routes';
 import { usersRouter } from './modules/users/users.routes';
 import { creditNotesRouter } from './modules/credit-notes/credit-notes.routes';
 import { backordersRouter } from './modules/fulfillment/backorders.routes';
 import { portalResourcesRouter } from './modules/portal/portal.routes';
+import { aiRouter } from './modules/ai/ai.routes';
 
 const app = express();
 
@@ -61,9 +63,15 @@ app.use(
 );
 
 // ── Rate Limiting ────────────────────────────────────────────────────────────
+// A single SPA page load fans out into 5-6+ parallel GET requests (quotations,
+// approvals, customers, users, deal-health, notifications, ...), so 100/15min
+// was exhausted by ordinary navigation plus a refresh or two within minutes —
+// not abuse — and every page silently went blank as every fetch 429'd. Raised
+// well above realistic browsing volume for one client; write-heavy abuse is
+// still bounded by this window, and login has its own tighter budget below.
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100,
+  max: 2000,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -73,6 +81,25 @@ const limiter = rateLimit({
   },
 });
 app.use(limiter);
+
+// Login has its own, tighter budget so brute-force attempts are throttled
+// without being drowned out by the app-wide limiter's shared 100/15min
+// bucket — dev traffic (hot reloads, other routes, multiple testers behind
+// the same tunnel/proxy IP) was exhausting that bucket and returning 429s
+// on legitimate login attempts.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: {
+    success: false,
+    error: 'RATE_LIMIT_EXCEEDED',
+    message: 'Too many login attempts. Please wait a few minutes and try again.',
+  },
+});
+app.use('/api/v1/auth/login', loginLimiter);
 
 // ── Body Parsing ─────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '10mb' }));
@@ -86,6 +113,14 @@ app.use('/api/v1', healthRouter);
 app.use('/api/v1', authRouter);
 app.use('/api/v1', portalRouter);
 app.use('/api/v1/admin', adminRouter);
+// MUST be mounted before quotationsRouter: negotiations are the one
+// /quotations/:id/* sub-resource a portal (scope: "portal") token may call,
+// and it authenticates internal-OR-portal. quotationsRouter's blanket
+// `authenticate` middleware fires for every /quotations/* request that
+// reaches it — matched route or not (same gotcha as productsRouter below) —
+// so a portal token hitting GET /quotations/:id/negotiations would 401 there
+// and force a portal logout before this router ever sees the request.
+app.use('/api/v1/quotations', quotationNegotiationsRouter);
 app.use('/api/v1/quotations', quotationsRouter);
 // Mounted at the same base path as quotationsRouter — discount-engine owns
 // only the /:id/check-discounts route, kept as its own module per
@@ -106,13 +141,18 @@ app.use('/api/v1/sales-orders', salesOrderBillingRouter);
 app.use('/api/v1/invoices', invoicesRouter);
 app.use('/api/v1/subscriptions', subscriptionsRouter);
 // Opening a negotiation is a quotation-scoped action (POST
-// /quotations/:id/negotiations); everything else on an existing negotiation
-// (read, post a message) lives under /negotiations/:id/*.
-app.use('/api/v1/quotations', quotationNegotiationsRouter);
+// /quotations/:id/negotiations) — mounted above, before quotationsRouter.
+// Everything else on an existing negotiation (read, post a message) lives
+// under /negotiations/:id/* and has no path collision, so order is free here.
 app.use('/api/v1/negotiations', negotiationsRouter);
 app.use('/api/v1/quotations', quotationDealHealthRouter);
 app.use('/api/v1/deal-health', dealHealthAlertsRouter);
 app.use('/api/v1/notifications', notificationsRouter);
+// productsRouter (broader role gate) mounted before upsellRouter (narrower)
+// at the same base path — see products.routes.ts comment on why this order
+// matters (Finding 1: a router's blanket auth middleware fires for every
+// request reaching it, matched route or not).
+app.use('/api/v1/products', productsRouter);
 app.use('/api/v1/products', upsellRouter);
 app.use('/api/v1/reports', reportingRouter);
 app.use('/api/v1/customers', customersRouter);
@@ -120,6 +160,7 @@ app.use('/api/v1/users', usersRouter);
 app.use('/api/v1/credit-notes', creditNotesRouter);
 app.use('/api/v1/backorders', backordersRouter);
 app.use('/api/v1/portal', portalResourcesRouter);
+app.use('/api/v1/ai', aiRouter);
 
 // ── Not Found Handler ─────────────────────────────────────────────────────────
 app.use(notFoundHandler);

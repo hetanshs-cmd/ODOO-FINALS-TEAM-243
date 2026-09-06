@@ -54,9 +54,9 @@ describe('portalService.confirmQuotation', () => {
   it('rejects a quotation that does not belong to this customer (scoped read returns null)', async () => {
     vi.mocked(portalRepository.findQuotationForConfirmForUpdate).mockResolvedValue(null);
 
-    await expect(
-      portalService.confirmQuotation('quote-1', 'customer-1'),
-    ).rejects.toMatchObject({ statusCode: 404 });
+    await expect(portalService.confirmQuotation('quote-1', 'customer-1')).rejects.toMatchObject({
+      statusCode: 404,
+    });
   });
 
   it('rejects a quotation in a non-confirmable status', async () => {
@@ -64,9 +64,9 @@ describe('portalService.confirmQuotation', () => {
       makeQuotation({ status: 'DRAFT' }),
     );
 
-    await expect(
-      portalService.confirmQuotation('quote-1', 'customer-1'),
-    ).rejects.toMatchObject({ statusCode: 422 });
+    await expect(portalService.confirmQuotation('quote-1', 'customer-1')).rejects.toMatchObject({
+      statusCode: 422,
+    });
   });
 
   it('re-runs the discount engine for a SUBMITTED quotation before accepting', async () => {

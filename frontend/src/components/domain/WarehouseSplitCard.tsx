@@ -74,7 +74,7 @@ export const WarehouseSplitCard: React.FC<WarehouseSplitCardProps> = ({
 
       <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs text-slate-600 font-mono">
         <span>Total Shipments: <strong>{totalShipments}</strong></span>
-        <span>Total Freight Cost: <strong>${(totalEstimatedCost || 0).toLocaleString()}</strong></span>
+        <span>Total Freight Cost: <strong>₹{(totalEstimatedCost || 0).toLocaleString()}</strong></span>
       </div>
     </div>
   );

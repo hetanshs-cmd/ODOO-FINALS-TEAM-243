@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { NavLink, Outlet, useNavigate, Navigate, Link } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate, useLocation, Navigate, Link } from 'react-router-dom';
 import {
   LayoutDashboard,
   FileText,
@@ -13,9 +13,9 @@ import {
   Search,
   RotateCw,
   Plus,
-  Sliders,
   UserCheck,
   LogOut,
+  ArrowLeft,
   Bell,
   Menu,
   X,
@@ -24,18 +24,22 @@ import {
   Sparkles,
   Command,
   MessageSquare,
+  UserRound,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import { useDealStore } from '../hooks/useDealStore';
+import { useQuotations } from '../hooks/useQuotations';
+import { useDealHealthAlerts } from '../hooks/useDealHealth';
 import { toast } from '../components/ui/Toast';
 import { CommandPalette } from '../components/ui/CommandPalette';
+import { ChatWidget } from '../components/ai/ChatWidget';
 
 export const InternalShell: React.FC = () => {
   const { user, logout } = useAuth();
-  const { refreshData, resetToSeed, quotations, dealHealthFlags } = useDealStore();
+  const { quotations, refetch: refetchQuotations } = useQuotations();
+  const { alerts, refetch: refetchAlerts } = useDealHealthAlerts();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
-  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
@@ -55,6 +59,8 @@ export const InternalShell: React.FC = () => {
   if (user.role.toLowerCase() === 'customer') {
     return <Navigate to="/portal/quotation" replace />;
   }
+
+  const pendingApprovalsCount = quotations.filter((q) => q.status === 'PENDING_APPROVAL').length;
 
   // Exact 9 navigation items in required order (Section 8)
   interface NavItem {
@@ -81,7 +87,7 @@ export const InternalShell: React.FC = () => {
       label: 'Approvals',
       path: '/approvals',
       icon: <CheckSquare className="w-4 h-4 shrink-0" />,
-      badge: quotations.filter((q) => q.stage === 'PendingApproval' || q.stage === 'Pending Approval').length,
+      badge: pendingApprovalsCount,
       badgeColor: 'bg-amber-100 text-amber-800 border border-amber-200',
     },
     {
@@ -108,7 +114,7 @@ export const InternalShell: React.FC = () => {
       label: 'Deal Health',
       path: '/deal-health',
       icon: <Activity className="w-4 h-4 shrink-0" />,
-      badge: dealHealthFlags.filter((f) => !f.isResolved).length,
+      badge: alerts.length,
       badgeColor: 'bg-rose-100 text-rose-800 border border-rose-200',
     },
     {
@@ -124,14 +130,9 @@ export const InternalShell: React.FC = () => {
   ];
 
   const handleReloadData = () => {
-    refreshData();
+    refetchQuotations();
+    refetchAlerts();
     toast.success('Workspace Refreshed', 'Application state synchronized with live deal desk.');
-  };
-
-  const handleResetDemoState = () => {
-    resetToSeed();
-    setIsResetConfirmOpen(false);
-    toast.info('State Reset', 'Application restored to original deterministic seed data baseline.');
   };
 
   const handleCloseWorkspace = () => {
@@ -146,11 +147,6 @@ export const InternalShell: React.FC = () => {
       navigate(`/quotations?search=${encodeURIComponent(searchQuery.trim())}`);
     }
   };
-
-  // Pending items count for notification bell
-  const pendingApprovalsCount = quotations.filter(
-    (q) => q.stage === 'PendingApproval' || q.stage === 'Pending Approval'
-  ).length;
 
   return (
     <div className="min-h-screen flex flex-col bg-[#F8F9FA] text-[#1F2937] font-sans antialiased">
@@ -218,31 +214,6 @@ export const InternalShell: React.FC = () => {
             <span className="hidden lg:inline">Reload</span>
           </button>
 
-          {/* Go to Back-end Link */}
-          <Link
-            to="/admin/products"
-            title="Go to Back-end / Admin Configuration"
-            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-[#4B5563] hover:text-[#1F2937] hover:bg-[#F8F9FA] rounded-[6px] border border-transparent hover:border-[#E5E7EB] transition-colors"
-          >
-            <Sliders className="w-3.5 h-3.5" />
-            <span className="hidden lg:inline">Back-end</span>
-          </Link>
-
-          {/* Reset Demo Data Button (Section 58) */}
-          <button
-            type="button"
-            onClick={() => setIsResetConfirmOpen(true)}
-            title="Reset DealFlow360 demo data"
-            className="hidden xl:inline-flex text-[11px] font-medium text-[#6B7280] hover:text-rose-700 px-2 py-1 rounded-[6px] hover:bg-rose-50 transition-colors cursor-pointer"
-          >
-            Reset Demo
-          </button>
-
-          {/* Demo Mode Subtle Indicator (Section 56) */}
-          <span className="hidden xl:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-            Demo
-          </span>
-
           {/* Notifications Icon with pending approvals indicator */}
           <Link
             to="/approvals"
@@ -257,8 +228,14 @@ export const InternalShell: React.FC = () => {
 
           {/* User Profile Area (Section 12: Sarah Chen / Sales Rep) */}
           <div className="flex items-center gap-2 pl-1 sm:pl-2 border-l border-[#E5E7EB]">
-            <div className="w-7 h-7 rounded-[6px] bg-[#F4EEF3] text-[#714B67] border border-[#E8DCE7] flex items-center justify-center font-bold text-xs">
-              {user.name.split(' ').map((n) => n[0]).join('').slice(0, 2)}
+            <div className="relative w-7 h-7 rounded-full bg-[#714B67] text-white border border-[#5d3b53] flex items-center justify-center font-bold text-xs shadow-2xs">
+              <span>{user.name.split(' ').map((n) => n[0]).join('').slice(0, 2)}</span>
+              <span
+                className="absolute -bottom-1 -right-1 bg-white rounded-full ring-1 ring-[#E8DCE7] p-[1px] text-[#714B67]"
+                aria-hidden="true"
+              >
+                <UserRound className="w-2.5 h-2.5" />
+              </span>
             </div>
             <div className="hidden md:block text-left leading-tight">
               <div className="text-xs font-semibold text-[#1F2937] truncate max-w-[110px]">
@@ -416,46 +393,30 @@ export const InternalShell: React.FC = () => {
         {/* Operational Page Content Area (Section 10) */}
         <main className="flex-1 min-w-0 bg-[#F8F9FA] overflow-y-auto">
           <div className="max-w-[1600px] w-full mx-auto p-4 sm:p-5 lg:p-6">
+            {location.pathname !== '/dashboard' && (
+              <button
+                type="button"
+                onClick={() => navigate(-1)}
+                className="inline-flex items-center gap-1.5 mb-3 text-xs font-semibold text-[#4B5563] hover:text-[#714B67] hover:bg-white border border-[#E5E7EB] px-2.5 py-1.5 rounded-[6px] transition-colors cursor-pointer shadow-2xs"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Back</span>
+              </button>
+            )}
             <Outlet />
           </div>
         </main>
       </div>
-
-      {/* Reset Seed Baseline Confirmation Dialog (Section 58 & 59) */}
-      {isResetConfirmOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-2xs">
-          <div className="bg-white rounded-[8px] p-5 max-w-sm w-full border border-[#E5E7EB] shadow-xl space-y-3">
-            <h3 className="text-sm font-bold text-[#1F2937]">Reset DealFlow360 demo data?</h3>
-            <p className="text-xs text-[#4B5563] leading-relaxed">
-              This will restore seeded quotations, approvals, stock, subscriptions, invoices, and configuration.
-            </p>
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setIsResetConfirmOpen(false)}
-                className="px-3 py-1.5 text-xs font-medium border border-[#D1D5DB] rounded-[6px] hover:bg-[#F8F9FA] text-[#4B5563] cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleResetDemoState}
-                className="px-3 py-1.5 text-xs font-semibold bg-[#714B67] hover:bg-[#62415A] text-white rounded-[6px] shadow-2xs cursor-pointer"
-              >
-                Reset Demo
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Global Command Palette (Section 52: Ctrl/Cmd + K) */}
       <CommandPalette
         isOpen={isCommandPaletteOpen}
         onClose={() => setIsCommandPaletteOpen(false)}
         onReload={handleReloadData}
-        onReset={() => setIsResetConfirmOpen(true)}
       />
+
+      {/* Floating Workspace Assistant (Part D: real-model chat + instant nav answers) */}
+      <ChatWidget />
     </div>
   );
 };

@@ -3,11 +3,7 @@ import { db } from '../../config/database';
 import { Backorder } from './backorders.model';
 
 export const backordersRepository = {
-  async list(
-    filters: { status?: string },
-    limit: number,
-    offset: number,
-  ): Promise<Backorder[]> {
+  async list(filters: { status?: string }, limit: number, offset: number): Promise<Backorder[]> {
     const conditions: string[] = [];
     const params: unknown[] = [];
     if (filters.status) {
@@ -32,7 +28,10 @@ export const backordersRepository = {
       conditions.push(`status = $${params.length}`);
     }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    const { rows } = await db.query(`SELECT COUNT(*)::int AS count FROM backorders ${where}`, params);
+    const { rows } = await db.query(
+      `SELECT COUNT(*)::int AS count FROM backorders ${where}`,
+      params,
+    );
     return (rows[0] as { count: number }).count;
   },
 

@@ -45,6 +45,24 @@ export const portalController = {
     }
   },
 
+  async getProfile(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const profile = await portalService.getProfile(req.portalUser!.customerId);
+      sendSuccess({ res, data: profile, message: 'Profile retrieved successfully' });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async listNegotiations(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const negotiations = await portalService.listNegotiations(req.portalUser!.customerId);
+      sendSuccess({ res, data: negotiations, message: 'Negotiations retrieved successfully' });
+    } catch (err) {
+      next(err);
+    }
+  },
+
   async confirmQuotation(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const result = await portalService.confirmQuotation(

@@ -81,7 +81,7 @@ export const BillingScheduleTable: React.FC<BillingScheduleTableProps> = ({
                   <td className="py-3 px-4 font-mono text-slate-600">{inv.issueDate || '—'}</td>
                   <td className="py-3 px-4 font-mono text-slate-600">{inv.dueDate}</td>
                   <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">
-                    ${(inv.amount ?? 0).toLocaleString()}
+                    ₹{(inv.amount ?? 0).toLocaleString()}
                   </td>
                   <td className="py-3 px-4 text-center">
                     <StatusBadge status={inv.status} size="sm" />
@@ -153,7 +153,7 @@ export const BillingScheduleTable: React.FC<BillingScheduleTableProps> = ({
                   </td>
                   <td className="py-3 px-4 font-mono text-slate-600">{entry.dueDate}</td>
                   <td className="py-3 px-4 text-right font-mono font-bold text-blue-900">
-                    ${entry.amount.toLocaleString()}
+                    ₹{entry.amount.toLocaleString()}
                   </td>
                   <td className="py-3 px-4 text-center">
                     <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded">

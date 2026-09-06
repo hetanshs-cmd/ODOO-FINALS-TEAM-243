@@ -130,7 +130,7 @@ export const ProrationModal: React.FC<ProrationModalProps> = ({
               >
                 {activePlans.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.name} (${p.price.toLocaleString()}/{p.cycle === 'yearly' ? 'yr' : 'mo'})
+                    {p.name} (₹{p.price.toLocaleString()}/{p.cycle === 'yearly' ? 'yr' : 'mo'})
                   </option>
                 ))}
               </select>
@@ -209,7 +209,7 @@ export const ProrationModal: React.FC<ProrationModalProps> = ({
               <div>
                 <span className="text-slate-500 text-[11px] block">Current Recurring Charge:</span>
                 <span className="font-mono font-bold text-slate-800 text-sm">
-                  ${previousRecurringAmount.toLocaleString()}/mo
+                  ₹{previousRecurringAmount.toLocaleString()}/mo
                 </span>
                 <div className="text-[10px] text-slate-500 mt-0.5">
                   {subscription.quantity}x {subscription.planName}
@@ -219,7 +219,7 @@ export const ProrationModal: React.FC<ProrationModalProps> = ({
               <div>
                 <span className="text-slate-500 text-[11px] block">New Recurring Charge:</span>
                 <span className="font-mono font-bold text-blue-900 text-sm">
-                  ${newTotalRecurringAmount.toLocaleString()}/mo
+                  ₹{newTotalRecurringAmount.toLocaleString()}/mo
                 </span>
                 <div className="text-[10px] text-slate-500 mt-0.5">
                   {quantity}x {targetPlan?.name}
@@ -231,13 +231,13 @@ export const ProrationModal: React.FC<ProrationModalProps> = ({
               <div className="flex justify-between">
                 <span>Credit for unused portion of current period:</span>
                 <span className="font-mono text-emerald-700 font-semibold">
-                  -${proration.creditAmount.toFixed(2)}
+                  -₹{proration.creditAmount.toFixed(2)}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span>Prorated charge for new tier ({proration.remainingDays} days):</span>
                 <span className="font-mono text-slate-900 font-semibold">
-                  +${proration.proratedCharge.toFixed(2)}
+                  +₹{proration.proratedCharge.toFixed(2)}
                 </span>
               </div>
               <div className="pt-2 border-t border-blue-200 flex justify-between items-center text-sm font-bold">

@@ -26,13 +26,17 @@ jobs:
 
       - name: Backend dependency audit
         working-directory: backend
-        run: npm audit --audit-level=high
-        continue-on-error: false
+        run: |
+          npm audit --audit-level=high --json > audit.json || true
+          node ../scripts/ci-npm-audit-check.cjs audit.json
 
+      # xlsx is allowlisted here — see docs/security.md#accepted-exceptions
+      # for why (no patched version on the npm registry; write-only usage).
       - name: Frontend dependency audit
         working-directory: frontend
-        run: npm audit --audit-level=high
-        continue-on-error: false
+        run: |
+          npm audit --audit-level=high --json > audit.json || true
+          node ../scripts/ci-npm-audit-check.cjs audit.json xlsx
 
   # ── Secret Scanning ─────────────────────────────────────────────────────────
   secrets:
@@ -55,8 +59,13 @@ jobs:
 
       - name: Check for potential secrets in code
         run: |
-          if grep -r --include="*.ts" --include="*.tsx" --include="*.js" \
-            -E "(password|secret|token|key)\s*=\s*['\"][^'\"]{8,}['\"]" \
+          # -P + (?<!\.) excludes property assignments like
+          # `newErrors.password = '...'` or `this.token = '...'`, which the
+          # unanchored version below flagged as false positives on every PR.
+          # Only a bare/declared identifier (const password = '...', etc.)
+          # is treated as a plausible credential.
+          if grep -rP --include="*.ts" --include="*.tsx" --include="*.js" \
+            "(?<!\.)\b(password|secret|token|key)\s*=\s*['\"][^'\"]{8,}['\"]" \
             --exclude-dir=node_modules \
             --exclude-dir=dist \
             .; then

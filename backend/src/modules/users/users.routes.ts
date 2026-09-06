@@ -7,7 +7,10 @@ import { usersController } from './users.controller';
 // any authenticated internal role can read it, not just admins.
 const router = Router();
 
-router.use(authenticate, requireRole('SALES_REP', 'SALES_MANAGER', 'FINANCE', 'OPERATIONS', 'ADMIN'));
+router.use(
+  authenticate,
+  requireRole('SALES_REP', 'SALES_MANAGER', 'FINANCE', 'OPERATIONS', 'ADMIN'),
+);
 router.get('/', usersController.list);
 
 export { router as usersRouter };

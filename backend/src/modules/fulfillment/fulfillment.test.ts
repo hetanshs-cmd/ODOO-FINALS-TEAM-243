@@ -78,6 +78,12 @@ describe('fulfillmentService.acceptSplit', () => {
 describe('fulfillmentService.overrideSplit', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: the ordered line has a generous open backorder, so raising
+    // this fulfillment's allocation just draws quantity back off it.
+    vi.mocked(fulfillmentRepository.findOpenBackorderForItem).mockResolvedValue({
+      id: 'bo-1',
+      quantity: '50',
+    });
   });
 
   it('rejects an empty items list', async () => {
@@ -107,7 +113,7 @@ describe('fulfillmentService.overrideSplit', () => {
     ).rejects.toMatchObject({ statusCode: 422 });
   });
 
-  it('increases a line quantity and reserves the delta from inventory at THIS fulfillment\'s warehouse', async () => {
+  it("increases a line quantity and reserves the delta from inventory at THIS fulfillment's warehouse", async () => {
     vi.mocked(fulfillmentRepository.findByIdForUpdate).mockResolvedValue(makeFulfillment());
     vi.mocked(fulfillmentRepository.findItemForFulfillment).mockResolvedValue(makeItem());
     // Deliberately return a different warehouse from lockInventoryForProducts
@@ -123,9 +129,7 @@ describe('fulfillmentService.overrideSplit', () => {
       quantity_available: '10',
     });
 
-    await fulfillmentService.overrideSplit('ff-1', [
-      { sales_order_item_id: 'soi-1', quantity: 5 },
-    ]);
+    await fulfillmentService.overrideSplit('ff-1', [{ sales_order_item_id: 'soi-1', quantity: 5 }]);
 
     expect(fulfillmentRepository.lockInventoryAtWarehouse).toHaveBeenCalledWith(
       FAKE_CLIENT,
@@ -141,7 +145,7 @@ describe('fulfillmentService.overrideSplit', () => {
     expect(fulfillmentRepository.updateItemQuantity).toHaveBeenCalledWith(FAKE_CLIENT, 'fi-1', 5);
   });
 
-  it('rejects the increase when the fulfillment\'s own warehouse lacks the delta, even if another warehouse has stock', async () => {
+  it("rejects the increase when the fulfillment's own warehouse lacks the delta, even if another warehouse has stock", async () => {
     vi.mocked(fulfillmentRepository.findByIdForUpdate).mockResolvedValue(makeFulfillment());
     vi.mocked(fulfillmentRepository.findItemForFulfillment).mockResolvedValue(makeItem());
     vi.mocked(fulfillmentRepository.lockInventoryAtWarehouse).mockResolvedValue({
@@ -161,9 +165,7 @@ describe('fulfillmentService.overrideSplit', () => {
     vi.mocked(fulfillmentRepository.findByIdForUpdate).mockResolvedValue(makeFulfillment());
     vi.mocked(fulfillmentRepository.findItemForFulfillment).mockResolvedValue(makeItem());
 
-    await fulfillmentService.overrideSplit('ff-1', [
-      { sales_order_item_id: 'soi-1', quantity: 1 },
-    ]);
+    await fulfillmentService.overrideSplit('ff-1', [{ sales_order_item_id: 'soi-1', quantity: 1 }]);
 
     expect(fulfillmentRepository.releaseReservation).toHaveBeenCalledWith(
       FAKE_CLIENT,
@@ -172,5 +174,40 @@ describe('fulfillmentService.overrideSplit', () => {
       2,
     );
     expect(fulfillmentRepository.updateItemQuantity).toHaveBeenCalledWith(FAKE_CLIENT, 'fi-1', 1);
+  });
+
+  // Regression for P0 #16 — reducing an allocation must never lose quantity;
+  // the freed units go onto the sales-order line's backorder.
+  it('grows the open backorder by the freed quantity when an allocation is reduced', async () => {
+    vi.mocked(fulfillmentRepository.findByIdForUpdate).mockResolvedValue(makeFulfillment());
+    vi.mocked(fulfillmentRepository.findItemForFulfillment).mockResolvedValue(makeItem()); // qty 3
+
+    await fulfillmentService.overrideSplit('ff-1', [{ sales_order_item_id: 'soi-1', quantity: 1 }]);
+
+    // 3 -> 1 frees 2; backorder 50 -> 52
+    expect(fulfillmentRepository.setBackorderQuantity).toHaveBeenCalledWith(FAKE_CLIENT, 'bo-1', 52);
+  });
+
+  it('creates a backorder when an allocation is reduced and none exists yet', async () => {
+    vi.mocked(fulfillmentRepository.findByIdForUpdate).mockResolvedValue(makeFulfillment());
+    vi.mocked(fulfillmentRepository.findItemForFulfillment).mockResolvedValue(makeItem()); // qty 3
+    vi.mocked(fulfillmentRepository.findOpenBackorderForItem).mockResolvedValue(null);
+
+    await fulfillmentService.overrideSplit('ff-1', [{ sales_order_item_id: 'soi-1', quantity: 1 }]);
+
+    expect(fulfillmentRepository.insertBackorder).toHaveBeenCalledWith(
+      FAKE_CLIENT,
+      expect.objectContaining({ salesOrderItemId: 'soi-1', quantity: 2 }),
+    );
+  });
+
+  it('refuses to raise an allocation above the ordered quantity (no backorder to draw from)', async () => {
+    vi.mocked(fulfillmentRepository.findByIdForUpdate).mockResolvedValue(makeFulfillment());
+    vi.mocked(fulfillmentRepository.findItemForFulfillment).mockResolvedValue(makeItem()); // qty 3
+    vi.mocked(fulfillmentRepository.findOpenBackorderForItem).mockResolvedValue(null);
+
+    await expect(
+      fulfillmentService.overrideSplit('ff-1', [{ sales_order_item_id: 'soi-1', quantity: 5 }]),
+    ).rejects.toMatchObject({ statusCode: 422 });
   });
 });

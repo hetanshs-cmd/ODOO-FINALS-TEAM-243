@@ -31,6 +31,17 @@ const envSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((value) => value === 'true'),
+  // Local LLM (Ollama) used by the /api/v1/ai/* routes — see
+  // docs/technology-decisions.md. Defaults keep the app fully functional
+  // with Ollama disabled or unreachable: aiService throws AI_UNAVAILABLE,
+  // and the frontend falls back to its deterministic template adapter.
+  OLLAMA_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  OLLAMA_BASE_URL: z.string().url().default('http://localhost:11434'),
+  OLLAMA_MODEL: z.string().default('qwen2.5:3b-instruct'),
+  OLLAMA_TIMEOUT_MS: z.string().default('20000').transform(Number),
 });
 
 /**

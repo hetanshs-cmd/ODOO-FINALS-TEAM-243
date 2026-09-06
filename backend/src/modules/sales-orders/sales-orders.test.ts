@@ -76,7 +76,9 @@ describe('salesOrdersService.convertFromQuotation', () => {
   });
 
   it('rejects an unknown quotation', async () => {
-    vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([makeItem()]);
+    vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([
+      makeItem(),
+    ]);
     vi.mocked(salesOrdersRepository.findQuotationForConversionForUpdate).mockResolvedValue(null);
 
     await expect(salesOrdersService.convertFromQuotation('missing')).rejects.toMatchObject({
@@ -85,7 +87,9 @@ describe('salesOrdersService.convertFromQuotation', () => {
   });
 
   it('converts an APPROVED quotation (the documented, previously-unreachable path)', async () => {
-    vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([makeItem()]);
+    vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([
+      makeItem(),
+    ]);
     vi.mocked(salesOrdersRepository.findQuotationForConversionForUpdate).mockResolvedValue(
       makeQuotation({ status: 'APPROVED' }),
     );
@@ -101,7 +105,9 @@ describe('salesOrdersService.convertFromQuotation', () => {
   });
 
   it('converts an ACCEPTED quotation (the portal-confirm path)', async () => {
-    vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([makeItem()]);
+    vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([
+      makeItem(),
+    ]);
     vi.mocked(salesOrdersRepository.findQuotationForConversionForUpdate).mockResolvedValue(
       makeQuotation({ status: 'ACCEPTED' }),
     );
@@ -112,7 +118,9 @@ describe('salesOrdersService.convertFromQuotation', () => {
   });
 
   it('rejects a quotation that has not cleared governance yet', async () => {
-    vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([makeItem()]);
+    vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([
+      makeItem(),
+    ]);
     vi.mocked(salesOrdersRepository.findQuotationForConversionForUpdate).mockResolvedValue(
       makeQuotation({ status: 'PENDING_APPROVAL' }),
     );
@@ -123,7 +131,9 @@ describe('salesOrdersService.convertFromQuotation', () => {
   });
 
   it('rejects a quotation that was already converted (re-checked under the lock)', async () => {
-    vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([makeItem()]);
+    vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([
+      makeItem(),
+    ]);
     vi.mocked(salesOrdersRepository.findQuotationForConversionForUpdate).mockResolvedValue(
       makeQuotation({ status: 'CONVERTED' }),
     );
@@ -135,7 +145,9 @@ describe('salesOrdersService.convertFromQuotation', () => {
   });
 
   it('reads the quotation under a row lock, not the unlocked read', async () => {
-    vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([makeItem()]);
+    vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([
+      makeItem(),
+    ]);
     vi.mocked(salesOrdersRepository.findQuotationForConversionForUpdate).mockResolvedValue(
       makeQuotation(),
     );
@@ -157,6 +169,49 @@ describe('salesOrdersService.convertFromQuotation', () => {
 
     await expect(salesOrdersService.convertFromQuotation('quote-1')).rejects.toMatchObject({
       statusCode: 422,
+    });
+  });
+
+  /**
+   * Regression for the reported authorization hole: Rep B could not READ
+   * Rep A's quotation but the convert route only checked role, so Rep B
+   * could still convert it by UUID. Ownership is now re-checked in the
+   * service against the (row-locked) quotation's sales_rep_id.
+   */
+  describe('ownership scope', () => {
+    beforeEach(() => {
+      vi.mocked(salesOrdersRepository.listQuotationItemsForConversion).mockResolvedValue([
+        makeItem(),
+      ]);
+      vi.mocked(salesOrdersRepository.findQuotationForConversionForUpdate).mockResolvedValue(
+        makeQuotation({ sales_rep_id: 'rep-1' }),
+      );
+    });
+
+    it('lets the owning sales rep convert their own quotation', async () => {
+      await expect(
+        salesOrdersService.convertFromQuotation('quote-1', { id: 'rep-1', role: 'SALES_REP' }),
+      ).resolves.toMatchObject({ id: 'so-1' });
+    });
+
+    it('blocks a different sales rep with a 403 and never inserts', async () => {
+      await expect(
+        salesOrdersService.convertFromQuotation('quote-1', { id: 'rep-2', role: 'SALES_REP' }),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(salesOrdersRepository.insert).not.toHaveBeenCalled();
+      expect(salesOrdersRepository.markQuotationConverted).not.toHaveBeenCalled();
+    });
+
+    it('lets a sales manager convert any quotation', async () => {
+      await expect(
+        salesOrdersService.convertFromQuotation('quote-1', { id: 'mgr-1', role: 'SALES_MANAGER' }),
+      ).resolves.toMatchObject({ id: 'so-1' });
+    });
+
+    it('still allows the portal confirm path (no internal requester)', async () => {
+      await expect(salesOrdersService.convertFromQuotation('quote-1')).resolves.toMatchObject({
+        id: 'so-1',
+      });
     });
   });
 });
