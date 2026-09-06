@@ -103,6 +103,7 @@ export const salesOrdersService = {
     query: {
       status?: string;
       customer_id?: string;
+      quotation_id?: string;
       page?: unknown;
       limit?: unknown;
     },
@@ -112,6 +113,7 @@ export const salesOrdersService = {
     const filters = {
       status: query.status,
       customerId: query.customer_id,
+      quotationId: query.quotation_id,
       // A plain rep's list is scoped to their own orders; managers/ops/admin see all.
       salesRepId: requester.role === 'SALES_REP' ? requester.id : undefined,
     };

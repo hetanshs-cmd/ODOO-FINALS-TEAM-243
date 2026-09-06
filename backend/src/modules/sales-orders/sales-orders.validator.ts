@@ -9,4 +9,5 @@ export const listSalesOrdersQuerySchema = z.object({
     .enum(['PENDING', 'CONFIRMED', 'PROCESSING', 'PARTIALLY_FULFILLED', 'FULFILLED', 'CANCELLED'])
     .optional(),
   customer_id: z.string().uuid().optional(),
+  quotation_id: z.string().uuid().optional(),
 });

@@ -167,7 +167,7 @@ export const salesOrdersRepository = {
   },
 
   async list(
-    filters: { status?: string; customerId?: string; salesRepId?: string },
+    filters: { status?: string; customerId?: string; quotationId?: string; salesRepId?: string },
     limit: number,
     offset: number,
   ): Promise<SalesOrder[]> {
@@ -180,6 +180,10 @@ export const salesOrdersRepository = {
     if (filters.customerId) {
       params.push(filters.customerId);
       conditions.push(`customer_id = $${params.length}`);
+    }
+    if (filters.quotationId) {
+      params.push(filters.quotationId);
+      conditions.push(`quotation_id = $${params.length}`);
     }
     if (filters.salesRepId) {
       params.push(filters.salesRepId);
@@ -200,6 +204,7 @@ export const salesOrdersRepository = {
   async count(filters: {
     status?: string;
     customerId?: string;
+    quotationId?: string;
     salesRepId?: string;
   }): Promise<number> {
     const conditions: string[] = [];
@@ -211,6 +216,10 @@ export const salesOrdersRepository = {
     if (filters.customerId) {
       params.push(filters.customerId);
       conditions.push(`customer_id = $${params.length}`);
+    }
+    if (filters.quotationId) {
+      params.push(filters.quotationId);
+      conditions.push(`quotation_id = $${params.length}`);
     }
     if (filters.salesRepId) {
       params.push(filters.salesRepId);
